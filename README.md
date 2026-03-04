@@ -7,6 +7,13 @@ This repository contains Python scripts designed to **collect, analyze, and visu
 
 ---
 
+## **🎥 Video**
+A video was created to better explain and show the results from these studies and what can be done with the script.  
+https://www.youtube.com/watch?v=FDcUICSV3XE
+
+---
+
+
 ## **📜 Features**
 
 ### **Data Collection**
@@ -198,12 +205,6 @@ espresso-extraction-py/
 - ✅ **Structured configuration** with JSON support
 - ✅ **Better error messages** and user guidance
 - ✅ **Keyboard interrupt handling** for graceful exits
-
----
-
-## **🎥 Video**
-A video was created to better explain and show the results from these studies and what can be done with the script.  
-https://www.youtube.com/watch?v=FDcUICSV3XE
 
 ---
 
