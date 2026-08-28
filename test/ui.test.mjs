@@ -519,6 +519,131 @@ try {
 
 
 
+
+  // ---- the standard SIG Weight Scale profile ----
+  // Not reverse-engineered: a published GATT profile, so it can be checked
+  // against the spec's own arithmetic rather than against captures.
+  await page.goto(B + '/live.html');
+  const sig = await page.evaluate(async () => {
+    const dec = await import('./assets/js/ble/decode.js');
+    const drv = await import('./assets/js/ble/drivers.js');
+    const d = drv.DRIVERS.find((x) => x.id === 'sig-weight-scale');
+    const f = (flags, raw, extra = []) => Uint8Array.from([flags, raw & 255, raw >> 8, ...extra]);
+    return {
+      si: dec.applyCandidate(d.decoder, f(0x00, 3640)),
+      imperial: dec.applyCandidate(d.decoder, f(0x01, 4000)),
+      matchPlain: d.match(f(0x00, 3640)),
+      matchStamped: d.match(f(0x02, 3640, [0, 0, 0, 0, 0, 0, 0])),
+      matchTruncated: d.match(f(0x02, 3640)),
+      matchReserved: d.match(f(0x10, 3640)),
+      matchLefu: d.match(dec.unhex('12 06 05 00 45 10 05 00')),
+      resolution: d.resolutionG,
+      describes: dec.describeCandidate(d.decoder),
+    };
+  });
+  // 3640 x 0.005 kg = 18.2 kg; 4000 x 0.01 lb = 40 lb = 18143.7 g.
+  t('sig: SI weights decode to the spec\u2019s 0.005 kg resolution',
+    Math.abs(sig.si - 18200) < 0.5, sig.si + ' g');
+  t('sig: an imperial frame is converted, not read as metric',
+    Math.abs(sig.imperial - 40 * 453.59237) < 0.5, sig.imperial.toFixed(1) + ' g');
+  t('sig: optional fields are accepted when the flags claim them',
+    sig.matchPlain && sig.matchStamped, `plain ${sig.matchPlain}, stamped ${sig.matchStamped}`);
+  t('sig: a frame shorter than its flags promise is rejected',
+    sig.matchTruncated === false && sig.matchReserved === false,
+    `truncated ${sig.matchTruncated}, reserved-bits ${sig.matchReserved}`);
+  t('sig: the matcher does not claim another vendor\u2019s frame',
+    sig.matchLefu === false, String(sig.matchLefu));
+  t('sig: the 5 g resolution is carried as data, so the UI can warn',
+    sig.resolution === 5, sig.resolution + ' g');
+
+  // ---- shareable device profiles ----
+  const prof = await page.evaluate(async () => {
+    const drv = await import('./assets/js/ble/drivers.js');
+    const lefu = drv.DRIVERS.find((x) => x.id === 'lefu-fff0');
+    const text = drv.serializeProfile({
+      name: 'InSmart Coffee Scale', bleName: '863A',
+      uuid: '0000fff3-0000-1000-8000-00805f9b34fb', decoder: lefu.decoder,
+    });
+    const round = drv.parseProfile(text);
+    const bad = (o) => drv.parseProfile(typeof o === 'string' ? o : JSON.stringify(o)).error;
+    const ok = '0000fff3-0000-1000-8000-00805f9b34fb';
+    return {
+      text,
+      ok: round.ok,
+      name: round.profile?.name,
+      signKept: JSON.stringify(round.profile?.decoder?.sign),
+      errors: [
+        bad('{not json'),
+        bad({ brewkit_profile: 99, characteristic: ok, decoder: { kind: 'int', offset: 0, width: 2, scale: 1 } }),
+        bad({ brewkit_profile: 1, characteristic: 'fff3', decoder: { kind: 'int', offset: 0, width: 2, scale: 1 } }),
+        bad({ brewkit_profile: 1, characteristic: ok, decoder: { kind: 'exec', offset: 0, width: 2, scale: 1 } }),
+        bad({ brewkit_profile: 1, characteristic: ok, decoder: { kind: 'int', offset: 0, width: 99, scale: 1 } }),
+        bad({ brewkit_profile: 1, characteristic: ok, decoder: { kind: 'int', offset: 0, width: 2, scale: 1, sign: { offset: -1 } } }),
+      ],
+    };
+  });
+  t('profile: a taught scale round-trips through a shared file',
+    prof.ok && prof.name === 'InSmart Coffee Scale' && /"offset":2/.test(prof.signKept),
+    `${prof.name}, sign ${prof.signKept}`);
+  // An imported decoder runs against live frames, so a malformed one does not
+  // fail loudly - it produces numbers. Every field is checked, not trusted.
+  t('profile: every malformed field is refused with a reason',
+    prof.errors.every((e) => typeof e === 'string' && e.length > 10),
+    prof.errors.map((e) => (e ?? 'ACCEPTED').slice(0, 28)).join(' | '));
+
+  // ---- importing a profile replaces the teaching step ----
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => localStorage.removeItem('brewkit.devices.v1'));
+  await page.goto(B + '/live.html?mock=generic');
+  await page.waitForFunction(
+    () => document.getElementById('step-setup').style.display !== 'none', { timeout: 8000 });
+  await page.setInputFiles('#import-profile', {
+    name: 'wrong.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({
+      brewkit_profile: 1, name: 'Someone else\u2019s scale',
+      characteristic: '0000abcd-0000-1000-8000-00805f9b34fb',
+      decoder: { kind: 'int', offset: 0, width: 2, littleEndian: true, signed: false, scale: 1 },
+    })),
+  });
+  await page.waitForFunction(
+    () => document.getElementById('profile-msg').textContent.length > 0, { timeout: 4000 });
+  t('profile: a profile for a different model is refused, not applied',
+    /different model|does not notify/i.test(await page.textContent('#profile-msg'))
+    && await page.locator('#step-setup').isVisible(),
+    await page.textContent('#profile-msg'));
+
+  // The right profile skips the teaching step entirely — no reference masses.
+  await page.setInputFiles('#import-profile', {
+    name: 'shared.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify({
+      brewkit_profile: 1, name: 'Shared Bench Scale', bleName: 'Mock Scale',
+      characteristic: '0000fff1-0000-1000-8000-00805f9b34fb',
+      decoder: { kind: 'int', offset: 3, width: 2, littleEndian: false, signed: false, scale: 0.01 },
+    })),
+  });
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 5000 });
+  t('profile: the right profile replaces the teaching step',
+    /imported from Shared Bench Scale/.test(await page.textContent('#decoder-note'))
+    && !(await page.locator('#step-setup').isVisible()),
+    await page.textContent('#decoder-note'));
+  const capsUsed = await page.locator('#caps-table tbody tr').count();
+  t('profile: importing needed no reference masses at all', capsUsed === 0,
+    capsUsed + ' captures for this device');
+
+  // And what one person taught, the next can export and pass on.
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  const dl = page.waitForEvent('download', { timeout: 5000 });
+  await page.click('#export-profile');
+  const exported = JSON.parse(await (await (await dl).createReadStream()).toArray()
+    .then((cs) => Buffer.concat(cs).toString()));
+  t('profile: the scale can be exported again for someone else',
+    exported.brewkit_profile === 1
+    && exported.characteristic === '0000fff1-0000-1000-8000-00805f9b34fb'
+    && exported.decoder.offset === 3 && exported.decoder.scale === 0.01,
+    JSON.stringify(exported.decoder));
+
+
   // ---- a saved scale is one click, not a reminder that you own one ----
   // Listing saved scales as text made the memory useless: you still had to walk
   // the browser's chooser past every Bluetooth device in the room.

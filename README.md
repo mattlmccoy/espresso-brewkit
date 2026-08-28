@@ -145,6 +145,29 @@ reads, and it solves for offset, width, byte order, sign and scale factor, then
 remembers the answer for that device. There is a byte-level frame view alongside it
 for the cases that need a human.
 
+**Supporting more scales, without guessing at protocols.** Shipping a driver
+reverse-engineered from memory is worse than shipping none: a wrong scale factor
+produces *plausible* numbers, which is the failure mode that is never caught by
+eye. So breadth comes from two places that do not require inventing anything.
+
+The first is the **standard [SIG Weight Scale profile](https://www.bluetooth.com/specifications/specs/weight-scale-service-1-0/)**
+(`0x181D` / `0x2A9D`) — a published spec, implemented exactly, so a scale that
+speaks it works with no teaching step. Its flags byte carries a metric/imperial
+bit, so the scale factor is a property of the frame rather than of the device; a
+driver that assumed one would be wrong by a factor of 2.2 on a scale set to the
+other. Worth knowing before you rely on it: **the profile's resolution is 0.005 kg
+— 5 g steps.** That is fine for a bathroom scale and useless for dosing espresso,
+and the page says so rather than presenting a confident-looking 18 g.
+
+The second is **shareable profiles**. Once a scale has been taught, Device
+settings exports a small JSON file describing how it encodes weight; anyone with
+the same model imports it and skips the teaching step entirely. A scale is then
+worked out once by somebody rather than once by everybody, and adding support is
+a file rather than a code change. Imported decoders run against live frames, so
+every field is validated on the way in rather than trusted — and a profile whose
+characteristic the connected scale does not notify on is refused as being for a
+different model.
+
 **A limitation worth knowing before you start.** Web Bluetooth will not enumerate a
 GATT service the page did not declare in advance — there is no "list everything"
 call. `transport.js` asks for a list of service UUIDs that cheap scales commonly
@@ -178,7 +201,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-169 assertions across all eight tools in both themes: the analysis results, the
+181 assertions across all eight tools in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.

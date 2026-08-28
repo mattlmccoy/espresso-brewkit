@@ -122,6 +122,15 @@
       <input id="import-caps" type="file" accept=".csv,text/csv" class="sr">
     </div>
     <p class="msg" id="cap-msg"></p>
+    <div class="note" style="margin-top:14px">
+      <strong>Somebody already worked this scale out?</strong> A profile is the answer to the
+      teaching step, in a file. Import one and this is done — no reference masses needed.
+      <div class="btn-row" style="margin-top:12px">
+        <button id="import-profile-btn" type="button">Import a profile</button>
+        <input id="import-profile" type="file" accept=".json,application/json" class="sr">
+        <span class="msg" id="profile-msg" style="margin:0"></span>
+      </div>
+    </div>
     <div id="caps-table" style="margin-top:14px"></div>
     <div id="cands" style="margin-top:14px"></div>
     <div style="margin-top:18px">
@@ -149,6 +158,7 @@
         <button class="ghost" id="disconnect" type="button"
                 style="margin-left:auto;padding:7px 12px;box-shadow:none">Disconnect</button>
       </div>
+      <p class="note" id="driver-note" style="display:none;margin-bottom:14px"></p>
       <div class="state-strip" id="state">Idle</div>
       <div class="readout" style="margin-top:14px">
         <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
@@ -300,8 +310,12 @@
       <p class="msg" id="settings-msg"></p>
       <div class="btn-row" style="margin-top:14px">
         <button id="revalidate" type="button">Re-validate decoding</button>
+        <button id="export-profile" type="button">Export this scale's profile</button>
         <button class="danger ghost" id="forget-device" type="button">Forget this scale</button>
       </div>
+      <p class="note" style="margin-top:14px">Exporting gives you a small JSON file describing how
+      this scale encodes weight. Anyone with the same model can import it and skip the teaching step
+      entirely \u2014 which is how this supports scales nobody here has ever held.</p>
       <p class="note" style="margin-top:14px">Re-validating reopens the setup step so you can capture
       fresh reference masses — useful if readings drift or you swapped scales. Your existing captures
       are kept.</p>
@@ -327,7 +341,8 @@ import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
-         matchByCharacteristic, confirm as confirmFrame } from './assets/js/ble/index.js';
+         matchByCharacteristic, confirm as confirmFrame,
+         serializeProfile, parseProfile } from './assets/js/ble/index.js';
 import { findCandidates, applyCandidate, describeCandidate, hex, unhex } from './assets/js/ble/decode.js';
 boot();
 
@@ -628,6 +643,20 @@ function report(chars) {
   }
 }
 
+/**
+ * A driver's caveats belong on screen. The SIG profile is the case that forces
+ * it: it resolves to 5 g, so a scale reporting through it is fine for weighing a
+ * bag and useless for weighing a dose, and the tool should say so rather than
+ * present a confident-looking 18 g.
+ */
+function showDriverNote(driver) {
+  const n = $('driver-note');
+  if (!driver?.note) { n.style.display = 'none'; n.textContent = ''; return; }
+  n.style.display = '';
+  n.className = driver.resolutionG > 1 ? 'note warn' : 'note';
+  n.textContent = driver.note;
+}
+
 function verifyWith(dec, uuid, { driver = null, save = true, askName = false } = {}) {
   decoder = dec;
   activeUuid = uuid;
@@ -663,6 +692,7 @@ async function afterConnect(name, id) {
   if (profile.decoder) {
     verifyWith(profile.decoder, profile.uuid ?? profile.decoder.uuid, { save: false });
     $('decoder-note').textContent = `${describeCandidate(profile.decoder)} · remembered`;
+    showDriverNote(null);
     return;
   }
 
@@ -671,6 +701,7 @@ async function afterConnect(name, id) {
     profile.bleName = name;
     verifyWith(auto.decoder, auto.characteristic, { driver: auto, askName: true });
     $('decoder-note').textContent = `${auto.name} · ${describeCandidate(auto.decoder)}`;
+    showDriverNote(auto);
     return;
   }
 
@@ -835,6 +866,38 @@ $('import-caps').addEventListener('change', async (e) => {
   solve();
   $('cap-msg').textContent = `Imported ${added} capture(s)`
     + (skipped ? `, skipped ${skipped} unreadable row(s)` : '') + '.';
+});
+
+/* ---------------------------------------------------------------- profiles */
+$('import-profile-btn').addEventListener('click', () => $('import-profile').click());
+$('import-profile').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';
+  const res = parseProfile(await file.text());
+  if (!res.ok) { $('profile-msg').textContent = res.error; return; }
+  const p = res.profile;
+  // The imported characteristic has to be one this device actually notifies on,
+  // or the profile is for a different scale and would simply never fire.
+  const notifying = (link?.chars ?? []).filter((c) => c.notify).map((c) => c.uuid);
+  if (notifying.length && !notifying.includes(p.uuid)) {
+    $('profile-msg').textContent = `That profile decodes ${p.uuid.slice(4, 8)}, which this scale `
+      + `does not notify on (it uses ${notifying.map((u) => u.slice(4, 8)).join(', ')}). `
+      + 'It is probably for a different model.';
+    return;
+  }
+  profile = { ...(profile ?? {}), name: profile?.name ?? p.name };
+  verifyWith(p.decoder, p.uuid, { askName: !profile?.verifiedAt });
+  $('decoder-note').textContent = `${describeCandidate(p.decoder)} · imported from ${p.name}`;
+  showDriverNote(null);
+  $('profile-msg').textContent = `Applied the profile from ${p.name}.`;
+});
+
+$('export-profile').addEventListener('click', () => {
+  if (!decoder) { $('settings-msg').textContent = 'Nothing to export until a decoder is verified.'; return; }
+  download(`${displayName().replace(/[^\w.-]+/g, '-').toLowerCase()}-profile.json`,
+    serializeProfile({ ...profile, decoder, uuid: activeUuid }));
+  $('settings-msg').textContent = 'Profile exported. Anyone with this model can import it.';
 });
 
 $('export-caps').addEventListener('click', () => {

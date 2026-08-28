@@ -28,17 +28,28 @@ function readInt(bytes, off, width, littleEndian, signed) {
  * always an unsigned magnitude, with a status byte elsewhere carrying the sign
  * as a bit. Decoding such a frame as plain unsigned silently reports −416 g as
  * +416 g, which reads as a plausible number rather than an obvious fault.
+ *
+ * `scaleIf` handles a frame that carries its own units — the SIG Weight Scale
+ * profile puts a metric/imperial bit in its flags byte, so the scale factor is
+ * a property of the frame rather than of the device. A driver that assumed one
+ * or the other would be wrong by a factor of 2.2 on a scale set to the other,
+ * which is far too plausible a number to catch by eye.
  */
 export function applyCandidate(c, bytes) {
   if (bytes.length < c.offset + c.width) return NaN;
+  let scale = c.scale;
+  if (c.scaleIf) {
+    if (bytes.length <= c.scaleIf.offset) return NaN;
+    if (bytes[c.scaleIf.offset] & c.scaleIf.mask) scale = c.scaleIf.scale;
+  }
   let v;
   if (c.kind === 'ascii') {
     const s = String.fromCharCode(...bytes.slice(c.offset, c.offset + c.width));
     const n = parseFloat(s.replace(/[^0-9.\-+]/g, ''));
     if (!Number.isFinite(n)) return NaN;
-    v = n * c.scale;
+    v = n * scale;
   } else {
-    v = readInt(bytes, c.offset, c.width, c.littleEndian, c.signed) * c.scale;
+    v = readInt(bytes, c.offset, c.width, c.littleEndian, c.signed) * scale;
   }
   if (c.sign) {
     if (bytes.length <= c.sign.offset) return NaN;
@@ -55,8 +66,11 @@ export function isStable(c, bytes) {
 
 export function describeCandidate(c) {
   const sign = c.sign ? `, sign @${c.sign.offset}&0x${c.sign.mask.toString(16)}` : '';
-  if (c.kind === 'ascii') return `ASCII ×${c.scale} @${c.offset}+${c.width}${sign}`;
-  return `${c.signed ? 'i' : 'u'}${c.width * 8}${c.littleEndian ? 'LE' : 'BE'} ×${c.scale} @${c.offset}${sign}`;
+  const alt = c.scaleIf
+    ? `, ×${c.scaleIf.scale} when @${c.scaleIf.offset}&0x${c.scaleIf.mask.toString(16)}` : '';
+  if (c.kind === 'ascii') return `ASCII ×${c.scale} @${c.offset}+${c.width}${sign}${alt}`;
+  return `${c.signed ? 'i' : 'u'}${c.width * 8}${c.littleEndian ? 'LE' : 'BE'} ×${c.scale} `
+    + `@${c.offset}${sign}${alt}`;
 }
 
 /**
