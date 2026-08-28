@@ -21,20 +21,42 @@ function readInt(bytes, off, width, littleEndian, signed) {
   return v;
 }
 
-/** Decoders are described declaratively so a discovered one can be serialized. */
+/**
+ * Decoders are described declaratively so a discovered one can be serialized.
+ *
+ * `sign` handles the case that motivated it: a scale whose weight bytes are
+ * always an unsigned magnitude, with a status byte elsewhere carrying the sign
+ * as a bit. Decoding such a frame as plain unsigned silently reports −416 g as
+ * +416 g, which reads as a plausible number rather than an obvious fault.
+ */
 export function applyCandidate(c, bytes) {
-  if (bytes.length < c.offset + (c.kind === 'ascii' ? c.width : c.width)) return NaN;
+  if (bytes.length < c.offset + c.width) return NaN;
+  let v;
   if (c.kind === 'ascii') {
     const s = String.fromCharCode(...bytes.slice(c.offset, c.offset + c.width));
     const n = parseFloat(s.replace(/[^0-9.\-+]/g, ''));
-    return Number.isFinite(n) ? n * c.scale : NaN;
+    if (!Number.isFinite(n)) return NaN;
+    v = n * c.scale;
+  } else {
+    v = readInt(bytes, c.offset, c.width, c.littleEndian, c.signed) * c.scale;
   }
-  return readInt(bytes, c.offset, c.width, c.littleEndian, c.signed) * c.scale;
+  if (c.sign) {
+    if (bytes.length <= c.sign.offset) return NaN;
+    if (bytes[c.sign.offset] & c.sign.mask) v = -v;
+  }
+  return v;
+}
+
+/** Is this frame flagged as a settled reading? Undefined when unknown. */
+export function isStable(c, bytes) {
+  if (!c?.stable || bytes.length <= c.stable.offset) return undefined;
+  return (bytes[c.stable.offset] & c.stable.mask) !== 0;
 }
 
 export function describeCandidate(c) {
-  if (c.kind === 'ascii') return `ASCII ×${c.scale} @${c.offset}+${c.width}`;
-  return `${c.signed ? 'i' : 'u'}${c.width * 8}${c.littleEndian ? 'LE' : 'BE'} ×${c.scale} @${c.offset}`;
+  const sign = c.sign ? `, sign @${c.sign.offset}&0x${c.sign.mask.toString(16)}` : '';
+  if (c.kind === 'ascii') return `ASCII ×${c.scale} @${c.offset}+${c.width}${sign}`;
+  return `${c.signed ? 'i' : 'u'}${c.width * 8}${c.littleEndian ? 'LE' : 'BE'} ×${c.scale} @${c.offset}${sign}`;
 }
 
 /**
@@ -82,11 +104,30 @@ export function findCandidates(samples, { maxError = 0.35, limit = 12 } = {}) {
     }
   }
 
+  // A magnitude-plus-sign-bit frame cannot be fitted by any plain encoding, so
+  // if the references include negatives and nothing fits, look for a bit
+  // elsewhere in the frame that tracks the sign.
+  if (!out.length && samples.some((s) => s.grams < 0)) {
+    const MASKS = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
+    for (let so = 0; so < len; so++) {
+      for (const mask of MASKS) {
+        // The bit must actually separate negatives from positives.
+        const separates = samples.every((s) => ((s.bytes[so] & mask) !== 0) === (s.grams < 0));
+        if (!separates) continue;
+        const abs = samples.map((s) => ({ bytes: s.bytes, grams: Math.abs(s.grams) }));
+        for (const c of findCandidates(abs, { maxError, limit: 4 })) {
+          if (c.offset === so) continue;   // the sign byte cannot also be the value
+          out.push({ ...c, sign: { offset: so, mask } });
+        }
+      }
+    }
+  }
+
   out.sort((a, b) => a.error - b.error);
   // Collapse near-duplicates that read the same bytes at the same scale.
   const seen = new Set();
   return out.filter((c) => {
-    const key = `${c.kind}${c.offset}${c.width}${c.scale}`;
+    const key = `${c.kind}${c.offset}${c.width}${c.scale}${c.sign ? c.sign.offset + ':' + c.sign.mask : ''}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

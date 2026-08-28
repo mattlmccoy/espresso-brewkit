@@ -11,12 +11,25 @@ export const DRIVERS = [
     note: 'Lefu is an OEM; this covers INSMART and other rebadges of the same board.',
     service: u('fff0'),
     characteristic: u('fff3'),
-    decoder: { kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1 },
-    // Frames are 12 06 05 00 <weight u16LE> 05 00 — everything but bytes 4–5 is fixed.
+    decoder: {
+      kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1,
+      // The weight bytes are an unsigned magnitude; the sign is a bit in the
+      // status byte. Decoding this as plain unsigned reports -416.4 g as
+      // +416.4 g — a plausible-looking number, which is the dangerous kind of
+      // wrong. Found only because negative reference masses were captured.
+      sign: { offset: 2, mask: 0x10 },
+      // Inferred, not confirmed: byte 2 bit 2 is set on every settled reading
+      // and clear on the one frame whose value lagged the display. Used to
+      // gate the "stable" indicator only — no measurement depends on it.
+      stable: { offset: 2, mask: 0x04 },
+    },
+    // Frames are 12 06 <status> 00 <magnitude u16LE> 05 00. Byte 2 varies with
+    // sign and settling, so match on the fixed header and trailer instead.
     match: (bytes) => bytes.length >= 8 && bytes[0] === 0x12 && bytes[1] === 0x06
-      && bytes[2] === 0x05 && bytes[6] === 0x05,
-    // Confirmed on an INSMART 5 kg / 0.1 g scale: 0 g and 587.0 g both decode
-    // exactly, and 0xFFFF x 0.1 = 6553.5 g is the headroom a 5 kg scale needs.
+      && bytes[3] === 0x00 && bytes[6] === 0x05,
+    // Verified against 15 captures from an INSMART 5 kg / 0.1 g scale spanning
+    // -416.4 g to +1547 g: every one decodes exactly. 0xFFFF x 0.1 = 6553.5 g
+    // is also precisely the headroom a 5 kg scale needs at 0.1 g resolution.
     confidence: 'confirmed',
   },
 ];

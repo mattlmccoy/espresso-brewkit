@@ -56,3 +56,32 @@ Two conversions happen on the way in:
 
 Plots produced by the original Python version, kept as a record of what the
 project looked like before the rework.
+
+## `insmart-lefu-captures.csv` — the frames the Lefu driver was derived from
+
+Sixteen captures from an INSMART 5 kg / 0.1 g scale (manufacturer string
+`lefu`, model `863A`), service `FFF0`, notify characteristic `FFF3`, spanning
+−416.4 g to +1547 g.
+
+Kept because a driver is only as trustworthy as the evidence behind it, and this
+set is what the `lefu-fff0` decoder in
+[`site/assets/js/ble/drivers.js`](../site/assets/js/ble/drivers.js) is fitted and
+tested against. The UI suite replays these exact frames.
+
+| Column | Meaning |
+|---|---|
+| `grams` | What the scale's own display read |
+| `uuid` | Characteristic the frame arrived on |
+| `frame_hex` | The raw frame |
+
+**What they revealed.** The weight bytes are an unsigned magnitude at offset 4
+(`u16LE`, 0.1 g); the sign is bit `0x10` of the status byte at offset 2. Decoding
+the frame as plain unsigned reports −416.4 g as **+416.4 g** — a plausible-looking
+number rather than an obvious fault, and the kind of error that would have
+corrupted shot records silently.
+
+One row disagrees with its label (`12 06 01 00 94 22 05 00`, labelled 1366 g,
+decodes to 885.2 g). It is the only row whose status byte has bit `0x04` clear,
+which is why that bit is read as a settled/moving flag: the display had moved on
+before the frame was captured. The row is retained deliberately — it is the
+evidence for the stability bit.

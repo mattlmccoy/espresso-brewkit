@@ -75,7 +75,10 @@ export class LefuMockScale extends MockScale {
   }
 
   frame() {
-    const v = Math.max(0, Math.round((this.grams + (Math.random() - 0.5) * this.noise * 2) * 10));
-    return Uint8Array.from([0x12, 0x06, 0x05, 0x00, v & 0xff, (v >> 8) & 0xff, 0x05, 0x00]);
+    const g = this.grams + (Math.random() - 0.5) * this.noise * 2;
+    const v = Math.round(Math.abs(g) * 10);
+    // Byte 2: bit 2 = settled, bit 4 = negative. Magnitude is always unsigned.
+    const status = 0x01 | 0x04 | (g < 0 ? 0x10 : 0x00);
+    return Uint8Array.from([0x12, 0x06, status, 0x00, v & 0xff, (v >> 8) & 0xff, 0x05, 0x00]);
   }
 }
