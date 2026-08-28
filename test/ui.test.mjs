@@ -1170,6 +1170,29 @@ try {
     (await shown.count()) === notesBefore, `${notesAfter} → ${await shown.count()}`);
 
 
+
+  // ---- the Google site-verification file ----
+  // It has to be served byte for byte at its exact path: Google fetches it and
+  // compares the contents. A build step that "helpfully" rewrites it, or a
+  // refactor that tidies it away, silently un-verifies the site.
+  const verify = await page.evaluate(async () => {
+    const res = await fetch('./google5caa7feb8604ab88.html');
+    return { ok: res.ok, status: res.status, body: (await res.text()).trim() };
+  });
+  t('verification: Google\u2019s file is served from the site root',
+    verify.ok, `HTTP ${verify.status}`);
+  t('verification: its contents are exactly what Google wrote',
+    verify.body === 'google-site-verification: google5caa7feb8604ab88.html', verify.body);
+  // The deploy refuses to ship a page missing its closing tag. This file has no
+  // opening one either, and must not be mistaken for a truncated page.
+  const guard = await (async () => {
+    const { readFile } = await import('node:fs/promises');
+    const yml = await readFile('.github/workflows/pages.yml', 'utf8');
+    return /grep -q '<html' "\$f" \|\| continue/.test(yml);
+  })();
+  t('verification: the deploy guard skips files that are not pages', guard,
+    guard ? 'guarded' : 'the sanity check would reject the verification file');
+
   // ---- signing in to Google, driven end to end against a fake ----
   // The real popup needs a Google account CI cannot have, so the transport is
   // injectable: everything except Google's own window is exercised here.
