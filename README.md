@@ -114,6 +114,52 @@ cannot stream the scale. It can read shots and curves, rate a shot, check what
 is running low, and take weights by hand. Scale streaming stays on the computer.
 That is Apple's decision, not something this project can work around.
 
+## Bean age, with the freezer accounted for
+
+Calendar days since roast is the number everyone quotes, and it is wrong for
+anyone who freezes. Staling is chemistry — oxidation and volatile loss — and
+chemistry slows when you make it cold. A bag roasted in January, frozen on day 5
+and opened in June is **a five-day-old coffee that has been paused**, not a
+five-month-old one, and recording it as five months would poison every model
+that reads the column.
+
+So age accrues before the freezer and after it, and barely during. The discount
+is derived rather than picked: reaction rates fall roughly by half per 10 °C
+(the Q10 rule of thumb), and a domestic freezer is some 38 °C below a kitchen —
+3.8 halvings, about **1/14**, so ~0.07 days of staling per day frozen. A year in
+the freezer costs about a fortnight of shelf life. Vacuum sealing halves it
+again, because oxidation needs oxygen; that factor is a judgement and is
+labelled as one. Freezing **slows** staling rather than stopping it, which is
+what the literature actually supports.
+
+Age is reported as a phase rather than a bare number, because the same twelve
+days is early for a light roast and squarely in the window for a dark one:
+
+| Roast level | Rest before espresso |
+|---|---|
+| Light | 10–14 days |
+| Medium-light | 8–12 |
+| Medium | 7–10 |
+| Medium-dark | 5–8 |
+| Dark | 4–7 |
+
+Roughly 40% of a bean's CO2 leaves in the first day and the rest over one to two
+weeks. Espresso is the method that minds most, because pressurised water meeting
+trapped gas is what channelling is made of — so a bag still degassing gets a
+warning and an estimate of how many days are left, not a silent number. The
+windows are roasting convention and vary with bean density and profile; the
+mechanism is not.
+
+Sources: [Uman et al., *Scientific Reports* 6:24483
+(2016)](https://www.nature.com/articles/srep24483) — grinding cold narrows the
+particle size distribution, which is a reason to grind straight from frozen;
+[SCA, *A Literature Review on Coffee
+Staling*](https://sca.coffee/sca-news/2012/02/15/what-is-the-shelf-life-of-roasted-coffee-a-literature-review-on-coffee-staling);
+[*Effect of Temperature and Storage on Coffee's Volatile Compound Profile*,
+Foods 13(24):3995 (2024)](https://www.mdpi.com/2304-8158/13/24/3995); [Barista
+Hustle, *A Year in the Deep
+Freeze*](https://www.baristahustle.com/a-year-in-the-deep-freeze/).
+
 ## What is running out
 
 Shots alone never account for a bag. Beans get purged through the grinder to
@@ -358,7 +404,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-245 assertions across the site in both themes: the analysis results, the
+259 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.

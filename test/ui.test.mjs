@@ -975,8 +975,10 @@ try {
   await page.waitForFunction(() => /Added/.test(document.getElementById('b-msg').textContent));
   const bagCards = await page.locator('#bags .bx').count();
   t('kit: a bag is saved and listed', bagCards === 1, bagCards + ' bag(s)');
-  t('kit: days off roast is shown, not the raw date',
-    /9 d off roast/i.test(await page.innerText('#bags')),
+  // "9 d" said nothing. The phase is what a number of days actually means.
+  t('kit: bean age is shown as a phase, not a raw date or a bare number',
+    /9 days/i.test(await page.innerText('#bags'))
+    && /window|degassing|off roast|fading/i.test(await page.innerText('#bags')),
     (await page.innerText('#bags')).replace(/\s+/g, ' ').slice(0, 80));
 
   await page.fill('#g-name', 'Test DF64');
@@ -1426,6 +1428,97 @@ try {
     && (await page.inputValue('#p-basket')) === '18 g VST',
     `${await page.inputValue('#p-temp')} °C / ${await page.inputValue('#p-pressure')} bar / `
       + `${await page.inputValue('#p-basket')}`);
+
+
+  // ---- bean age, with the freezer accounted for ----
+  // Calendar days since roast is the number everyone quotes and it is wrong for
+  // anyone who freezes: staling is chemistry, and chemistry slows when cold.
+  await page.goto(B + '/kit.html');
+  const age = await page.evaluate(async () => {
+    const beans = await import('./assets/js/core/beans.js');
+    const at = new Date('2026-08-28T12:00:00Z');
+    const f = (bag) => {
+      const r = beans.freshness(bag, at);
+      return { phase: r.phase, label: r.label, cal: r.age.calendar, eff: r.age.effective,
+               frozen: r.age.frozenDays, inFreezer: r.age.inFreezer };
+    };
+    return {
+      lightYoung: f({ roast_date: '2026-08-26', roast_level: 'Light' }),
+      darkYoung: f({ roast_date: '2026-08-23', roast_level: 'Dark' }),
+      light12: f({ roast_date: '2026-08-16', roast_level: 'Light' }),
+      dark12: f({ roast_date: '2026-08-16', roast_level: 'Dark' }),
+      old: f({ roast_date: '2026-01-10', roast_level: 'Medium' }),
+      frozen: f({ roast_date: '2026-01-10', roast_level: 'Medium', frozen_at: '2026-01-15' }),
+      vac: f({ roast_date: '2026-01-10', roast_level: 'Medium', frozen_at: '2026-01-15',
+               vacuum_sealed: true }),
+      thawed: f({ roast_date: '2026-01-10', roast_level: 'Medium', frozen_at: '2026-01-15',
+                  thawed_at: '2026-08-24', vacuum_sealed: true }),
+      noDate: f({ roast_level: 'Medium' }),
+      rate: beans.FREEZER_RATE,
+      windows: beans.ROAST_LEVELS.map((l) => `${l}:${beans.restWindow(l).join('-')}`),
+    };
+  });
+  t('beans: freezing pauses ageing rather than stopping the calendar',
+    age.frozen.cal === 230 && age.frozen.eff < 30 && age.frozen.inFreezer,
+    `${age.frozen.cal} calendar days → ${age.frozen.eff} effective`);
+  t('beans: vacuum sealing slows it further',
+    age.vac.eff < age.frozen.eff, `${age.frozen.eff} d vs ${age.vac.eff} d sealed`);
+  t('beans: time after the freezer counts normally again',
+    age.thawed.eff === age.vac.eff + 4, `${age.vac.eff} + 4 days out = ${age.thawed.eff}`);
+  t('beans: an unfrozen bag is unaffected by any of it',
+    age.old.cal === age.old.eff && age.old.phase === 'past', `${age.old.eff} d, ${age.old.phase}`);
+  // The same number of days means different things at different roast levels.
+  t('beans: rest windows differ by roast level',
+    age.light12.phase === 'opening' && age.dark12.phase === 'peak',
+    `12 days is "${age.light12.phase}" for light and "${age.dark12.phase}" for dark`);
+  t('beans: a young light roast is flagged as still degassing',
+    age.lightYoung.phase === 'degassing' && /degassing/.test(age.lightYoung.label),
+    age.lightYoung.label);
+  t('beans: a dark roast at 5 days is already through it',
+    age.darkYoung.phase !== 'degassing', `${age.darkYoung.phase} at 5 days`);
+  t('beans: no roast date says so rather than guessing',
+    age.noDate.phase === 'unknown', age.noDate.label);
+  // A year in the freezer costing about a fortnight is the Q10 derivation, not
+  // a number picked to look reasonable.
+  t('beans: the freezer discount is derived, not invented',
+    Math.abs(age.rate - 0.07) < 0.001 && Math.abs(365 * age.rate - 26) < 2,
+    `${age.rate}/day → a year frozen costs ${(365 * age.rate).toFixed(0)} days`);
+  t('beans: every roast level has a rest window',
+    age.windows.length === 5 && age.windows.every((w) => /\d+-\d+/.test(w)),
+    age.windows.join(' '));
+
+  // Through the UI: freeze a bag, and its effective age stops climbing.
+  await page.fill('#b-name', 'Freezer Test');
+  await page.fill('#b-roast', '2026-01-10');
+  await page.selectOption('#b-level', 'Light');
+  await page.fill('#b-frozen', '2026-01-15');
+  await page.check('#b-vacuum');
+  await page.click('#b-save');
+  await page.waitForFunction(() => /Added/.test(document.getElementById('b-msg').textContent),
+    { timeout: 4000 });
+  const card = await page.innerText('#bags');
+  t('beans: the bag card reports the effective age, not the calendar one',
+    /Freezer Test/.test(card) && !/2[0-9][0-9] days/.test(card),
+    (card.match(/Freezer Test[\s\S]{0,60}/) ?? [''])[0].replace(/\s+/g, ' '));
+  t('beans: and says why the two numbers differ',
+    /freezer/i.test(card), /freezer/i.test(card) ? 'freezer explained on the card' : 'not explained');
+  const frozenBag = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.bags.v1'))
+    .find((b) => b.bean_name === 'Freezer Test'));
+  t('beans: freeze dates and roast level are stored on the bag',
+    frozenBag.frozen_at === '2026-01-15' && frozenBag.vacuum_sealed === true
+    && frozenBag.roast_level === 'Light',
+    `${frozenBag.roast_level}, frozen ${frozenBag.frozen_at}, sealed ${frozenBag.vacuum_sealed}`);
+
+  // A shot records the age the coffee actually accrued, with the calendar age
+  // still recoverable from days_frozen.
+  const rowAge = await page.evaluate(async (id) => {
+    const kit = await import('./assets/js/core/kit.js');
+    const r = kit.attachKit({ bag_id: id }, new Date('2026-08-28T12:00:00Z'));
+    return { days: r.days_off_roast, frozen: r.days_frozen, level: r.roast_level };
+  }, frozenBag.id);
+  t('beans: the shot row carries effective age and frozen days separately',
+    rowAge.days < 40 && rowAge.frozen > 200 && rowAge.level === 'Light',
+    `${rowAge.days} days off roast, ${rowAge.frozen} of them frozen`);
 
   // ---- what is running out ----
   // Shots alone never account for a bag: beans get purged through the grinder,

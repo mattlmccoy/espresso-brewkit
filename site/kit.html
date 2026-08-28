@@ -48,8 +48,24 @@
         </div>
         <div class="row">
           <div class="field"><label for="b-roast">Roast date</label><input id="b-roast" type="date"></div>
-          <div class="field"><label for="b-weight">Bag weight (g)</label><input id="b-weight" type="number" step="1" placeholder="250"></div>
+          <div class="field"><label for="b-level">Roast level</label><select id="b-level"></select></div>
         </div>
+        <div class="row">
+          <div class="field"><label for="b-weight">Bag weight (g)</label><input id="b-weight" type="number" step="1" placeholder="250"></div>
+          <div class="field"><label class="check" style="margin-top:20px">
+            <input id="b-vacuum" type="checkbox"> Vacuum sealed</label></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="b-frozen">Went in the freezer</label>
+            <input id="b-frozen" type="date"></div>
+          <div class="field"><label for="b-thawed">Came out</label>
+            <input id="b-thawed" type="date"></div>
+        </div>
+        <p class="note" data-notice="freezer-model" style="margin-bottom:12px">Freezing pauses
+        staling rather than stopping it, so age accrues before the freezer and after it, and barely
+        during. A bag frozen on day 5 and opened in June is a five-day-old coffee, not a
+        five-month-old one — and dating it that way is the difference between a useful roast-age
+        column and a misleading one.</p>
         <div class="field"><label for="b-notes">Notes</label><input id="b-notes" type="text"></div>
         <div class="btn-row">
           <button class="primary" id="b-save" type="button">Save bag</button>
@@ -181,6 +197,7 @@ import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
+import * as beans from './assets/js/core/beans.js';
 boot();
 initNotices();
 
@@ -195,6 +212,8 @@ $('b-save').addEventListener('click', () => {
   const b = kit.saveBag({
     id: editingBag, bean_name: name, roaster: $('b-roaster').value.trim(),
     process: $('b-process').value.trim(), roast_date: $('b-roast').value,
+    roast_level: $('b-level').value, frozen_at: $('b-frozen').value,
+    thawed_at: $('b-thawed').value, vacuum_sealed: $('b-vacuum').checked,
     weight_g: num('b-weight'), notes: $('b-notes').value.trim(),
   });
   $('b-msg').textContent = `${editingBag ? 'Updated' : 'Added'} ${b.bean_name}.`;
@@ -204,7 +223,10 @@ $('b-cancel').addEventListener('click', clearBagForm);
 
 function clearBagForm() {
   editingBag = null;
-  for (const id of ['b-name','b-roaster','b-process','b-roast','b-weight','b-notes']) $(id).value = '';
+  for (const id of ['b-name','b-roaster','b-process','b-roast','b-weight','b-notes',
+                    'b-frozen','b-thawed']) $(id).value = '';
+  $('b-vacuum').checked = false;
+  $('b-level').value = 'Medium';
   $('b-cancel').style.display = 'none';
   $('b-save').textContent = 'Save bag';
 }
@@ -214,21 +236,11 @@ function editBag(b) {
   $('b-name').value = b.bean_name ?? ''; $('b-roaster').value = b.roaster ?? '';
   $('b-process').value = b.process ?? ''; $('b-roast').value = b.roast_date ?? '';
   $('b-weight').value = b.weight_g ?? ''; $('b-notes').value = b.notes ?? '';
+  $('b-level').value = b.roast_level || 'Medium';
+  $('b-frozen').value = b.frozen_at ?? ''; $('b-thawed').value = b.thawed_at ?? '';
+  $('b-vacuum').checked = !!b.vacuum_sealed;
   $('b-cancel').style.display = ''; $('b-save').textContent = 'Update bag';
   $('b-name').scrollIntoView({ block: 'center' });
-}
-
-/**
- * Freshness is not a straight line. Coffee is still degassing for the first
- * few days, hits a plateau, and fades; the bands below are the usual espresso
- * convention, not a measurement.
- */
-function freshness(days) {
-  if (days === null) return { label: 'No roast date', cls: '' };
-  if (days < 4) return { label: `${days} d — still degassing`, cls: 'flag' };
-  if (days <= 21) return { label: `${days} d off roast`, cls: 'ok' };
-  if (days <= 35) return { label: `${days} d — fading`, cls: 'flag' };
-  return { label: `${days} d — past it`, cls: 'warn' };
 }
 
 function renderBags() {
@@ -241,14 +253,13 @@ function renderBags() {
   $('b-empty').style.display = list.length ? 'none' : '';
 
   for (const b of list) {
-    const days = kit.daysOffRoast(b.roast_date);
-    const f = freshness(days);
+    const f = beans.freshness(b);
     const st = supply.bagStatus(b, shots);
 
     const head = el('div', { style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap' },
       el('strong', { style: 'font-size:15px' }, b.bean_name || '(unnamed)'),
       b.roaster ? el('span', { class: 'msg', style: 'margin:0' }, b.roaster) : null,
-      el('span', { class: `badge ${f.cls}`, style: 'margin-left:auto' }, f.label));
+      el('span', { class: `badge ${f.tone}`, style: 'margin-left:auto' }, f.label));
 
     const facts = el('p', { class: 'msg', style: 'margin-top:6px' },
       [b.process, `${st.shots} shot${st.shots === 1 ? '' : 's'}`,
@@ -307,6 +318,17 @@ function renderBags() {
       head, facts,
       !st.known ? null : el('div', { class: `bar${st.low ? ' low' : ''}`, style: 'margin-top:10px' },
         el('span', { style: `width:${(st.pct * 100).toFixed(1)}%` })),
+      el('p', { class: `note ${f.tone === 'warn' ? 'warn' : ''}`, style: 'margin-top:10px' },
+        f.detail + (f.action ? ' ' + f.action : '')),
+      el('div', { class: 'btn-row', style: 'margin-top:8px' },
+        el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
+          onclick: () => kit.saveBag({ id: b.id,
+            frozen_at: new Date().toISOString().slice(0, 10), thawed_at: '' }) },
+          b.frozen_at && !b.thawed_at ? 'Re-froze today' : 'Froze it today'),
+        b.frozen_at ? el('button', { type: 'button',
+          style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
+          onclick: () => kit.saveBag({ id: b.id,
+            thawed_at: new Date().toISOString().slice(0, 10) }) }, 'Took it out today') : null),
       st.known && st.low ? el('p', { class: 'note warn', style: 'margin-top:10px' },
         st.empty ? 'This bag is used up by the log. Mark it finished, or log a correction if there '
           + 'is still coffee in it.'
@@ -315,6 +337,8 @@ function renderBags() {
   }
 }
 $('show-archived').addEventListener('change', renderBags);
+$('b-level').replaceChildren(...beans.ROAST_LEVELS.map((r) => el('option', { value: r }, r)));
+$('b-level').value = 'Medium';
 
 /* --------------------------------------------------------------- grinders */
 $('g-save').addEventListener('click', () => {

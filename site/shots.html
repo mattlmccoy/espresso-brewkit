@@ -177,7 +177,9 @@ function renderDetail() {
     el('strong', { style: 'font-size:16px' }, shot.bean_name || 'Unnamed coffee'),
     el('span', { class: 'msg', style: 'margin:0' },
       [shot.roaster, (shot.timestamp ?? '').slice(0, 16),
-       Number.isFinite(F(shot.days_off_roast)) ? `${shot.days_off_roast} d off roast` : null,
+       Number.isFinite(F(shot.days_off_roast))
+         ? `${shot.days_off_roast} days off roast`
+           + (F(shot.days_frozen) > 0 ? ` (${shot.days_frozen} frozen)` : '') : null,
        shot.machine_name || null, shot.grinder_name || null, shot.basket || null]
         .filter(Boolean).join(' · ')),
     el('button', { class: 'danger ghost', type: 'button',
