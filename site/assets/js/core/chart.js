@@ -103,14 +103,15 @@ function axes(f, xd, yd, xLabel, yLabel) {
  * mean response. The band is the honest part: it widens away from x̄, which is
  * exactly where a small dataset stops supporting extrapolation.
  */
-export function scatter(container, { points, fit, xLabel, yLabel, flagged = new Set(), onHover }) {
+export function scatter(container, { points, fit, xLabel, yLabel, flagged = new Set(), onHover,
+                                     box = null }) {
   const xs = points.map((p) => p.x);
   const ys = points.map((p) => p.y);
   if (!xs.length) return;
   const xd = pad(Math.min(...xs), Math.max(...xs));
   const yd = pad(Math.min(...ys), Math.max(...ys));
 
-  const f = frame(container, { cap: false });
+  const f = frame(container, { cap: false, ...(box ?? {}) });
   const { sx, sy } = axes(f, xd, yd, xLabel, yLabel);
 
   if (fit?.ok) {

@@ -45,7 +45,7 @@
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
 </style>
 </head>
-<body>
+<body class="dash-page">
 <div class="wrap">
   <header class="site-head">
     <a class="brand" href="./index.html">Brewkit</a>
@@ -138,149 +138,147 @@
 
   <!-- The session. Shown once there is a verified decoder, or with no scale at all. -->
   <div id="step-live" style="display:none">
-    <div class="bx panel" id="name-row" style="display:none;margin-top:22px">
-      <div class="tag">Name this scale</div>
-      <div class="row" style="max-width:520px;align-items:end">
-        <div class="field" style="margin:0"><label for="device-name">Call it</label>
-          <input id="device-name" type="text" placeholder="Kitchen scale"></div>
-        <div class="btn-row"><button class="primary" id="save-device" type="button">Save</button></div>
-      </div>
-      <p class="msg" id="name-msg"></p>
-    </div>
-
-    <div class="bx panel" style="margin-top:22px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-        <div class="tag" style="margin:0" id="device-chip">Live</div>
-        <span class="msg" id="decoder-note" style="margin:0"></span>
-        <span class="badge" id="settled">—</span>
-        <button class="ghost" id="disconnect" type="button"
-                style="margin-left:auto;padding:7px 12px;box-shadow:none">Disconnect</button>
-      </div>
-      <p class="note" id="driver-note" style="display:none;margin-bottom:14px"></p>
-
-      <!-- The banner is the whole interface most of the time: it says what the
-           session is doing and what to do next, and it changes by itself. -->
-      <div class="state-strip" id="state">Idle</div>
-      <p class="hint" id="step-hint" style="margin:10px 0 0"></p>
-
-      <div class="dash" style="margin-top:14px">
-        <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
-          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
-        <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
-        <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
-        <div class="st bx"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
-        <div class="st bx"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
-        <div class="st bx"><div class="k">Flow trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
-      </div>
-      <p class="note warn" id="live-warn" style="display:none;margin-top:14px"></p>
-
-      <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
-      <div id="b-summary" style="margin-top:14px"></div>
-
-      <!-- Manual overrides. Present, but you should not need them. -->
-      <div class="btn-row" style="margin-top:16px">
-        <button class="ghost" id="tare" type="button">Tare</button>
-        <button class="ghost" id="arm" type="button">Arm</button>
-        <button class="ghost" id="start" type="button">Start now</button>
-        <button class="ghost" id="stop" type="button">Stop</button>
-        <button class="ghost" id="discard" type="button">Reset session</button>
-        <span class="msg" id="live-msg" style="margin:0"></span>
-      </div>
-      <p class="msg" id="scale-msg" style="margin-top:8px"></p>
-    </div>
-
-    <!-- What is running out. Worst first, so the thing about to bite is on top. -->
-    <div class="bx panel" id="supply-panel" style="margin-top:22px;display:none">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
-        <div class="tag" style="margin:0">Supplies</div>
-        <span class="msg" id="supply-msg" style="margin:0"></span>
-        <a href="./kit.html" class="ghost"
-           style="margin-left:auto;padding:7px 12px;text-decoration:none;font:700 12px/1 var(--sans)">Manage</a>
-      </div>
-      <div class="supply" id="supply"></div>
-    </div>
-
-    <!-- What the session has captured so far. Auto-filled, always editable. -->
-    <div class="bx panel" style="margin-top:22px">
-      <div class="steps" id="stepper">
-        <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
-          <span class="sv" id="sv-dose">—</span></button>
-        <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
-          <span class="sv" id="sv-grind">—</span></button>
-        <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
-          <span class="sv" id="sv-brew">—</span></button>
-        <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
-          <span class="sv" id="sv-rate">—</span></button>
-      </div>
-      <div class="grid g3" style="margin-top:16px">
-        <div class="field" style="margin:0"><label for="d-manual">Dose in (g)</label>
-          <input id="d-manual" type="number" step="0.1"></div>
-        <div class="field" style="margin:0"><label for="g-manual">Grounds out (g)</label>
-          <input id="g-manual" type="number" step="0.1"></div>
-        <div class="field" style="margin:0"><label for="r-yield">Yield out (g)</label>
-          <input id="r-yield" type="number" step="0.1"></div>
-      </div>
-      <p class="note" id="g-retention" style="margin-top:0"></p>
-      <details style="margin-top:12px">
-        <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
-                        text-transform:uppercase;color:var(--ink-mute)">What the scale decided</summary>
-        <div id="s-events" style="margin-top:12px"></div>
-      </details>
-    </div>
-
-    <div class="bx panel" style="margin-top:22px">
-      <div class="tag">This shot</div>
-      <div class="grid g3" style="margin-top:14px">
-        <div class="field" style="margin:0"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
-        <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
-        <div class="field" style="margin:0"><label for="p-machine">Machine</label><select id="p-machine"></select></div>
-      </div>
-      <p class="msg" id="p-advice"></p>
-      <div class="grid g3" style="margin-top:6px">
-        <div class="field" style="margin:0"><label for="p-grind">Grind setting</label>
-          <input id="p-grind" type="number" step="0.1"></div>
-        <div class="field" style="margin:0"><label for="p-dose">Target dose (g)</label>
-          <input id="p-dose" type="number" step="0.1" value="18"></div>
-        <div class="field" style="margin:0"><label for="p-ratio">Ratio (1:x)</label>
-          <input id="p-ratio" type="number" step="0.1" value="2"></div>
-      </div>
-      <details style="margin-top:10px">
-        <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
-                        text-transform:uppercase;color:var(--ink-mute)">Basket and settings</summary>
-        <div class="grid g3" style="margin-top:14px">
-          <div class="field" style="margin:0"><label for="p-basket">Basket</label>
-            <input id="p-basket" type="text" placeholder="18 g VST"></div>
-          <div class="field" style="margin:0"><label for="p-temp">Water temp (°C)</label>
-            <input id="p-temp" type="number" step="0.5"></div>
-          <div class="field" style="margin:0"><label for="p-pressure">Pressure (bar)</label>
-            <input id="p-pressure" type="number" step="0.1"></div>
+    <div class="stage">
+      <!-- Now: the numbers you look at with a portafilter in one hand. -->
+      <section class="bx cell" id="cell-now">
+        <div class="cell-head">
+          <span class="tag" id="device-chip">Live</span>
+          <span class="badge" id="settled">—</span>
+          <button class="ghost" id="disconnect" type="button">Disconnect</button>
         </div>
-        <div class="field" style="max-width:240px"><label for="p-preinf">Pre-infusion (s)</label>
-          <input id="p-preinf" type="number" step="0.5"></div>
-        <p class="note" style="margin-top:6px">Picking a machine fills these in with what it
-        usually runs at. Anything you type here wins.</p>
-      </details>
-      <p class="note" id="p-target" style="margin-top:6px"></p>
-      <details style="margin-top:10px">
-    </div>
+        <p class="msg" id="decoder-note" style="margin:0 0 8px"></p>
+        <div id="name-row" style="display:none">
+          <div class="row" style="grid-template-columns:1fr auto;gap:8px;align-items:end">
+            <div class="field" style="margin:0"><label for="device-name">Name this scale</label>
+              <input id="device-name" type="text" placeholder="Kitchen scale"></div>
+            <button class="primary" id="save-device" type="button"
+                    style="padding:7px 12px;box-shadow:none">Save</button>
+          </div>
+          <p class="msg" id="name-msg"></p>
+        </div>
+        <div class="state-strip" id="state">Idle</div>
+        <p class="hint" id="step-hint"></p>
+        <p class="note" id="driver-note" style="display:none"></p>
 
-    <!-- Appears by itself when the shot finishes. -->
-    <div class="bx panel" id="s-rate" style="margin-top:22px;display:none">
-      <div class="tag">Rate</div>
-      <div class="field" style="margin-top:14px"><label>Rating</label>
-        <div class="rate" id="r-rate"></div></div>
-      <div class="field"><label>Tags</label><div class="chips" id="r-tags"></div></div>
-      <div class="row" style="max-width:520px;align-items:end">
-        <div class="field" style="margin:0"><label for="r-brix">Brix (°Bx)</label>
-          <input id="r-brix" type="number" step="0.01" placeholder="if you measured it"></div>
-        <div class="field" style="margin:0"><label for="r-notes">Notes</label>
-          <input id="r-notes" type="text"></div>
-      </div>
-      <div class="btn-row">
-        <button class="primary" id="save" type="button">Save shot</button>
-        <span class="msg" id="save-msg" style="margin:0"></span>
-      </div>
-      <div id="r-diag" style="margin-top:6px"></div>
+        <div class="st bx hero big" style="margin-top:auto">
+          <div class="k" id="w-label">Weight</div>
+          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div>
+        </div>
+        <div class="mini">
+          <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
+          <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
+          <div class="st bx"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
+          <div class="st bx"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
+          <div class="st bx"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
+          <div class="st bx"><div class="k">Target</div><div class="v"><span id="o-target">—</span><span class="u">g</span></div></div>
+        </div>
+        <div class="btn-row tight">
+          <button class="ghost" id="tare" type="button">Tare</button>
+          <button class="ghost" id="arm" type="button">Arm</button>
+          <button class="ghost" id="start" type="button">Start</button>
+          <button class="ghost" id="stop" type="button">Stop</button>
+          <button class="ghost" id="discard" type="button">Reset</button>
+        </div>
+        <p class="msg" id="scale-msg"></p>
+        <p class="msg" id="live-msg"></p>
+      </section>
+
+      <!-- The pour. -->
+      <section class="bx cell" id="cell-pour">
+        <div class="cell-head"><span class="tag">The pour</span>
+          <span class="msg" id="p-target" style="margin:0"></span></div>
+        <div class="fillchart" id="curve"></div>
+        <p class="note warn" id="live-warn" style="display:none"></p>
+        <div id="b-summary"></div>
+      </section>
+
+      <!-- Rate: takes the pour's place when the shot ends, so nothing scrolls. -->
+      <section class="bx cell" id="s-rate" style="display:none">
+        <div class="cell-head"><span class="tag">Rate</span>
+          <span class="msg" id="save-msg" style="margin:0"></span></div>
+        <div class="cell-scroll">
+          <div class="field"><label>Rating</label><div class="rate" id="r-rate"></div></div>
+          <div class="field"><label>Tags</label><div class="chips" id="r-tags"></div></div>
+          <div class="row">
+            <div class="field" style="margin:0"><label for="r-brix">Brix (°Bx)</label>
+              <input id="r-brix" type="number" step="0.01" placeholder="if measured"></div>
+            <div class="field" style="margin:0"><label for="r-notes">Notes</label>
+              <input id="r-notes" type="text"></div>
+          </div>
+          <div class="btn-row"><button class="primary" id="save" type="button">Save shot</button></div>
+          <div id="r-diag"></div>
+        </div>
+      </section>
+
+      <!-- The session, and what is running out. -->
+      <section class="bx cell" id="cell-side">
+        <div class="cell-head"><span class="tag">Session</span></div>
+        <div class="steps" id="stepper">
+          <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
+            <span class="sv" id="sv-dose">—</span></button>
+          <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
+            <span class="sv" id="sv-grind">—</span></button>
+          <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
+            <span class="sv" id="sv-brew">—</span></button>
+          <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
+            <span class="sv" id="sv-rate">—</span></button>
+        </div>
+        <div class="cell-scroll">
+          <div class="row tight3">
+            <div class="field" style="margin:0"><label for="d-manual">Dose</label>
+              <input id="d-manual" type="number" step="0.1"></div>
+            <div class="field" style="margin:0"><label for="g-manual">Grounds</label>
+              <input id="g-manual" type="number" step="0.1"></div>
+            <div class="field" style="margin:0"><label for="r-yield">Yield</label>
+              <input id="r-yield" type="number" step="0.1"></div>
+          </div>
+          <p class="msg" id="g-retention"></p>
+
+          <div class="field"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
+          <div class="row">
+            <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
+            <div class="field" style="margin:0"><label for="p-machine">Machine</label><select id="p-machine"></select></div>
+          </div>
+          <div class="row tight3">
+            <div class="field" style="margin:0"><label for="p-grind">Grind</label>
+              <input id="p-grind" type="number" step="0.1"></div>
+            <div class="field" style="margin:0"><label for="p-dose">Target</label>
+              <input id="p-dose" type="number" step="0.1" value="18"></div>
+            <div class="field" style="margin:0"><label for="p-ratio">Ratio</label>
+              <input id="p-ratio" type="number" step="0.1" value="2"></div>
+          </div>
+          <p class="msg" id="p-advice"></p>
+
+          <details>
+            <summary>Basket and settings</summary>
+            <div class="row tight3" style="margin-top:10px">
+              <div class="field" style="margin:0"><label for="p-basket">Basket</label>
+                <input id="p-basket" type="text"></div>
+              <div class="field" style="margin:0"><label for="p-temp">Temp °C</label>
+                <input id="p-temp" type="number" step="0.5"></div>
+              <div class="field" style="margin:0"><label for="p-pressure">Bar</label>
+                <input id="p-pressure" type="number" step="0.1"></div>
+            </div>
+            <div class="field" style="max-width:150px"><label for="p-preinf">Pre-infusion (s)</label>
+              <input id="p-preinf" type="number" step="0.5"></div>
+            <p class="note">Picking a machine fills these with what it usually runs at.
+            Anything typed here wins.</p>
+          </details>
+          <details>
+            <summary>What the scale decided</summary>
+            <div id="s-events" style="margin-top:10px"></div>
+          </details>
+
+          <div id="supply-panel" style="display:none">
+            <div class="cell-head" style="margin-top:12px">
+              <span class="tag">Supplies</span>
+              <a href="./kit.html" class="ghost">Manage</a>
+            </div>
+            <p class="msg" id="supply-msg"></p>
+            <div class="supply" id="supply"></div>
+          </div>
+        </div>
+      </section>
     </div>
   </div>
 
@@ -435,11 +433,11 @@ function setPhase(phase) {
   }
 }
 
-const reason = unsupportedReason();
+const reason = mock ? null : unsupportedReason();
 if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
 $('connect').disabled = !canLink();
 
-if (isSupported() && navigator.bluetooth.getAvailability) {
+if (!mock && isSupported() && navigator.bluetooth.getAvailability) {
   navigator.bluetooth.getAvailability().then((ok) => {
     if (ok) return;
     $('unsupported').style.display = '';
@@ -652,18 +650,10 @@ function render(s) {
   const now = performance.now();
   if (drawable && (now - lastDraw > 250 || s.state === BREW.COMPLETE)) {
     lastDraw = now;
-    chart.scatter($('curve'), {
-      points: brew.curve.map(([t, w]) => ({ x: t, y: w, label: `${t}s → ${w}g` })),
-      xLabel: 'Time (s)', yLabel: 'Weight (g)',
-    });
+    drawCurve();
   }
 }
 
-$('tare').addEventListener('click', () => {
-  brew.tare = lastRaw;
-  $('scale-msg').textContent = `Tared at ${fmt(lastRaw, 1)} g.`;
-  render(brew.snapshot(performance.now() / 1000, lastRaw, 0));
-});
 
 /* --------------------------------------------------------------- connecting */
 function attach(l) {
@@ -1099,14 +1089,17 @@ function paintSession() {
     ? s.events.map((e) => el('p', { class: 'msg', style: 'margin:4px 0' }, e.text))
     : [el('p', { class: 'msg', style: 'margin:0' }, 'Nothing captured yet.')]));
 
-  $('s-rate').style.display = s.step === 'rate' ? '' : 'none';
+  const rating = s.step === 'rate';
+  $('s-rate').style.display = rating ? '' : 'none';
+  $('cell-pour').style.display = rating ? 'none' : '';
   if (s.step !== lastStep) {
     lastStep = s.step;
     // Entering brew arms the machine so the cup landing tares and times itself.
     if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
   }
-  $('p-target').textContent = `Target: ${fmt(targetDose(), 1)} g in, `
-    + `${fmt(targetYield(), 1)} g out at 1:${fmt(targetRatio(), 1)}.`;
+  $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g out `
+    + `at 1:${fmt(targetRatio(), 1)}`;
+  $('o-target').textContent = fmt(targetYield(), 1);
 }
 
 $('stepper').addEventListener('click', (e) => {
@@ -1133,8 +1126,11 @@ $('p-machine').addEventListener('change', () => {
 
 for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
   $(id).addEventListener('change', refreshAdvice);
-  $(id).addEventListener('input', () => { $('p-target').textContent =
-    `Target: ${fmt(targetDose(), 1)} g in, ${fmt(targetYield(), 1)} g out at 1:${fmt(targetRatio(), 1)}.`; });
+  $(id).addEventListener('input', () => {
+    $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g out `
+      + `at 1:${fmt(targetRatio(), 1)}`;
+    $('o-target').textContent = fmt(targetYield(), 1);
+  });
 }
 
 /** The advisor's answer, shown where the decision is made. */
@@ -1158,6 +1154,24 @@ function refreshAdvice() {
 }
 
 /* ------------------------------------------------------------------- brew */
+/** The live curve, sized to whatever the stage left for it. */
+function drawCurve() {
+  if (brew.curve.length < 2) return;
+  const holder = $('curve');
+  const h = Math.max(220, Math.round(holder.clientHeight || 300));
+  const w = Math.max(360, Math.round(holder.clientWidth || 640));
+  chart.scatter(holder, {
+    points: brew.curve.map(([t, x]) => ({ x: t, y: x, label: `${t}s → ${x}g` })),
+    xLabel: 'Time (s)', yLabel: 'Weight (g)',
+    box: { width: w, height: h, m: { t: 12, r: 14, b: 42, l: 52 } },
+  });
+}
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(drawCurve, 150);
+});
+
 $('tare').addEventListener('click', () => {
   brew.tare = lastRaw;
   $('scale-msg').textContent = `Tared at ${fmt(lastRaw, 1)} g.`;

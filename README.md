@@ -112,6 +112,20 @@ ground, a **descale** by days elapsed. All of it appears on the Live dashboard
 worst-first, so the thing about to bite is the thing you see while you are
 standing at the machine.
 
+## One screen
+
+Live is a dashboard, not a document: three columns that fill the viewport once,
+so pulling a shot never means scrolling with a portafilter in one hand. Weight
+and the controls on the left, the pour in the middle, the session and what is
+running low on the right. Each column scrolls internally if its own content
+overflows, which is what stops a long tag list pushing the weight off screen.
+Below 1100px it becomes a single column and scrolls like anything else — on a
+phone a fixed-height grid only squeezes everything into illegibility.
+
+The fit is a test, not an intention: the suite asserts the page ends up **0px**
+past the viewport, because the first three attempts were over by 349, 59 and
+153px in ways that were not visible by eye.
+
 ## What you can watch while it pours
 
 Six live numbers, none of which a scale's own display gives you:
@@ -292,7 +306,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-212 assertions across the site in both themes: the analysis results, the
+222 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.

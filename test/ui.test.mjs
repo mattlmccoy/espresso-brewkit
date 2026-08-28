@@ -1085,6 +1085,42 @@ try {
 
 
 
+
+  // ---- the Live page is a dashboard, and has to fit on one screen ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const fits = await page.evaluate(() => ({
+    over: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    vh: window.innerHeight,
+    chart: (() => { const r = document.getElementById('curve').getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
+  }));
+  t('dashboard: the whole session fits one screen without scrolling',
+    fits.over <= 2, `${fits.over}px past a ${fits.vh}px viewport`);
+  t('dashboard: the curve takes the space the stage leaves it',
+    fits.chart.h > 200 && fits.chart.w > 300, `${fits.chart.w}×${fits.chart.h}`);
+
+  // Two structural faults that each shipped a real bug today: an element the
+  // script talks to that is not in the document (a null textContent throw that
+  // stops the page dead), and one id used twice (getElementById returns the
+  // first, so the field read is not the field on screen).
+  const structure = await page.evaluate(() => {
+    const ids = [...document.querySelectorAll('[id]')].map((e) => e.id);
+    const dupes = [...new Set(ids.filter((v, i) => ids.indexOf(v) !== i))];
+    return { dupes, count: ids.length };
+  });
+  t('dashboard: no id appears twice in the document',
+    structure.dupes.length === 0, structure.dupes.join(', ') || `${structure.count} ids, all unique`);
+  const dangling = await page.evaluate(async () => {
+    const src = await (await fetch('./live.html')).text();
+    const used = new Set([...src.matchAll(/\$\('([\w-]+)'\)/g)].map((m) => m[1]));
+    return [...used].filter((id) => !document.getElementById(id));
+  });
+  t('dashboard: every element the script reaches for exists',
+    dangling.length === 0, dangling.join(', ') || 'none dangling');
+
   // ---- a saved profile must not pin a decoder that was later fixed ----
   // Reported from real use: negatives showing as positives. The cause was not
   // the decoder — it was that a profile taught before the sign bit was

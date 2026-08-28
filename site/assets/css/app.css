@@ -285,3 +285,94 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .supply .bx { padding: 12px 14px; }
 .supply .nm { font: 700 12.5px/1.2 var(--sans); }
 .supply .dt { font: 700 11.5px/1.3 var(--mono); color: var(--ink-dim); margin-top: 4px; }
+
+/* ---------------------------------------------------------------- the stage
+   The Live page is a dashboard, not a document: three columns that fill the
+   viewport once, so pulling a shot never means scrolling with a portafilter in
+   one hand. Each cell scrolls internally if its own content overflows, which is
+   what keeps a long tag list or a diagnosis from pushing the weight off screen.
+   Below 1100px it becomes one column and scrolls like anything else — on a
+   phone a fixed-height grid would just squeeze everything into illegibility. */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(250px, 300px) minmax(0, 1fr) minmax(270px, 330px);
+  /* An auto row sizes to its tallest cell's content, which defeats the whole
+     point: the stage would grow to fit the side panel instead of the side panel
+     scrolling inside a stage that fits the screen. */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  margin-top: 12px;
+}
+
+/* Rather than guessing how much chrome sits above the stage, make the page a
+   flex column the height of the viewport and let the stage take what is left.
+   Guessing was wrong by 349px, which is a scrollbar on every shot. */
+/* The footer lives outside .wrap, so a 100dvh wrap plus a footer overflows by
+   exactly the footer's height. The body is the flex column instead. */
+body.dash-page { min-height: 100dvh; display: flex; flex-direction: column; }
+.dash-page .wrap { flex: 1 1 auto; display: flex; flex-direction: column;
+  /* An auto-margined flex item sizes to its content on the cross axis, not to
+     the container — without an explicit width the wrap shrinks and squeezes the
+     middle column to a third of what it should be. */
+  width: 100%; min-height: 0; padding-bottom: 10px; }
+.dash-page #step-live { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.dash-page .stage { flex: 1 1 auto; min-height: 0; }
+.dash-page .page-head { margin: 0 0 6px; }
+.dash-page .page-head h1 { font-size: clamp(26px, 3.4vw, 40px); }
+.dash-page .page-head .desc { display: none; }
+.dash-page .site-head { padding: 12px 0 10px; }
+.dash-page .site-foot { margin-top: 10px; padding-top: 10px; font-size: 11px; }
+.dash-page #advanced { margin-top: 10px; padding: 12px 15px; }
+.cell { display: flex; flex-direction: column; padding: 14px 15px; min-height: 0; overflow: hidden; }
+.cell-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.cell-head .tag { margin: 0; }
+.cell-head > .ghost, .cell-head > button { margin-left: auto; padding: 5px 10px; box-shadow: none;
+  font: 700 11px/1 var(--sans); text-decoration: none; }
+.cell-scroll { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
+.cell .hint { margin: 9px 0 0; font-size: 12.5px; }
+.cell .msg { margin: 7px 0 0; font-size: 12px; }
+.cell .note { font-size: 12px; padding: 9px 11px; }
+.cell .field { margin-bottom: 9px; }
+.cell label { font-size: 10px; }
+.cell input, .cell select { padding: 7px 9px; font-size: 13px; }
+.cell details > summary { cursor: pointer; font: 700 10px/1 var(--sans); letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-mute); margin-top: 10px; }
+.row.tight3 { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.btn-row.tight { gap: 6px; margin-top: 10px; }
+.btn-row.tight button { padding: 7px 10px; font-size: 11.5px; box-shadow: none; }
+
+/* Weight is the one number readable from across the kitchen. */
+#cell-now .hero { margin-top: 12px; }
+#cell-now .hero .v { font-size: clamp(40px, 6.2vw, 74px); }
+.mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 9px; }
+.mini .st { padding: 8px 9px 10px; }
+.mini .k { font-size: 9px; letter-spacing: .1em; }
+.mini .v { font-size: 19px; margin-top: 5px; }
+.mini .u { font-size: 10px; }
+
+/* The curve fills whatever height is left rather than dictating it. */
+.fillchart { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.fillchart svg.chart { width: 100%; height: 100%; }
+#cell-pour #b-summary .st { padding: 8px 10px; }
+#cell-pour #b-summary .v { font-size: 17px; }
+#cell-pour #b-summary .grid { gap: 7px; margin-top: 9px; }
+
+#cell-side .steps button { min-width: 0; padding: 9px 8px; }
+#cell-side .steps .l { font-size: 11.5px; margin-top: 4px; }
+#cell-side .steps .sv { font-size: 10.5px; margin-top: 4px; }
+#cell-side .supply { grid-template-columns: 1fr; gap: 7px; }
+#cell-side .rate button { width: 34px; padding: 7px 0; font-size: 12px; }
+#cell-side .chips button { padding: 5px 9px; font-size: 11px; }
+#s-rate .rate button { width: 38px; }
+
+@media (max-width: 1100px) {
+  .stage { grid-template-columns: 1fr; grid-template-rows: none; height: auto; min-height: 0; }
+  body.dash-page { display: block; min-height: 0; }
+  .dash-page .wrap { display: block; }
+  .dash-page #step-live { display: block; }
+  .dash-page .page-head .desc { display: block; }
+  .cell { overflow: visible; }
+  .cell-scroll { overflow: visible; }
+  .fillchart { min-height: 260px; }
+}
