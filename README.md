@@ -98,7 +98,25 @@ readable only by this app. There is no backend, nothing hosted, and no account
 here. The OAuth client id is public by design: a browser cannot keep a secret,
 so Google secures it with an origin allowlist instead.
 
-Setting that credential up is the one manual step, and two of its fields cause
+The client id ships with the site, so nobody has to make a Google Cloud project
+to use a coffee log. It can, because it is public by construction: a browser
+cannot keep a secret, so Google secures the id with an origin allowlist rather
+than with secrecy, and one lifted from the page is useless anywhere but the
+origin registered against it. It lives in `site/assets/js/config.js`, or in a
+`<meta name="brewkit-client-id">` for anyone injecting it at build time. Setting
+your own on the Sync page still works and overrides the shipped one — only the
+override is stored, so clearing it returns to the default instead of breaking
+sign-in, and a later deployment can move the default without stranding devices
+that signed in under the old one.
+
+Publishing the consent screen is what lets anyone sign in rather than a list of
+named testers. Every scope here is **non-sensitive** — `drive.appdata` is the
+narrowest Drive scope there is, and `openid email profile` only names the
+account — so the app can go to production without the verification review that
+sensitive or restricted scopes require.
+
+Setting that credential up is the one manual step for your own deployment, and
+two of its fields cause
 nearly all the trouble. **Authorised JavaScript origins**, on the OAuth client
 id itself, is the one that matters: scheme and host, no path and no trailing
 slash. **Authorised domains**, on the consent screen, is a different field and

@@ -1355,6 +1355,104 @@ try {
     out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
     `revoked ${out.revoked}, account cleared`);
 
+  // ---- a client id nobody has to type ----
+  // Asking each visitor for an OAuth client id meant asking them to make a
+  // Google Cloud project before they could use a coffee log. The id ships with
+  // the deployment instead — it can, because it is public by construction and
+  // secured by an origin allowlist rather than by secrecy.
+  await page.goto(B + '/sync.html');
+  const shipped = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    const meta = document.createElement('meta');
+    meta.name = 'brewkit-client-id';
+    meta.content = 'shipped-999.apps.googleusercontent.com';
+    document.head.appendChild(meta);
+    localStorage.removeItem('brewkit.sync.v1');
+
+    const bare = sync.config();
+    // An override wins, and is the only thing written down.
+    sync.saveConfig({ clientId: 'mine-1.apps.googleusercontent.com' });
+    const overridden = sync.config();
+    const storedWith = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
+    // Clearing it returns to the shipped id rather than breaking sign-in.
+    sync.saveConfig({ clientId: '' });
+    const cleared = sync.config();
+    // Saving something else must not disturb the override, or the lack of one.
+    sync.saveConfig({ lastSync: '2026-08-28T00:00:00Z' });
+    const untouched = sync.config();
+    // Pasting the shipped id by hand is not an override, so it is not stored.
+    sync.saveConfig({ clientId: 'shipped-999.apps.googleusercontent.com' });
+    const same = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
+    sync.saveConfig({ clientId: '', lastSync: null, account: null });
+    meta.remove();
+    return {
+      bare: [bare.clientId, bare.ownClientId, bare.shippedClientId].join('|'),
+      overridden: [overridden.clientId, overridden.ownClientId].join('|'),
+      storedWith: storedWith.clientId,
+      cleared: [cleared.clientId, cleared.ownClientId].join('|'),
+      untouched: untouched.clientId,
+      sameStored: same.clientId,
+      afterMeta: sync.config().shippedClientId,
+    };
+  });
+  t('client id: a shipped id is what sign-in uses when you have not set one',
+    shipped.bare === 'shipped-999.apps.googleusercontent.com||'
+      + 'shipped-999.apps.googleusercontent.com', shipped.bare);
+  t('client id: your own overrides it',
+    shipped.overridden === 'mine-1.apps.googleusercontent.com|mine-1.apps.googleusercontent.com',
+    shipped.overridden);
+  t('client id: and the override is the only part written to storage',
+    shipped.storedWith === 'mine-1.apps.googleusercontent.com', shipped.storedWith);
+  t('client id: clearing it falls back rather than breaking sign-in',
+    shipped.cleared === 'shipped-999.apps.googleusercontent.com|', shipped.cleared);
+  t('client id: saving anything else leaves it alone',
+    shipped.untouched === 'shipped-999.apps.googleusercontent.com', shipped.untouched);
+  t('client id: pasting the shipped id by hand is not stored as an override',
+    shipped.sameStored === '', `[${shipped.sameStored}]`);
+  t('client id: with no meta and none in config.js, there is nothing shipped',
+    shipped.afterMeta === '', `[${shipped.afterMeta}]`);
+
+  // The page has to change shape too: with an id, sign-in is one click and the
+  // console instructions stop being something you must do.
+  // Serve the page with the meta in it, the way a real deployment would,
+  // rather than injecting it after the module has already read it.
+  await page.route('**/sync.html', async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()).replace('<head>',
+      '<head>\n<meta name="brewkit-client-id" content="shipped-999.apps.googleusercontent.com">');
+    await route.fulfill({ response: res, body, headers: { 'content-type': 'text/html' } });
+  });
+  await page.goto(B + '/sync.html');
+  await page.waitForSelector('#gsignin', { timeout: 4000 });
+  const shippedUi = await page.evaluate(() => ({
+    disabled: document.getElementById('gsignin').disabled,
+    noClient: document.getElementById('no-client').style.display,
+    summary: document.getElementById('client-summary').textContent.replace(/\s+/g, ' ').trim(),
+    open: document.getElementById('own-project').open,
+    setup: document.getElementById('setup-tag').textContent,
+    box: document.getElementById('client').value,
+  }));
+  t('client id: shipped, the Google button is live with nothing typed in',
+    shippedUi.disabled === false && shippedUi.noClient === 'none', 'enabled');
+  t('client id: and the console steps become "deploying your own copy"',
+    shippedUi.setup === 'Deploying your own copy'
+    && shippedUi.summary === 'Use a different Google project',
+    `${shippedUi.setup} · ${shippedUi.summary}`);
+  t('client id: the panel is folded away and the box stays empty',
+    shippedUi.open === false && shippedUi.box === '',
+    `open=${shippedUi.open} box="${shippedUi.box}"`);
+
+  await page.unroute('**/sync.html');
+  await page.goto(B + '/sync.html');
+  const bareUi = await page.evaluate(() => ({
+    disabled: document.getElementById('gsignin').disabled,
+    setup: document.getElementById('setup-tag').textContent,
+    open: document.getElementById('own-project').open,
+  }));
+  t('client id: without one, the page still asks for yours and says so',
+    bareUi.disabled === true && bareUi.setup === 'Setting it up, once' && bareUi.open === true,
+    `${bareUi.setup}, panel open`);
+
   // ---- the account, on every page ----
   // The chip reads the stored profile, not a token — which is the whole reason
   // a page holding no credential can still say whose log this is.

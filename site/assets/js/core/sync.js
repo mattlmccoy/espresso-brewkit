@@ -12,6 +12,8 @@
 // account, so it is kept as small as it can be and the transport is injectable,
 // which is what lets the merge be tested against a fake one.
 
+import { GOOGLE_CLIENT_ID } from '../config.js';
+
 const CFG_KEY = 'brewkit.sync.v1';
 const FILE_NAME = 'brewkit.json';
 // drive.appdata is the narrowest Drive scope there is: a hidden folder this app
@@ -109,13 +111,56 @@ function writeJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
 }
 
-export const config = () => ({
-  clientId: '', lastSync: null, account: null, ...readJSON(CFG_KEY, {}),
-});
+/**
+ * The client id is a deployment constant, not something to ask a visitor for.
+ *
+ * It used to be typed in per device, which meant every person who wanted to
+ * sync first had to make a Google Cloud project — ten minutes of console work
+ * to use a coffee log. The id ships with the site instead. It can, because it
+ * is public by construction: a browser cannot keep a secret, so Google secures
+ * the id with an origin allowlist rather than with secrecy, and an id lifted
+ * from this page is useless anywhere but this origin.
+ *
+ * The stored value stays as an override, for anyone running their own copy or
+ * pointing the app at their own project. Empty means "use the shipped one",
+ * which is what makes Clear a return to the default rather than a way to break
+ * sign-in.
+ */
+/**
+ * The id this deployment ships with. `config.js` is the place to put it for a
+ * checkout; a `<meta name="brewkit-client-id">` overrides it for anyone who
+ * would rather inject it at build or serve time than edit a module.
+ */
+export function shippedClientId() {
+  try {
+    const meta = document.querySelector('meta[name="brewkit-client-id"]')?.content?.trim();
+    if (meta) return meta;
+  } catch { /* no DOM, e.g. a test importing this directly */ }
+  return GOOGLE_CLIENT_ID;
+}
+
+export const config = () => {
+  const stored = readJSON(CFG_KEY, {});
+  const shipped = shippedClientId();
+  return {
+    lastSync: null, account: null, ...stored,
+    clientId: stored.clientId || shipped,
+    ownClientId: stored.clientId || '',
+    shippedClientId: shipped,
+  };
+};
 export function saveConfig(patch) {
-  const next = { ...config(), ...patch };
+  // Destructure the derived fields back out under names that do not shadow
+  // shippedClientId() — the function is still needed two lines down.
+  const { clientId: _effective, ownClientId: own0, shippedClientId: _shipped, ...rest } =
+    { ...config(), ...patch };
+  // Only the override is persisted. Writing the shipped id into storage would
+  // freeze this device on whichever id happened to be current when it first
+  // signed in, and a later deployment could never move it.
+  const own = 'clientId' in patch ? patch.clientId : own0;
+  const next = { ...rest, clientId: own === shippedClientId() ? '' : (own || '') };
   writeJSON(CFG_KEY, next);
-  return next;
+  return config();
 }
 
 /* ------------------------------------------------------------- tombstones */
