@@ -34,6 +34,59 @@ export const SCOPE_EXPLAINED = [
     detail: 'Shown alongside your name for the same reason.' },
 ];
 
+/**
+ * What to check when a sign-in does not complete.
+ *
+ * Google's popup will not tell this page why it refused. When an unpublished
+ * app turns away an account that is not on its tester list, the popup lands on
+ * Google's own error page and never redirects back to this origin, so all that
+ * reaches the caller is `popup_closed` — indistinguishable from the user
+ * closing the window themselves. Reporting a closed window would be true and
+ * useless. Naming the setup mistakes that produce each failure, likeliest
+ * first, is the honest version of the same message.
+ */
+export function signInHelp(message = '', { origin = '' } = {}) {
+  const here = origin || (typeof location === 'undefined' ? 'this site' : location.origin);
+  const tester = {
+    id: 'tester',
+    title: 'Add yourself as a test user.',
+    detail: 'An unpublished app admits only the accounts named on it, and owning the project does '
+      + 'not count. Google answers "Access blocked — has not completed the Google verification '
+      + 'process". In the console, under Google Auth Platform (older consoles: OAuth consent '
+      + 'screen) → Audience → Test users → Add users, add the address you sign in with. It takes '
+      + 'effect immediately: no verification, and nothing to publish.',
+  };
+  const origins = {
+    id: 'origin',
+    title: `Register ${here} as an authorised JavaScript origin.`,
+    detail: 'That field is on the OAuth client ID itself, not on the consent screen, and it must '
+      + 'match exactly — scheme and host, no path and no trailing slash. Authorised domains on '
+      + 'the consent screen is a different field: it will not accept a github.io address, and an '
+      + 'unpublished app does not need one.',
+  };
+  const badClient = {
+    id: 'client',
+    title: 'Check the client ID itself.',
+    detail: 'It has to be an OAuth client of type Web application, from the same project whose '
+      + 'consent screen you filled in, pasted whole.',
+  };
+  const api = {
+    id: 'drive',
+    title: 'Enable the Google Drive API on the project.',
+    detail: 'The consent screen can be right and the token still be refused if the API is off.',
+  };
+
+  const m = String(message ?? '').toLowerCase();
+  // Loading Google itself failed — a network or content-blocker problem, and
+  // no amount of console configuration will change it.
+  if (/could not load|content blocker/.test(m)) return [];
+  if (/access_denied|verification process|test user/.test(m)) return [tester];
+  if (/redirect_uri|origin_mismatch|\borigin\b/.test(m)) return [origins];
+  if (/invalid_client|unauthorized_client/.test(m)) return [badClient, origins];
+  if (/closed|dismissed|popup/.test(m)) return [tester, origins];
+  return [tester, origins, badClient, api];
+}
+
 /** Every store that travels, and the key each record is identified by. */
 export const STORES = [
   { key: 'brewkit.shots.v1', id: 'shot_id', type: 'shot' },
@@ -216,7 +269,12 @@ export class DriveClient {
         scope: SCOPE,
         prompt,
         callback: (r) => {
-          if (r.error) { reject(new Error(r.error_description || r.error)); return; }
+          // Keep Google's own error code in the message: signInHelp reads it to
+          // tell a refused app from a mistyped client id.
+          if (r.error) {
+            reject(new Error(r.error_description ? `${r.error_description} (${r.error})` : r.error));
+            return;
+          }
           this.token = r.access_token;
           resolve(r.access_token);
         },
