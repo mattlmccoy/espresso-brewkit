@@ -747,8 +747,11 @@ try {
   await page.goto(B + '/live.html');
   await page.evaluate(() => localStorage.removeItem('brewkit.devices.v1'));
   await page.goto(B + '/live.html?mock=lefu');
+  // A driver is only remembered once a live frame confirms it — never on the
+  // strength of a UUID match alone — so wait for the profile, not the phase.
   await page.waitForFunction(
-    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+    () => Object.keys(JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}')).length > 0,
+    { timeout: 10000 });
 
   await page.goto(B + '/live.html?mock=lefu&manual=1');
   await page.waitForSelector('#saved-devices [data-reopen]', { timeout: 5000 });
@@ -1080,6 +1083,69 @@ try {
     navLinks.join(' '));
 
 
+
+
+  // ---- a saved profile must not pin a decoder that was later fixed ----
+  // Reported from real use: negatives showing as positives. The cause was not
+  // the decoder — it was that a profile taught before the sign bit was
+  // understood shadowed the corrected built-in driver, forever.
+  const stale = await page.evaluate(async () => {
+    const dec = await import('./assets/js/ble/decode.js');
+    const drv = await import('./assets/js/ble/drivers.js');
+    const before = { kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1 };
+    const after = drv.DRIVERS.find((d) => d.id === 'lefu-fff0').decoder;
+    const neg = dec.unhex('12 06 15 00 44 10 05 00');
+    return {
+      staleReads: dec.applyCandidate(before, neg),
+      driverReads: dec.applyCandidate(after, neg),
+      differs: !drv.sameDecoder(before, after),
+      sameAsSelf: drv.sameDecoder(after, after),
+    };
+  });
+  t('stale profile: the old decoder is what reported a negative as positive',
+    stale.staleReads > 0 && stale.driverReads < 0,
+    `saved ${stale.staleReads.toFixed(1)} g vs driver ${stale.driverReads.toFixed(1)} g`);
+  t('stale profile: the difference is detectable',
+    stale.differs === true && stale.sameAsSelf === true,
+    `differs ${stale.differs}, identical-to-itself ${stale.sameAsSelf}`);
+
+  // Plant exactly that stale profile, reconnect, and it should be replaced.
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => {
+    localStorage.setItem('brewkit.devices.v1', JSON.stringify({
+      'mock:lefu': {
+        name: 'Old Profile Scale', bleName: 'Lefu Mock (863A)',
+        uuid: '0000fff3-0000-1000-8000-00805f9b34fb',
+        decoder: { kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1 },
+        verifiedAt: '2026-01-01T00:00:00Z',
+      },
+    }));
+  });
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  // Wait for the profile to actually be rewritten, not for the note that
+  // precedes it — the driver is not trusted until a frame confirms it.
+  await page.waitForFunction(
+    () => !!JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}')['mock:lefu']?.decoder?.sign,
+    { timeout: 10000 });
+  const repaired = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('brewkit.devices.v1'))['mock:lefu'].decoder);
+  t('stale profile: a confirmed driver supersedes it on reconnect',
+    !!repaired.sign && repaired.sign.offset === 2 && repaired.sign.mask === 0x10,
+    JSON.stringify(repaired.sign));
+  t('stale profile: the saved name is kept, not clobbered',
+    (await page.textContent('#device-chip')) === 'Old Profile Scale',
+    await page.textContent('#device-chip'));
+  t('stale profile: the repair is reported rather than done silently',
+    /negative weights/i.test(await page.textContent('#conn-msg')),
+    await page.textContent('#conn-msg'));
+
+  // And a negative weight must now actually render as negative.
+  await page.evaluate(() => { window.__mock.grams = -52; });
+  await page.waitForFunction(
+    () => parseFloat(document.getElementById('o-w').textContent) < -40, { timeout: 6000 });
+  t('negatives: a negative reading renders negative on the dashboard',
+    parseFloat(await page.textContent('#o-w')) < -40, (await page.textContent('#o-w')) + ' g');
+  await page.evaluate(() => { window.__mock.grams = 0; });
 
   // ---- machines are entities, like grinders ----
   await page.goto(B + '/kit.html');

@@ -330,7 +330,7 @@ import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
 import { SessionMachine, STEP_ORDER } from './assets/js/core/session.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
-         matchByCharacteristic, confirm as confirmFrame,
+         matchByCharacteristic, confirm as confirmFrame, sameDecoder,
          serializeProfile, parseProfile } from './assets/js/ble/index.js';
 import { findCandidates, applyCandidate, describeCandidate, hex, unhex } from './assets/js/ble/decode.js';
 boot();
@@ -399,6 +399,7 @@ let profile = null;         // the saved record for the connected device
 let decoder = null;
 let activeUuid = null;
 let pendingDriver = null;   // driver awaiting frame confirmation
+let supersededDecoder = null;  // what to fall back to if that driver is wrong
 let recent = [], lastRaw = 0, lastDraw = 0, lastSettled = false;
 
 const est = new FlowEstimator();
@@ -540,13 +541,42 @@ function onFrame({ uuid, bytes, at }) {
   // generic module default, not a vendor fingerprint.
   if (pendingDriver && uuid === activeUuid) {
     if (!confirmFrame(pendingDriver, bytes)) {
-      pendingDriver = null; decoder = null; activeUuid = null;
+      const driverName = pendingDriver.name;
+      pendingDriver = null;
+      if (supersededDecoder) {
+        // The built-in driver did not recognise this frame, so the saved one
+        // stands. Never trade a working decoder for a guess.
+        decoder = supersededDecoder;
+        supersededDecoder = null;
+        $('decoder-note').textContent = `${describeCandidate(decoder)} · remembered`;
+        $('conn-msg').textContent = `This scale does not send ${driverName} frames, so its saved `
+          + 'profile was kept.';
+        showDriverNote(null);
+        return;
+      }
+      decoder = null; activeUuid = null;
       $('cap-msg').textContent = 'This scale uses the same UUIDs as a known model but sends a '
         + 'different frame, so the preset was discarded. Calibrate it below instead.';
       setPhase('setup');
       return;
     }
+    // Confirmed by a real frame — only now is it safe to remember.
+    const upgraded = !!supersededDecoder;
+    profile = {
+      ...(profile ?? {}),
+      name: profile?.name ?? pendingDriver.name ?? 'Scale',
+      decoder: pendingDriver.decoder, uuid: activeUuid,
+      verifiedAt: new Date().toISOString(),
+    };
+    devices[deviceKey] = profile;
+    persistDevices();
+    if (upgraded) {
+      $('conn-msg').textContent = `Updated the saved profile for ${profile.name} to the `
+        + `${pendingDriver.name} driver — the old one could not represent negative weights.`;
+      $('decoder-note').textContent = `${pendingDriver.name} · ${describeCandidate(decoder)} · updated`;
+    }
     pendingDriver = null;
+    supersededDecoder = null;
   }
 
   if (!decoder || uuid !== activeUuid) return;
@@ -705,6 +735,28 @@ async function afterConnect(name, id) {
   $('conn-msg').textContent = `Connected to ${name}.`;
   await link.subscribeAll();
 
+  const auto = matchByCharacteristic(link.chars);
+
+  // A remembered decoder used to win unconditionally, which meant a profile
+  // saved before a driver was fixed stayed wrong forever. That is exactly what
+  // happened here: a profile taught before the sign bit was understood went on
+  // reporting −416 g as +416 g, because nothing ever revisited it.
+  //
+  // So a confirmed built-in driver for the same characteristic now supersedes a
+  // stale saved decoder — but only once a live frame confirms the driver, and
+  // the old decoder is kept as the fallback if it does not.
+  if (profile.decoder && auto && auto.confidence === 'confirmed'
+      && !sameDecoder(profile.decoder, auto.decoder)) {
+    profile.bleName = name;
+    supersededDecoder = profile.decoder;
+    verifyWith(auto.decoder, auto.characteristic, { driver: auto, save: false });
+    $('decoder-note').textContent = `${auto.name} · ${describeCandidate(auto.decoder)}`;
+    $('conn-msg').textContent = `The saved profile for ${profile.name ?? name} decoded this scale `
+      + `differently from the built-in ${auto.name} driver. Checking against a live frame…`;
+    showDriverNote(auto);
+    return;
+  }
+
   if (profile.decoder) {
     verifyWith(profile.decoder, profile.uuid ?? profile.decoder.uuid, { save: false });
     $('decoder-note').textContent = `${describeCandidate(profile.decoder)} · remembered`;
@@ -712,10 +764,9 @@ async function afterConnect(name, id) {
     return;
   }
 
-  const auto = matchByCharacteristic(link.chars);
   if (auto) {
     profile.bleName = name;
-    verifyWith(auto.decoder, auto.characteristic, { driver: auto, askName: true });
+    verifyWith(auto.decoder, auto.characteristic, { driver: auto, save: false, askName: true });
     $('decoder-note').textContent = `${auto.name} · ${describeCandidate(auto.decoder)}`;
     showDriverNote(auto);
     return;
