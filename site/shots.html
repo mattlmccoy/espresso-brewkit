@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shots · espresso·brewkit</title>
+<meta name="description" content="Every shot you have pulled, with its flow curve, its diagnosis, and how it compares to the rest.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  .shot-list { display:grid; gap:10px; max-height:70vh; overflow-y:auto; padding-right:4px; }
+  .shot-row { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center;
+    padding:12px 14px; cursor:pointer; text-align:left; width:100%; box-shadow:none; }
+  .shot-row[aria-current="true"] { background:var(--accent); color:var(--accent-ink); }
+  .shot-row .id { font:700 11px/1 var(--mono); opacity:.7; }
+  .shot-row .who { font:700 13.5px/1.3 var(--sans); }
+  .shot-row .nums { font:700 12px/1.3 var(--mono); opacity:.8; }
+  .spark { width:64px; height:26px; display:block; }
+  .spark path { fill:none; stroke:currentColor; stroke-width:2; }
+  .finding { border-left:var(--bw) solid var(--ink); padding:2px 0 2px 14px; margin:14px 0; }
+  .finding.high { border-left-color:var(--fit); }
+  .finding.medium { border-left-color:var(--accent); }
+  .finding h4 { margin:0 0 5px; font-size:14.5px; }
+  .finding p { margin:0 0 5px; font-size:13.5px; color:var(--ink-dim); font-weight:500; }
+  .finding .do { color:var(--ink); font-weight:700; }
+  .cmp { display:grid; grid-template-columns:1fr auto auto; gap:8px 14px; align-items:baseline;
+    font:600 13px/1.5 var(--sans); }
+  .cmp .n { font-family:var(--mono); font-weight:700; }
+  .cmp .d { font-family:var(--mono); font-size:12px; }
+  .up { color:var(--fit); } .dn { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html">Live</a>
+      <a href="./shots.html" aria-current="page">Shots</a>
+      <a href="./advisor.html">Advisor</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./lab.html">Lab</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Shots</h1>
+    <p class="desc">Every shot you have pulled, with the curve it poured and what that curve says.</p>
+  </div>
+
+  <div class="split">
+    <div class="bx panel">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="tag" style="margin:0">History</div>
+        <span class="badge" id="count">0</span>
+        <select id="filter-bag" style="margin-left:auto;max-width:200px"></select>
+      </div>
+      <div class="shot-list" id="list"></div>
+      <p class="empty" id="empty">No shots yet. Pull one on the Live page.</p>
+      <div class="btn-row" style="margin-top:14px">
+        <button id="export" type="button">Export CSV</button>
+        <button class="ghost" id="import-btn" type="button">Import</button>
+        <input id="import" type="file" accept=".csv,text/csv" class="sr">
+      </div>
+      <p class="msg" id="data-msg"></p>
+    </div>
+
+    <div>
+      <div class="bx panel" id="detail">
+        <p class="empty">Pick a shot.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt, el } from './assets/js/ui.js';
+import * as store from './assets/js/core/store.js';
+import * as kit from './assets/js/core/kit.js';
+import * as chart from './assets/js/core/chart.js';
+import { decodeCurve, label } from './assets/js/core/schema.js';
+import { diagnose } from './assets/js/core/diagnose.js';
+import { flowSeries } from './assets/js/core/diagnose.js';
+import { download } from './assets/js/core/csv.js';
+import { median, mad, mean, sd, clean } from './assets/js/core/stats.js';
+boot();
+
+const $ = (id) => document.getElementById(id);
+const F = (v) => (typeof v === 'number' ? v
+  : v === '' || v === null || v === undefined ? NaN : Number(v));
+let selected = location.hash.slice(1) || null;
+
+/** A 64px trace of the pour, so the list is scannable by shape not just number. */
+function sparkline(curve) {
+  const pts = decodeCurve(curve);
+  if (pts.length < 3) return null;
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs);
+  const y1 = Math.max(...ys) || 1;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'spark');
+  svg.setAttribute('viewBox', '0 0 64 26');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M' + pts.map(([t, w]) =>
+    `${(((t - x0) / (x1 - x0 || 1)) * 62 + 1).toFixed(1)},${(25 - (w / y1) * 24).toFixed(1)}`).join('L'));
+  svg.appendChild(path);
+  return svg;
+}
+
+function shots() {
+  const all = store.all();
+  const bag = $('filter-bag').value;
+  return bag ? all.filter((s) => s.bag_id === bag) : all;
+}
+
+function renderList() {
+  const rows = shots();
+  const holder = $('list');
+  holder.replaceChildren();
+  $('count').textContent = rows.length + (rows.length === 1 ? ' shot' : ' shots');
+  $('empty').style.display = rows.length ? 'none' : '';
+  for (const r of [...rows].reverse()) {
+    const spark = sparkline(r.curve);
+    holder.appendChild(el('button', {
+      class: 'bx shot-row', type: 'button', 'aria-current': String(r.shot_id === selected),
+      onclick: () => { selected = r.shot_id; location.hash = r.shot_id; render(); },
+    },
+      el('span', { class: 'id' }, (r.shot_id ?? '').replace('shot-', '#')),
+      el('span', {},
+        el('span', { class: 'who' }, r.bean_name || r.roaster || 'Unnamed coffee'),
+        el('br'),
+        el('span', { class: 'nums' },
+          [Number.isFinite(F(r.dose_g)) && Number.isFinite(F(r.yield_g))
+            ? `${fmt(F(r.dose_g), 1)}→${fmt(F(r.yield_g), 1)} g` : null,
+           Number.isFinite(F(r.time_s)) ? `${fmt(F(r.time_s), 0)} s` : null,
+           Number.isFinite(F(r.grind_setting)) ? `grind ${r.grind_setting}` : null,
+           Number.isFinite(F(r.rating)) ? `${r.rating}/10` : null].filter(Boolean).join(' · '))),
+      spark ?? el('span', { class: 'nums' }, '—')));
+  }
+}
+
+/** How this shot sits against the rest of the same coffee. */
+function comparison(shot, all) {
+  const peers = all.filter((s) => s.shot_id !== shot.shot_id
+    && (shot.bag_id ? s.bag_id === shot.bag_id : true));
+  if (peers.length < 2) return null;
+  const rows = [];
+  for (const key of ['time_s', 'yield_g', 'steady_flow_gs', 'ey_pct', 'rating']) {
+    const v = F(shot[key]);
+    const vals = clean(peers.map((s) => F(s[key])));
+    if (!Number.isFinite(v) || vals.length < 2) continue;
+    const m = median(vals);
+    const spread = mad(vals) || sd(vals) || 0;
+    // A modified z-score: median and MAD, so one wild shot cannot move the
+    // yardstick it is being measured against.
+    const z = spread > 1e-9 ? (0.6745 * (v - m)) / spread : 0;
+    rows.push({ key, v, m, z, n: vals.length });
+  }
+  return rows.length ? rows : null;
+}
+
+function renderDetail() {
+  const holder = $('detail');
+  holder.replaceChildren();
+  const all = store.all();
+  const shot = all.find((s) => s.shot_id === selected) ?? null;
+  if (!shot) { holder.appendChild(el('p', { class: 'empty' }, 'Pick a shot.')); return; }
+
+  holder.appendChild(el('div', { style: 'display:flex;align-items:baseline;gap:12px;flex-wrap:wrap' },
+    el('div', { class: 'tag', style: 'margin:0' }, shot.shot_id),
+    el('strong', { style: 'font-size:16px' }, shot.bean_name || 'Unnamed coffee'),
+    el('span', { class: 'msg', style: 'margin:0' },
+      [shot.roaster, (shot.timestamp ?? '').slice(0, 16),
+       Number.isFinite(F(shot.days_off_roast)) ? `${shot.days_off_roast} d off roast` : null]
+        .filter(Boolean).join(' · ')),
+    el('button', { class: 'danger ghost', type: 'button',
+      style: 'margin-left:auto;padding:5px 10px;box-shadow:none',
+      onclick: () => { if (confirm(`Delete ${shot.shot_id}?`)) { store.remove(shot.shot_id); selected = null; } },
+    }, 'Delete')));
+
+  const cells = [
+    ['dose_g', 1], ['yield_g', 1], ['ratio', 2], ['time_s', 1],
+    ['grind_setting', 1], ['steady_flow_gs', 2], ['t_first_drip_s', 1], ['ey_pct', 2],
+  ].filter(([k]) => Number.isFinite(F(shot[k])));
+  holder.appendChild(el('div', { class: 'grid g3', style: 'margin-top:16px' },
+    ...cells.map(([k, dp]) => el('div', { class: 'st bx' },
+      el('div', { class: 'k' }, label(k)),
+      el('div', { class: 'v' }, fmt(F(shot[k]), dp))))));
+
+  if (shot.tags || Number.isFinite(F(shot.rating))) {
+    holder.appendChild(el('p', { class: 'msg' },
+      [Number.isFinite(F(shot.rating)) ? `Rated ${shot.rating}/10` : null,
+       shot.tags || null, shot.notes || null].filter(Boolean).join(' · ')));
+  }
+
+  // The curve, and the flow derived from it — the shape is the whole point of
+  // having stored it rather than just the endpoints.
+  const pts = decodeCurve(shot.curve);
+  if (pts.length > 3) {
+    holder.appendChild(el('div', { class: 'tag', style: 'margin-top:18px' }, 'The pour'));
+    const weight = el('div', {});
+    const flow = el('div', {});
+    holder.appendChild(el('div', { class: 'chart-wrap' }, weight));
+    holder.appendChild(el('div', { class: 'chart-wrap', style: 'margin-top:10px' }, flow));
+    chart.scatter(weight, {
+      points: pts.map(([t, w]) => ({ x: t, y: w, label: `${t}s → ${w}g` })),
+      xLabel: 'Time (s)', yLabel: 'Weight (g)',
+    });
+    const fs = flowSeries(pts, 1.0);
+    chart.scatter(flow, {
+      points: pts.map(([t], i) => ({ x: t, y: fs[i] })).filter((p) => Number.isFinite(p.y)),
+      xLabel: 'Time (s)', yLabel: 'Flow (g/s)',
+    });
+  } else {
+    holder.appendChild(el('p', { class: 'note', style: 'margin-top:18px' },
+      'No flow curve on this shot — it was entered by hand, or logged before curves were stored.'));
+  }
+
+  holder.appendChild(el('div', { class: 'tag', style: 'margin-top:18px' }, 'What the curve says'));
+  const findings = diagnose(shot);
+  if (!findings.length) {
+    holder.appendChild(el('p', { class: 'msg' }, 'Nothing stood out.'));
+  }
+  for (const f of findings) {
+    holder.appendChild(el('div', { class: `finding ${f.severity}` },
+      el('h4', {}, f.title), el('p', {}, f.detail), el('p', { class: 'do' }, f.action)));
+  }
+
+  const cmp = comparison(shot, all);
+  if (cmp) {
+    holder.appendChild(el('div', { class: 'tag', style: 'margin-top:18px' },
+      `Against your other ${shot.bag_id ? 'shots on this coffee' : 'shots'}`));
+    holder.appendChild(el('div', { class: 'cmp', style: 'margin-top:12px' },
+      ...cmp.flatMap((r) => [
+        el('span', {}, label(r.key)),
+        el('span', { class: 'n' }, fmt(r.v, 2)),
+        el('span', { class: `d ${r.z > 0 ? 'up' : 'dn'}` },
+          `${r.v >= r.m ? '+' : ''}${fmt(r.v - r.m, 2)} vs median of ${r.n}`),
+      ])));
+    const odd = cmp.filter((r) => Math.abs(r.z) > 3.5);
+    holder.appendChild(el('p', { class: 'note', style: 'margin-top:12px' }, odd.length
+      ? `${odd.map((r) => label(r.key)).join(' and ')} sit more than 3.5 modified z-scores from `
+        + 'the median — far enough out to be worth a reason rather than a shrug.'
+      : 'Everything here is within the ordinary spread of your other shots. Differences are '
+        + 'measured against the median and MAD, so one wild shot cannot move the yardstick.'));
+  }
+}
+
+function render() { renderList(); renderDetail(); }
+
+function fillBags() {
+  const sel = $('filter-bag');
+  const keep = sel.value;
+  const used = new Set(store.all().map((s) => s.bag_id).filter(Boolean));
+  sel.replaceChildren(el('option', { value: '' }, 'All coffees'),
+    ...kit.bags().filter((b) => used.has(b.id))
+      .map((b) => el('option', { value: b.id }, b.bean_name || b.id)));
+  sel.value = keep;
+}
+$('filter-bag').addEventListener('change', render);
+
+$('export').addEventListener('click', () => {
+  if (!store.all().length) { $('data-msg').textContent = 'Nothing to export.'; return; }
+  download('shots.csv', store.exportCsv());
+  $('data-msg').textContent = `Exported ${store.all().length} shots.`;
+});
+$('import-btn').addEventListener('click', () => $('import').click());
+$('import').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const r = store.importCsv(await file.text());
+  e.target.value = '';
+  $('data-msg').textContent = `Imported ${r.added} shots`
+    + (r.legacy ? ' (legacy format converted)' : '')
+    + (r.skipped ? `, skipped ${r.skipped} with duplicate IDs` : '') + '.';
+});
+
+window.addEventListener('hashchange', () => { selected = location.hash.slice(1) || null; render(); });
+store.subscribe(() => { fillBags(); render(); });
+kit.subscribe(fillBags);
+fillBags();
+if (!selected) selected = store.all().at(-1)?.shot_id ?? null;
+render();
+</script>
+</body>
+</html>

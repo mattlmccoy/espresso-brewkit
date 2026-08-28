@@ -264,3 +264,17 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
   .row { grid-template-columns: 1fr; }
   :root { --sh: 4px; }
 }
+
+/* The live dashboard: one hero weight, five supporting numbers. */
+.dash { display: grid; gap: 12px; grid-template-columns: repeat(6, 1fr); }
+.dash > .hero { grid-column: span 2; grid-row: span 2; }
+.dash > .st:not(.hero) { grid-column: span 2; }
+@media (max-width: 900px) {
+  .dash { grid-template-columns: repeat(2, 1fr); }
+  .dash > .hero { grid-column: span 2; grid-row: auto; }
+  .dash > .st:not(.hero) { grid-column: span 1; }
+}
+/* Captured values sit on the step buttons themselves. */
+.steps .sv { display: block; font: 700 12px/1 var(--mono); margin-top: 7px; opacity: .75; }
+.steps button[aria-current="step"] .sv { opacity: 1; }
+.hint { font: 600 13.5px/1.5 var(--sans); color: var(--ink-dim); }

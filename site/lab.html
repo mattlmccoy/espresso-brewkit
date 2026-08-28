@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab · espresso·brewkit</title>
+<meta name="description" content="The analysis tools: refractometry, regression, outlier detection and uncertainty propagation.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html">Live</a>
+      <a href="./shots.html">Shots</a>
+      <a href="./advisor.html">Advisor</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./lab.html" aria-current="page">Lab</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Lab</h1>
+    <p class="desc">The analysis half. These read the same shot log the brewing tools write,
+    and they are where a refractometer earns its keep.</p>
+  </div>
+
+  <div class="bx panel">
+    <div class="tag">Shots on record</div>
+    <p class="msg" id="summary" style="margin-top:10px"></p>
+  </div>
+
+  <div class="grid tools" style="margin-top:22px">
+    <a class="tool-card" href="./calculator.html"><span class="ico">01</span>
+      <h3>Calculator</h3>
+      <p>Brix to TDS to extraction yield, brew ratio, solids in the cup. Plus the ratio you'd need
+      to hit a target yield.</p></a>
+    <a class="tool-card" href="./explore.html"><span class="ico">02</span>
+      <h3>Explore</h3>
+      <p>Regress any response against one variable or two, with confidence bands, residual plots
+      and a rotatable plane fit.</p></a>
+    <a class="tool-card" href="./quality.html"><span class="ico">03</span>
+      <h3>Quality</h3>
+      <p>Outlier detection three ways, and the repeatability statistics that say whether your data
+      supports a conclusion at all.</p></a>
+    <a class="tool-card" href="./uncertainty.html"><span class="ico">04</span>
+      <h3>Uncertainty</h3>
+      <p>GUM propagation through the yield equation, with a variance budget ranking which
+      measurement actually limits you.</p></a>
+    <a class="tool-card" href="./logger.html"><span class="ico">05</span>
+      <h3>Enter by hand</h3>
+      <p>The old form. Useful for shots pulled away from the scale, and it still reads the legacy
+      one-file-per-shot CSVs.</p></a>
+  </div>
+
+  <div class="bx panel" style="margin-top:22px">
+    <div class="tag">Why these are separate</div>
+    <p style="margin-top:10px;color:var(--ink-dim);font-size:13.5px;font-weight:500;max-width:70ch">
+    Pulling a shot and analysing one are different activities on different schedules. The brewing
+    tools run while coffee is happening and have to be usable with one wet hand; these run
+    afterwards, need a refractometer for their most interesting output, and reward sitting down
+    with them. Mixing the two in one navigation bar made eight things look equally routine when
+    four of them are occasional.</p>
+    <p style="color:var(--ink-dim);font-size:13.5px;font-weight:500;max-width:70ch">
+    Nothing here is downgraded — the uncertainty budget in particular is the tool most likely to
+    change what you buy next, and it usually says the answer is not a better scale.</p>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt } from './assets/js/ui.js';
+import * as store from './assets/js/core/store.js';
+boot();
+const rows = store.all();
+const withBrix = rows.filter((r) => Number.isFinite(Number(r.brix)) && r.brix !== '' && r.brix !== null);
+document.getElementById('summary').textContent = rows.length
+  ? `${rows.length} shot${rows.length === 1 ? '' : 's'} logged, ${withBrix.length} with a Brix `
+    + `reading. Extraction yield needs Brix, so the tools below have ${withBrix.length} `
+    + `row${withBrix.length === 1 ? '' : 's'} to work with.`
+  : 'No shots logged yet. These tools read the same log the Live page writes.';
+</script>
+</body>
+</html>

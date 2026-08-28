@@ -17,21 +17,52 @@ plain CSV you own.
 
 | | |
 |---|---|
-| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session: weigh the beans, weigh the grounds, pull the shot, rate it. Streams from a Bluetooth scale and writes one complete row. |
-| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags and grinders as real objects, so a shot records what it was made with and how stale the coffee was on the day. |
+| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session, driven by the scale. Weigh, grind, pull, rate — it steps itself. |
+| **[Shots](https://mattlmccoy.github.io/espresso-brewkit/shots.html)** | Every shot you have pulled, with its flow curve, its diagnosis, and how it sits against the rest. |
 | **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
-| **[Calculator](https://mattlmccoy.github.io/espresso-brewkit/calculator.html)** | Brix → TDS → extraction yield, brew ratio, solids in the cup, average flow. Plus the ratio you'd need to hit a target yield. |
-| **[Shot log](https://mattlmccoy.github.io/espresso-brewkit/logger.html)** | Record shots, derive everything downstream, import and export one CSV. Reads the old one-file-per-shot format too. |
-| **[Explore](https://mattlmccoy.github.io/espresso-brewkit/explore.html)** | Regress any response against one variable or two. Confidence bands, residual plots, a rotatable 3D plane fit, and a correlation matrix. |
-| **[Quality](https://mattlmccoy.github.io/espresso-brewkit/quality.html)** | Outlier detection by three methods, and the repeatability statistics that tell you whether your data can support a conclusion at all. |
-| **[Uncertainty](https://mattlmccoy.github.io/espresso-brewkit/uncertainty.html)** | GUM propagation through the yield equation, with a variance budget showing which measurement is actually limiting you. |
+| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags and grinders as real objects, so a shot records what it was made with and how stale the coffee was. |
+| **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
 
-## The session
+Pulling a shot and analysing one are different activities on different schedules.
+The first happens with a wet hand while coffee is going cold; the second happens
+afterwards, needs a refractometer for its most interesting output, and rewards
+sitting down. Putting all of it in one flat navigation bar made eight things look
+equally routine when four of them are occasional — hence **Lab**.
 
-The Live page is five steps — **Prep → Dose → Grind → Brew → Rate** — and produces a
-single row with 35 fields in it, including the flow curve. Every other tool on the
-site reads that row, which is the point: the dose you weighed, the grind you dialled
-and the rating you gave are all in the same table as the extraction yield.
+## The session steps itself
+
+The Live page is **Dose → Grind → Brew → Rate**, and the scale drives it. You weigh
+beans, grind into the portafilter, lock in and pull; the only thing you touch is the
+rating at the end. It produces a single row with 35 fields in it, including the flow
+curve, and every other tool reads that row.
+
+What makes this readable is not clever event detection. A scale-side tare and a
+lifted vessel both just drop the reported number, and **nothing in the stream tells
+them apart**. What separates them is that a vessel is not dose-sized:
+
+```
+dosing cup on      52 g    too heavy to be a dose  → ignored
+press tare          0 g    a drop, but nothing was a candidate → ignored
+beans in         18.2 g    plausible               → candidate
+lift cup off      -52 g    a drop, with a candidate → COMMIT 18.2 g
+portafilter on    469 g    too heavy               → ignored
+press tare          0 g    ignored
+grind into it    17.9 g    plausible               → candidate
+carry to machine -521 g    → COMMIT 17.9 g
+```
+
+So: remember the last settled reading that could plausibly be coffee, and commit it
+when the weight falls away. A drop with **no** candidate behind it is a tare or a
+vessel being swapped, and it means nothing — which is exactly why the machine has to
+sit still through it rather than advance.
+
+Dose into an untared cup and brewkit only ever sees cup-plus-beans, which is not
+dose-sized, so nothing is captured. It says so rather than recording the cup as
+coffee.
+
+Every captured value is displayed and stays editable, and every step is still
+reachable by hand. The earlier auto-tare bug was not caused by automation; it was
+caused by automation you could not see.
 
 - **Dose and grounds-out are weighed, not assumed.** The difference is retention —
   the grounds still inside the grinder — which is why a single-dose workflow rarely
@@ -225,7 +256,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-188 assertions across all eight tools in both themes: the analysis results, the
+191 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
