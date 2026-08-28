@@ -308,18 +308,30 @@ try {
   t('live: brew state machine advances', /extract|drip|complete/i.test(await page.textContent('#state')),
     await page.textContent('#state'));
 
+  // The pour is a line plot now, not a scatter: assert the trace itself.
   await page.waitForFunction(
-    () => document.querySelectorAll('#curve svg circle.pt').length > 5, { timeout: 25000 }).catch(() => {});
-  const pts = await page.locator('#curve svg circle.pt').count();
-  t('live: shot curve renders', pts > 5, pts + ' points');
-
-  const w1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-  await page.waitForTimeout(4000);
-  const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-  t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0, `${w1} g -> ${w2} g`);
+    () => (document.querySelector('#curve svg path.weightline')?.getAttribute('d') ?? '')
+      .split('L').length > 8, { timeout: 25000 }).catch(() => {});
+  const trace = await page.evaluate(() => {
+    const d = document.querySelector('#curve svg path.weightline')?.getAttribute('d') ?? '';
+    const pts = d.replace('M', '').split('L').map((p) => p.split(',').map(Number))
+      .filter((p) => p.length === 2 && p.every(Number.isFinite));
+    return { n: pts.length, first: pts[0], last: pts.at(-1) };
+  });
+  t('live: the pour draws as a weight trace', trace.n > 8, trace.n + ' vertices');
+  // y grows downward in SVG, so a climbing weight is a falling y.
+  t('live: the trace climbs as the shot pours',
+    trace.last && trace.first && trace.last[1] < trace.first[1] && trace.last[0] > trace.first[0],
+    `y ${trace.first?.[1]?.toFixed(0)} → ${trace.last?.[1]?.toFixed(0)}`);
+  t('live: flow is plotted alongside weight, not just printed',
+    (await page.locator('#curve svg path.flowline').count()) === 1, 'flow trace present');
 
   // Saving is on the Rate step now, and Stop is what turns a running curve into
   // the scalars a record is made of. Walking that path is the test.
+  // Let the shot actually run before cutting it: the curve scalars need a shot
+  // to read, and a 0.9 s stub has no steady flow or late slope to speak of.
+  await page.waitForFunction(
+    () => parseFloat(document.getElementById('o-t').textContent) > 9, { timeout: 30000 });
   const shotsBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
   await page.click('#stop');
   await page.waitForFunction(() => /g in/.test(document.getElementById('live-msg').textContent),
@@ -1086,6 +1098,74 @@ try {
 
 
 
+
+
+  // ---- the dashboard shows more than the shot in front of you ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.selectOption('#p-bag', kitIds.bag);
+  await page.waitForTimeout(400);
+
+  const ctx = await page.evaluate(() => ({
+    name: document.getElementById('cc-name').textContent,
+    age: document.getElementById('cc-age').textContent,
+    facts: document.getElementById('cc-facts').textContent,
+    trend: document.getElementById('cc-trend').textContent,
+    hist: document.querySelectorAll('#history .hist').length,
+    ghosts: [...document.getElementById('ghost-pick').options].map((o) => o.textContent),
+  }));
+  t('dashboard: the coffee in front of you is on screen',
+    /Test Guji/.test(ctx.name) && /9 d/.test(ctx.age), `${ctx.name} · ${ctx.age}`);
+  t('dashboard: with how much is left and how it has been going',
+    /g left/.test(ctx.facts) && /shot/.test(ctx.facts), ctx.facts);
+  t('dashboard: past pours are shown as shapes, not just numbers',
+    ctx.hist >= 1, ctx.hist + ' in the history strip');
+  // Pouring against a curve you already liked beats aiming for a number.
+  t('dashboard: a reference shot can be poured against',
+    ctx.ghosts.some((o) => /best rated/.test(o)), ctx.ghosts.join(' | ').slice(0, 70));
+
+  await page.selectOption('#ghost-pick', { index: 1 });
+  await page.waitForTimeout(300);
+  t('dashboard: choosing one draws it behind the live pour',
+    (await page.locator('#curve svg path.ghost').count()) >= 1,
+    (await page.locator('#curve svg path.ghost').count()) + ' ghost traces');
+  t('dashboard: the target is a line on the plot, not only a digit',
+    (await page.locator('#curve svg line.target').count()) === 1, 'target line drawn');
+
+  // ---- notes stop explaining once you have read them ----
+  // The notes that actually repeat are the connect-screen ones — browser
+  // support, the reconnect path, "scale not listed".
+  // The notes that actually repeat are the connect-screen ones — browser
+  // support, the reconnect path, "scale not listed". Some tagged notes live
+  // inside closed disclosures, so count only what is actually on screen.
+  await page.goto(B + '/live.html');
+  const shown = page.locator('[data-notice]:not([hidden]):visible');
+  await page.waitForFunction(
+    () => [...document.querySelectorAll('[data-notice]:not([hidden])')]
+      .some((n) => n.offsetParent !== null), { timeout: 8000 });
+  const notesBefore = await shown.count();
+  t('dashboard: recurring notes carry a dismiss', notesBefore > 0
+    && (await page.locator('[data-notice]:not([hidden]):visible .notice-x').count()) > 0,
+    notesBefore + ' dismissible notes');
+  await page.locator('[data-notice]:not([hidden]):visible .notice-x').first().click();
+  await page.waitForTimeout(200);
+  const notesAfter = await shown.count();
+  t('dashboard: dismissing one hides it', notesAfter === notesBefore - 1,
+    `${notesBefore} → ${notesAfter}`);
+  await page.reload();
+  await page.waitForTimeout(900);
+  t('dashboard: and it stays hidden on the next visit',
+    (await shown.count()) === notesAfter, 'still ' + (await shown.count()));
+  // A preference you cannot reverse is a trap — and the control has to be
+  // reachable from where the note was, which is the connect screen.
+  t('dashboard: hidden notes can be brought back',
+    /Restore 1 hidden note/.test(await page.textContent('#restore-notes')),
+    await page.textContent('#restore-notes'));
+  await page.click('#restore-notes');
+  await page.waitForTimeout(300);
+  t('dashboard: restoring brings them all back',
+    (await shown.count()) === notesBefore, `${notesAfter} → ${await shown.count()}`);
 
   // ---- syncing two devices ----
   // The merge is pure and gets tested hard; the Drive half needs a real Google

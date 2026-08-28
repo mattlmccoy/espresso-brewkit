@@ -92,12 +92,12 @@
         </div>
       </div>
       <div id="report" style="margin-top:14px"></div>
-      <p class="note warn" style="margin-top:14px"><strong>Scale not listed?</strong> A BLE device
+      <p class="note warn" style="margin-top:14px" data-notice="scale-not-listed"><strong>Scale not listed?</strong> A BLE device
       stops advertising while something else is connected to it — close nRF Connect, the vendor app,
       or another tab holding it. Many scales also sleep after a minute or two idle.</p>
     </details>
-    <p class="note" id="reopen-note" style="margin-top:14px;display:none"></p>
-    <p class="note" style="margin-top:14px">Chrome, Edge and Opera only. Firefox and Safari have no
+    <p class="note" id="reopen-note" style="margin-top:14px" data-notice="reopen-path" hidden></p>
+    <p class="note" style="margin-top:14px" data-notice="browser-support">Chrome, Edge and Opera only. Firefox and Safari have no
     Web Bluetooth, and on iOS no browser does. Without a scale the session still works — every
     weight becomes something you type instead of something that arrives.</p>
   </div>
@@ -119,7 +119,7 @@
       <input id="import-caps" type="file" accept=".csv,text/csv" class="sr">
     </div>
     <p class="msg" id="cap-msg"></p>
-    <div class="note" style="margin-top:14px">
+    <div class="note" style="margin-top:14px" data-notice="profile-import">
       <strong>Somebody already worked this scale out?</strong> A profile is the answer to the
       teaching step, in a file. Import one and this is done — no reference masses needed.
       <div class="btn-row" style="margin-top:12px">
@@ -139,7 +139,7 @@
   <!-- The session. Shown once there is a verified decoder, or with no scale at all. -->
   <div id="step-live" style="display:none">
     <div class="stage">
-      <!-- Now: the numbers you look at with a portafilter in one hand. -->
+      <!-- Now -->
       <section class="bx cell" id="cell-now">
         <div class="cell-head">
           <span class="tag" id="device-chip">Live</span>
@@ -158,12 +158,10 @@
         </div>
         <div class="state-strip" id="state">Idle</div>
         <p class="hint" id="step-hint"></p>
-        <p class="note" id="driver-note" style="display:none"></p>
+        <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
-        <div class="st bx hero big" style="margin-top:auto">
-          <div class="k" id="w-label">Weight</div>
-          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div>
-        </div>
+        <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
+          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
         <div class="mini">
           <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
           <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
@@ -183,16 +181,20 @@
         <p class="msg" id="live-msg"></p>
       </section>
 
-      <!-- The pour. -->
+      <!-- The pour, against a reference -->
       <section class="bx cell" id="cell-pour">
-        <div class="cell-head"><span class="tag">The pour</span>
-          <span class="msg" id="p-target" style="margin:0"></span></div>
+        <div class="cell-head">
+          <span class="tag">The pour</span>
+          <span class="legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow <i class="sw-g"></i>
+            <select id="ghost-pick" aria-label="Reference shot"></select></span>
+          <span class="msg" id="p-target" style="margin:0 0 0 auto"></span>
+        </div>
         <div class="fillchart" id="curve"></div>
         <p class="note warn" id="live-warn" style="display:none"></p>
         <div id="b-summary"></div>
+        <div class="histstrip" id="history"></div>
       </section>
 
-      <!-- Rate: takes the pour's place when the shot ends, so nothing scrolls. -->
       <section class="bx cell" id="s-rate" style="display:none">
         <div class="cell-head"><span class="tag">Rate</span>
           <span class="msg" id="save-msg" style="margin:0"></span></div>
@@ -210,9 +212,8 @@
         </div>
       </section>
 
-      <!-- The session, and what is running out. -->
+      <!-- Everything about what is going into the cup -->
       <section class="bx cell" id="cell-side">
-        <div class="cell-head"><span class="tag">Session</span></div>
         <div class="steps" id="stepper">
           <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
             <span class="sv" id="sv-dose">—</span></button>
@@ -223,7 +224,17 @@
           <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
             <span class="sv" id="sv-rate">—</span></button>
         </div>
+
+        <div class="coffee-card bx" id="coffee-card">
+          <div class="cc-head"><strong id="cc-name">No coffee selected</strong>
+            <span class="badge" id="cc-age">—</span></div>
+          <div class="cc-facts" id="cc-facts"></div>
+          <div class="bar" id="cc-bar" style="display:none"><span></span></div>
+          <div class="cc-spark" id="cc-trend"></div>
+        </div>
+
         <div class="cell-scroll">
+          <p class="msg" id="g-retention"></p>
           <div class="row tight3">
             <div class="field" style="margin:0"><label for="d-manual">Dose</label>
               <input id="d-manual" type="number" step="0.1"></div>
@@ -232,8 +243,6 @@
             <div class="field" style="margin:0"><label for="r-yield">Yield</label>
               <input id="r-yield" type="number" step="0.1"></div>
           </div>
-          <p class="msg" id="g-retention"></p>
-
           <div class="field"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
           <div class="row">
             <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
@@ -248,7 +257,12 @@
               <input id="p-ratio" type="number" step="0.1" value="2"></div>
           </div>
           <p class="msg" id="p-advice"></p>
-
+          <div id="supply-panel" style="display:none">
+            <div class="cell-head" style="margin-top:10px"><span class="tag">Supplies</span>
+              <a href="./kit.html" class="ghost">Manage</a></div>
+            <p class="msg" id="supply-msg"></p>
+            <div class="supply" id="supply"></div>
+          </div>
           <details>
             <summary>Basket and settings</summary>
             <div class="row tight3" style="margin-top:10px">
@@ -261,22 +275,13 @@
             </div>
             <div class="field" style="max-width:150px"><label for="p-preinf">Pre-infusion (s)</label>
               <input id="p-preinf" type="number" step="0.5"></div>
-            <p class="note">Picking a machine fills these with what it usually runs at.
-            Anything typed here wins.</p>
+            <p class="note" data-notice="machine-defaults">Picking a machine fills these with what
+            it usually runs at. Anything typed here wins.</p>
           </details>
           <details>
             <summary>What the scale decided</summary>
             <div id="s-events" style="margin-top:10px"></div>
           </details>
-
-          <div id="supply-panel" style="display:none">
-            <div class="cell-head" style="margin-top:12px">
-              <span class="tag">Supplies</span>
-              <a href="./kit.html" class="ghost">Manage</a>
-            </div>
-            <p class="msg" id="supply-msg"></p>
-            <div class="supply" id="supply"></div>
-          </div>
         </div>
       </section>
     </div>
@@ -298,10 +303,10 @@
         <button id="export-profile" type="button">Export this scale's profile</button>
         <button class="danger ghost" id="forget-device" type="button">Forget this scale</button>
       </div>
-      <p class="note" style="margin-top:14px">Exporting gives you a small JSON file describing how
+      <p class="note" style="margin-top:14px" data-notice="export-profile-help">Exporting gives you a small JSON file describing how
       this scale encodes weight. Anyone with the same model can import it and skip the teaching step
       entirely \u2014 which is how this supports scales nobody here has ever held.</p>
-      <p class="note" style="margin-top:14px">Re-validating reopens the setup step so you can capture
+      <p class="note" style="margin-top:14px" data-notice="revalidate-help">Re-validating reopens the setup step so you can capture
       fresh reference masses — useful if readings drift or you swapped scales. Your existing captures
       are kept.</p>
     </div>
@@ -312,7 +317,9 @@
 <footer class="site-foot">
   espresso·brewkit — measurement tools for espresso ·
   <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
-  Runs entirely in your browser; no data leaves this device.
+  Runs entirely in your browser; no data leaves this device ·
+  <button class="ghost" id="restore-notes" type="button"
+          style="padding:4px 9px;box-shadow:none;font-size:11px">No notes hidden</button>
 </footer>
 
 <script type="module">
@@ -327,6 +334,9 @@ import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
 import { SessionMachine, STEP_ORDER } from './assets/js/core/session.js';
+import { decodeCurve } from './assets/js/core/schema.js';
+import { flowSeries } from './assets/js/core/diagnose.js';
+import { initNotices, restoreControl, isDismissed } from './assets/js/core/notice.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
          matchByCharacteristic, confirm as confirmFrame, sameDecoder,
          serializeProfile, parseProfile } from './assets/js/ble/index.js';
@@ -431,6 +441,7 @@ function setPhase(phase) {
     $('device-chip').textContent = deviceKey ? displayName() : 'No scale';
     $('rename').value = profile?.name ?? '';
   }
+  initNotices();
 }
 
 const reason = mock ? null : unsupportedReason();
@@ -478,7 +489,7 @@ function renderSaved() {
   // Say which of the two reconnect paths this browser can actually take, rather
   // than promising one click and silently opening a chooser.
   const note = $('reopen-note');
-  note.style.display = '';
+  note.hidden = isDismissed('reopen-path');
   note.textContent = navigator.bluetooth?.getDevices
     ? 'Connecting to a saved scale uses a permission this browser already holds, so it happens '
       + 'without the device chooser. Clearing this site\u2019s Bluetooth permission in browser '
@@ -645,10 +656,8 @@ function render(s) {
   if (s.state === BREW.COMPLETE && draft.time_s === null && brew.curve.length > 2) finishShot();
   if (s.state === BREW.EXTRACTING && sess.step !== 'brew') { sess.goto('brew'); paintSession(); }
 
-  const drawable = brew.curve.length > 2 && (s.state === BREW.EXTRACTING
-    || s.state === BREW.COMPLETE || s.state === BREW.DRIPPING);
   const now = performance.now();
-  if (drawable && (now - lastDraw > 250 || s.state === BREW.COMPLETE)) {
+  if (brew.curve.length > 2 && (now - lastDraw > 220 || s.state === BREW.COMPLETE)) {
     lastDraw = now;
     drawCurve();
   }
@@ -687,12 +696,18 @@ function report(chars) {
  * bag and useless for weighing a dose, and the tool should say so rather than
  * present a confident-looking 18 g.
  */
+let currentDriver = null;
 function showDriverNote(driver) {
+  currentDriver = driver;
   const n = $('driver-note');
-  if (!driver?.note) { n.style.display = 'none'; n.textContent = ''; return; }
-  n.style.display = '';
+  // One mechanism for "not shown", not two: initNotices() uses `hidden`, so a
+  // second rule based on style.display would disagree with it about what is
+  // actually on screen.
+  if (!driver?.note) { n.hidden = true; n.textContent = ''; return; }
+  n.hidden = false;
   n.className = driver.resolutionG > 1 ? 'note warn' : 'note';
   n.textContent = driver.note;
+  initNotices();
 }
 
 function verifyWith(dec, uuid, { driver = null, save = true, askName = false } = {}) {
@@ -815,7 +830,7 @@ $('forget-all').addEventListener('click', () => {
   $('connect').className = 'primary';
   $('connect').textContent = 'Choose a scale';
   $('forget-all').style.display = 'none';
-  $('reopen-note').style.display = 'none';
+  $('reopen-note').hidden = true;
   renderSaved();
   $('conn-msg').textContent = 'Saved scales forgotten.';
 });
@@ -1154,18 +1169,70 @@ function refreshAdvice() {
 }
 
 /* ------------------------------------------------------------------- brew */
-/** The live curve, sized to whatever the stage left for it. */
+/**
+ * The pour: weight, flow, the target as a line, and a reference shot behind it.
+ *
+ * Weight alone only ever goes up, so every shot looks like the same tilted line.
+ * The flow trace is where the shape lives, and the ghost is what turns a number
+ * into a comparison — pouring to match a curve you already liked is a far more
+ * direct instruction than "aim for 28 seconds".
+ */
+let ghostCurve = [], ghostFlowCurve = [];
+
 function drawCurve() {
-  if (brew.curve.length < 2) return;
   const holder = $('curve');
-  const h = Math.max(220, Math.round(holder.clientHeight || 300));
-  const w = Math.max(360, Math.round(holder.clientWidth || 640));
-  chart.scatter(holder, {
-    points: brew.curve.map(([t, x]) => ({ x: t, y: x, label: `${t}s → ${x}g` })),
-    xLabel: 'Time (s)', yLabel: 'Weight (g)',
-    box: { width: w, height: h, m: { t: 12, r: 14, b: 42, l: 52 } },
+  if (!holder) return;
+  const h = Math.max(200, Math.round(holder.clientHeight || 300));
+  const w = Math.max(340, Math.round(holder.clientWidth || 640));
+  const weight = brew.curve.map(([t, x]) => [t, x]);
+  const fs = weight.length > 4 ? flowSeries(weight, 0.8) : [];
+  chart.livePlot(holder, {
+    weight,
+    flow: weight.map(([t], i) => [t, fs[i]]).filter((p) => Number.isFinite(p[1])),
+    ghost: ghostCurve,
+    ghostFlow: ghostFlowCurve,
+    target: targetYield(),
+    firstDrip: brew.snapshot(0, 0, 0).firstDrip ?? NaN,
+    width: w, height: h,
   });
 }
+
+/** Which past shot to pour against. Defaults to the best one on this coffee. */
+function eligibleGhosts() {
+  const bagId = $('p-bag').value || null;
+  return store.all()
+    .filter((r) => decodeCurve(r.curve).length > 4 && (!bagId || r.bag_id === bagId))
+    .slice(-40).reverse();
+}
+
+function refreshGhostPicker() {
+  const sel = $('ghost-pick');
+  const keep = sel.value;
+  const rows = eligibleGhosts();
+  const best = [...rows].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0))[0];
+  sel.replaceChildren(
+    el('option', { value: '' }, rows.length ? 'no reference' : 'no past curves'),
+    ...(best ? [el('option', { value: 'best:' + best.shot_id },
+      `best rated (${best.rating ?? '—'}/10)`)] : []),
+    ...rows.slice(0, 12).map((r) => el('option', { value: r.shot_id },
+      `${r.shot_id.replace('shot-', '#')} · ${fmt(Number(r.time_s), 0)}s`
+      + `${Number.isFinite(Number(r.rating)) ? ' · ' + r.rating + '/10' : ''}`)));
+  sel.value = keep && [...sel.options].some((o) => o.value === keep) ? keep
+    : (best ? 'best:' + best.shot_id : '');
+  applyGhost();
+}
+
+function applyGhost() {
+  const v = $('ghost-pick').value;
+  const id = v.startsWith('best:') ? v.slice(5) : v;
+  const row = id ? store.all().find((r) => r.shot_id === id) : null;
+  ghostCurve = row ? decodeCurve(row.curve) : [];
+  const gf = ghostCurve.length > 4 ? flowSeries(ghostCurve, 0.8) : [];
+  ghostFlowCurve = ghostCurve.map(([t], i) => [t, gf[i]]).filter((p) => Number.isFinite(p[1]));
+  drawCurve();
+}
+$('ghost-pick').addEventListener('change', applyGhost);
+
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
@@ -1332,12 +1399,107 @@ function paintSupply() {
     : '';
 }
 
-kit.subscribe(() => { refreshAdvice(); paintSupply(); });
+/**
+ * Everything about the coffee in front of you, without navigating away: how old
+ * it is, how much is left, and how the last few shots on it actually ran. The
+ * trend is the useful part — a run of times drifting up is a bag going stale or
+ * a grinder drifting, and it is invisible one shot at a time.
+ */
+function paintCoffee() {
+  const bagId = $('p-bag').value || null;
+  const bag = bagId ? kit.bag(bagId) : null;
+  const shots = store.all().filter((r) => bagId && r.bag_id === bagId);
+  $('cc-name').textContent = bag ? (bag.bean_name || bag.id) : 'No coffee selected';
+
+  const days = bag ? kit.daysOffRoast(bag.roast_date) : null;
+  const age = $('cc-age');
+  age.textContent = days === null ? '—' : `${days} d`;
+  age.className = `badge ${days === null ? '' : days < 4 || days > 35 ? 'warn'
+    : days > 21 ? 'flag' : 'ok'}`;
+
+  const st = bag ? supply.bagStatus(bag, store.all()) : null;
+  const facts = [];
+  if (bag?.roaster) facts.push(bag.roaster);
+  facts.push(`${shots.length} shot${shots.length === 1 ? '' : 's'}`);
+  if (st?.known) facts.push(`${fmt(st.remaining, 0)} g left`);
+  if (st?.known && st.shotsLeft !== null) facts.push(`~${st.shotsLeft} to go`);
+  const rated = shots.map((r) => Number(r.rating)).filter(Number.isFinite);
+  if (rated.length) {
+    facts.push(`avg ${(rated.reduce((a, b) => a + b, 0) / rated.length).toFixed(1)}/10`);
+  }
+  $('cc-facts').textContent = facts.join(' · ');
+
+  const bar = $('cc-bar');
+  bar.style.display = st?.known ? '' : 'none';
+  bar.className = `bar${st?.low ? ' low' : ''}`;
+  if (st?.known) bar.firstElementChild.style.width = `${(st.pct * 100).toFixed(1)}%`;
+
+  // Shot time over the last several shots, as a sparkline with the target line.
+  const times = shots.map((r) => Number(r.time_s)).filter((v) => v > 0).slice(-10);
+  const holder = $('cc-trend');
+  holder.replaceChildren();
+  if (times.length < 2) return;
+  const lo = Math.min(...times, 20), hi = Math.max(...times, 34);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 120 30');
+  svg.setAttribute('class', 'spark');
+  const px = (i) => (i / Math.max(1, times.length - 1)) * 116 + 2;
+  const py = (v) => 28 - ((v - lo) / (hi - lo || 1)) * 26;
+  const mk = (tag, attrs) => {
+    const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    svg.appendChild(n);
+    return n;
+  };
+  mk('line', { x1: 2, y1: py(28), x2: 118, y2: py(28), class: 'ref' });
+  mk('path', { d: 'M' + times.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join('L') });
+  mk('circle', { cx: px(times.length - 1), cy: py(times.at(-1)), r: 2.6, class: 'end' });
+  holder.appendChild(svg);
+  holder.appendChild(el('span', { class: 'sparklabel' },
+    `shot time, last ${times.length} — now ${fmt(times.at(-1), 0)} s`));
+}
+
+/** The last handful of pours, as shapes. Trends show up here that numbers hide. */
+function paintHistory() {
+  const bagId = $('p-bag').value || null;
+  const rows = store.all()
+    .filter((r) => decodeCurve(r.curve).length > 4 && (!bagId || r.bag_id === bagId))
+    .slice(-8);
+  const holder = $('history');
+  holder.replaceChildren();
+  if (!rows.length) return;
+  for (const r of rows) {
+    const pts = decodeCurve(r.curve);
+    const tMax = pts.at(-1)[0] || 1, wMax = Math.max(...pts.map((p) => p[1])) || 1;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 52 24');
+    svg.setAttribute('class', 'spark');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M' + pts.map(([t, w]) =>
+      `${((t / tMax) * 50 + 1).toFixed(1)},${(23 - (w / wMax) * 22).toFixed(1)}`).join('L'));
+    svg.appendChild(path);
+    holder.appendChild(el('button', {
+      class: 'hist bx', type: 'button', title: `${r.shot_id} — use as the reference curve`,
+      onclick: () => { $('ghost-pick').value = r.shot_id; applyGhost(); },
+    }, svg, el('span', {}, `${fmt(Number(r.time_s), 0)}s`
+      + (Number.isFinite(Number(r.rating)) ? ` · ${r.rating}` : ''))));
+  }
+}
+
+kit.subscribe(() => { refreshAdvice(); paintSupply(); paintCoffee(); });
 supply.subscribe(paintSupply);
-store.subscribe(paintSupply);
+store.subscribe(() => { paintSupply(); paintCoffee(); paintHistory(); refreshGhostPicker(); });
+$('p-bag').addEventListener('change', () => {
+  paintCoffee(); paintHistory(); refreshGhostPicker();
+});
+initNotices();
+restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDriver); } });
 refreshAdvice();
 paintSession();
 paintSupply();
+paintCoffee();
+paintHistory();
+refreshGhostPicker();
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so

@@ -76,9 +76,11 @@
   </footer>
 </div>
 <script type="module">
+import { initNotices } from './assets/js/core/notice.js';
 import { boot, fmt } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 boot();
+initNotices();
 const rows = store.all();
 const withBrix = rows.filter((r) => Number.isFinite(Number(r.brix)) && r.brix !== '' && r.brix !== null);
 document.getElementById('summary').textContent = rows.length

@@ -371,3 +371,89 @@ export function surface3d(container, { points, model, labels, size = 560 }) {
 
   draw();
 }
+
+/**
+ * The live pour: weight and flow together, against a reference.
+ *
+ * Weight alone is the least informative thing a scale can draw — it only ever
+ * goes up, and every shot looks like the same tilted line. Flow is where the
+ * shape is, and the shape is what says whether the puck held. Both share the
+ * time axis and get their own vertical scale, so neither has to be rescaled to
+ * fit the other.
+ *
+ * `ghost` is the point of the whole thing: a previous shot's weight curve drawn
+ * underneath, so a pour is judged against something rather than against nothing.
+ * Pulling to match a curve you already liked is a far more direct instruction
+ * than "aim for 28 seconds".
+ */
+export function livePlot(container, {
+  weight = [], flow = [], ghost = [], ghostFlow = [], target = NaN,
+  firstDrip = NaN, width = 720, height = 380,
+} = {}) {
+  const m = { t: 14, r: 46, b: 38, l: 46 };
+  container.replaceChildren();
+  const svg = el('svg', {
+    viewBox: `0 0 ${width} ${height}`, class: 'chart live', role: 'img',
+    preserveAspectRatio: 'none',
+  }, container);
+  const iw = width - m.l - m.r, ih = height - m.t - m.b;
+
+  const allT = [...weight, ...ghost].map((p) => p[0]);
+  const tMax = Math.max(12, ...allT, Number.isFinite(firstDrip) ? firstDrip + 2 : 0);
+  const wMax = Math.max(
+    Number.isFinite(target) ? target * 1.12 : 0,
+    10, ...[...weight, ...ghost].map((p) => p[1]),
+  );
+  const fMax = Math.max(1.2, ...[...flow, ...ghostFlow].map((p) => p[1]));
+
+  const sx = (t) => m.l + (t / tMax) * iw;
+  const sy = (w) => m.t + ih - (w / wMax) * ih;
+  const sf = (f) => m.t + ih - (f / fMax) * ih;
+
+  for (const t of ticks(0, tMax, 6)) {
+    el('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: m.t + ih, class: 'grid' }, svg);
+    el('text', { x: sx(t), y: m.t + ih + 17, class: 'tick', 'text-anchor': 'middle' }, svg)
+      .textContent = fmtTick(t);
+  }
+  for (const w of ticks(0, wMax, 5)) {
+    el('line', { x1: m.l, y1: sy(w), x2: m.l + iw, y2: sy(w), class: 'grid' }, svg);
+    el('text', { x: m.l - 7, y: sy(w) + 4, class: 'tick', 'text-anchor': 'end' }, svg)
+      .textContent = fmtTick(w);
+  }
+  for (const f of ticks(0, fMax, 4)) {
+    el('text', { x: m.l + iw + 7, y: sf(f) + 4, class: 'tick tick-alt', 'text-anchor': 'start' }, svg)
+      .textContent = fmtTick(f);
+  }
+
+  const path = (pts, scale, cls) => {
+    if (pts.length < 2) return;
+    el('path', {
+      d: 'M' + pts.map(([t, v]) => `${sx(t).toFixed(1)},${scale(v).toFixed(1)}`).join('L'),
+      class: cls,
+    }, svg);
+  };
+
+  // The reference goes down first so the live pour draws over it.
+  path(ghost, sy, 'ghost');
+  path(ghostFlow, sf, 'ghost ghost-flow');
+
+  if (Number.isFinite(target) && target > 0 && target <= wMax) {
+    el('line', { x1: m.l, y1: sy(target), x2: m.l + iw, y2: sy(target), class: 'target' }, svg);
+    el('text', { x: m.l + iw - 4, y: sy(target) - 6, class: 'tick', 'text-anchor': 'end' }, svg)
+      .textContent = `target ${target.toFixed(1)} g`;
+  }
+  if (Number.isFinite(firstDrip) && firstDrip > 0) {
+    el('line', { x1: sx(firstDrip), y1: m.t, x2: sx(firstDrip), y2: m.t + ih, class: 'marker' }, svg);
+  }
+
+  path(flow, sf, 'flowline');
+  path(weight, sy, 'weightline');
+
+  // Where the pour has got to, so the eye finds it without hunting.
+  const last = weight.at(-1);
+  if (last) el('circle', { cx: sx(last[0]), cy: sy(last[1]), r: 4.5, class: 'pt' }, svg);
+
+  el('text', { x: m.l, y: m.t - 3, class: 'axis-label' }, svg).textContent = 'g';
+  el('text', { x: m.l + iw + 7, y: m.t - 3, class: 'axis-label alt' }, svg).textContent = 'g/s';
+  return svg;
+}

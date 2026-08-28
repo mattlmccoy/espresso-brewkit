@@ -64,7 +64,7 @@
           <button class="danger ghost" id="clear-client" type="button">Clear</button>
         </div>
         <p class="msg" id="client-msg"></p>
-        <p class="note" style="margin-top:14px">This is public by design. A browser cannot keep a
+        <p class="note" data-notice="sync-0" style="margin-top:14px">This is public by design. A browser cannot keep a
         secret, so Google secures it with an origin allowlist instead: the id only works from the
         exact web address you register. Pasting it here is safe; putting it in the repository would
         be too.</p>
@@ -121,10 +121,12 @@
   </footer>
 </div>
 <script type="module">
+import { initNotices } from './assets/js/core/notice.js';
 import { boot, el } from './assets/js/ui.js';
 import * as sync from './assets/js/core/sync.js';
 import * as store from './assets/js/core/store.js';
 boot();
+initNotices();
 
 const $ = (id) => document.getElementById(id);
 $('origin').textContent = location.origin;

@@ -140,16 +140,43 @@ standing at the machine.
 ## One screen
 
 Live is a dashboard, not a document: three columns that fill the viewport once,
-so pulling a shot never means scrolling with a portafilter in one hand. Weight
-and the controls on the left, the pour in the middle, the session and what is
-running low on the right. Each column scrolls internally if its own content
-overflows, which is what stops a long tag list pushing the weight off screen.
-Below 1100px it becomes a single column and scrolls like anything else — on a
-phone a fixed-height grid only squeezes everything into illegibility.
+so pulling a shot never means scrolling with a portafilter in one hand. Each
+column scrolls internally if its own content overflows, which is what stops a
+long tag list pushing the weight off screen. Below 1100px it becomes a single
+column and scrolls like anything else.
 
 The fit is a test, not an intention: the suite asserts the page ends up **0px**
 past the viewport, because the first three attempts were over by 349, 59 and
 153px in ways that were not visible by eye.
+
+What is on it, and why each thing earns its place:
+
+| | |
+|---|---|
+| **Weight, time, flow** | the three you look at with a portafilter in one hand |
+| **Lands at · to target · trend** | where the cup ends up if you cut now, seconds left, and which way flow is heading |
+| **The pour** | weight *and* flow on one time axis, the target as a line, and a **ghost of a past shot** underneath |
+| **This coffee** | days off roast, grams and shots left, average rating, and shot time over the last ten as a sparkline |
+| **History strip** | the last eight pours as shapes — click one to make it the ghost |
+| **Session** | the four steps with what each captured, and the pickers |
+| **Supplies** | whatever is closest to running out |
+
+Weight alone is the least informative thing a scale can draw: it only goes up,
+and every shot looks like the same tilted line. Flow is where the shape is, and
+the shape is what says whether the puck held. The **ghost** is the point of the
+whole panel — pouring to match a curve you already liked is a far more direct
+instruction than "aim for 28 seconds".
+
+## Notes that stop explaining
+
+A first-run explanation and a permanent fixture are different things, and this
+had been treating them as the same. Three stacked paragraphs about browser
+support are useful once and furniture thereafter, especially on a dashboard
+whose whole promise is that it fits one screen.
+
+Every recurring note carries a dismiss, and dismissal is permanent. There is one
+control in the footer that brings them all back, because a preference you cannot
+reverse is a trap rather than a preference.
 
 ## What you can watch while it pours
 
@@ -331,7 +358,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-233 assertions across the site in both themes: the analysis results, the
+245 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
