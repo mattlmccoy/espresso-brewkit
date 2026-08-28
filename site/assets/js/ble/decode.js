@@ -111,3 +111,10 @@ export function volatility(frames) {
 }
 
 export const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+
+/** Parse a hex string back to bytes, tolerating spaces and 0x prefixes. */
+export function unhex(str) {
+  const clean = String(str).replace(/0x/gi, '').replace(/[^0-9a-f]/gi, '');
+  const pairs = clean.match(/../g) ?? [];
+  return Uint8Array.from(pairs.map((h) => parseInt(h, 16)));
+}

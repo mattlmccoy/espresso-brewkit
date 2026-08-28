@@ -224,7 +224,9 @@ try {
   // The global `appearance: none` on inputs once stripped checkboxes of their
   // native rendering, so they toggled invisibly and read as dead controls.
   await page.goto(B + '/live.html');
-  await page.waitForSelector('#wide');
+  // The scan controls live inside a collapsed disclosure now; open it first.
+  await page.locator('#step-connect details summary').click();
+  await page.waitForSelector('#wide', { state: 'visible' });
   const cb = await page.evaluate(() => {
     const el = document.getElementById('wide');
     const cs = getComputedStyle(el);
@@ -245,96 +247,163 @@ try {
   t('controls: label click toggles the checkbox', (await page.isChecked('#wide')) === wideWas,
     'back to ' + wideWas);
 
-  // ---- live capture, driven by the mock scale (no hardware) ----
+  // ---- live capture, driven by a mock scale (no hardware) ----
+  // The demo buttons were removed for polish; the mocks stay reachable via
+  // ?mock= so this coverage survives the UI change.
   await page.goto(B + '/live.html');
-  await page.waitForSelector('#demo');
-  t('live: page renders without a scale', await page.locator('#state').isVisible());
+  await page.evaluate(() => {
+    localStorage.removeItem('brewkit.captures.v1');
+    localStorage.removeItem('brewkit.devices.v1');
+  });
+  await page.goto(B + '/live.html');
+  t('live: starts in the connect phase', await page.locator('#step-connect').isVisible()
+    && !(await page.locator('#step-live').isVisible()), 'connect shown, live hidden');
+  t('live: no demo buttons in the UI', (await page.locator('#demo, #demo-lefu').count()) === 0);
 
-  await page.click('#demo');
+  // An unknown scale must land in setup, not live.
+  await page.goto(B + '/live.html?mock=generic');
   await page.waitForFunction(
-    () => document.getElementById('conn-msg').textContent.includes('Mock Scale'), { timeout: 5000 });
-  t('live: mock device connects', true, await page.textContent('#conn-msg'));
+    () => document.getElementById('step-setup').style.display !== 'none', { timeout: 6000 });
+  t('live: unknown scale goes to setup', true, await page.textContent('#conn-msg'));
+  await page.waitForFunction(() => document.querySelectorAll('#frames div').length > 3, { timeout: 6000 });
+  t('live: frames stream in', true, (await page.locator('#frames div').count()) + ' frames');
 
-  // Frames must arrive and be decodable without any per-device setup, since the
-  // mock advertises a layout the auto-decoder is expected to solve.
-  await page.waitForFunction(
-    () => document.querySelectorAll('#frames div').length > 3, { timeout: 5000 });
-  t('live: frames stream in', true,
-    (await page.locator('#frames div').count()) + ' frames');
-
-  // Teach it the mock's layout the same way a user would: two known masses.
   await page.fill('#ref', '0');
   await page.click('#capture');
-  await page.waitForTimeout(1200);
-  const grew = await page.evaluate(() => {
-    // The mock places a 120 g cup shortly after the shot starts.
-    return document.querySelectorAll('#frames div').length;
-  });
+  await page.waitForTimeout(1100);
   await page.fill('#ref', '120');
   await page.click('#capture');
   await page.waitForTimeout(400);
   const candCount = await page.locator('#cands .cand').count();
   t('live: auto-decoder proposes an encoding', candCount > 0, candCount + ' candidates');
 
-  if (candCount > 0) {
-    await page.locator('#cands .cand button').first().click();
-    await page.waitForTimeout(2500);
-    const w = parseFloat(await page.textContent('#o-w'));
-    t('live: decoded weight tracks the mock', Number.isFinite(w), w + ' g');
-
-    // Let the synthetic shot run far enough to enter EXTRACTING and build a curve.
-    await page.waitForFunction(() => {
-      const s = document.getElementById('state').textContent.toLowerCase();
-      return s.includes('extract') || s.includes('drip') || s.includes('complete');
-    }, { timeout: 30000 }).catch(() => {});
-    const stateText = await page.textContent('#state');
-    t('live: brew state machine advances', /extract|drip|complete/i.test(stateText), stateText);
-
-    // The curve builds at the mock's sample rate; wait for it rather than
-    // sampling the instant the state flips.
-    await page.waitForFunction(
-      () => document.querySelectorAll('#curve svg circle.pt').length > 5,
-      { timeout: 25000 }).catch(() => {});
-    const pts = await page.locator('#curve svg circle.pt').count();
-    t('live: shot curve renders', pts > 5, pts + ' points');
-
-    // Assert the claim itself — that weight rises — rather than picking an
-    // arbitrary threshold that depends on when the sample happens to land.
-    const w1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-    await page.waitForTimeout(4000);
-    const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-    t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0,
-      `${w1} g -> ${w2} g`);
-
-    const before = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
-    await page.click('#save');
-    const after = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
-    t('live: captured shot saves to the log', after === before + 1, before + ' -> ' + after);
-  }
-
-  // ---- a recognised scale needs no teaching ----
-  await page.goto(B + '/live.html');
-  await page.click('#demo-lefu');
+  await page.locator('#cands .cand button').first().click();
   await page.waitForFunction(
-    () => document.getElementById('cap-msg').textContent.includes('Recognised'), { timeout: 6000 });
-  t('driver: Lefu frames are auto-detected', true, await page.textContent('#cap-msg'));
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 4000 });
+  t('live: verifying moves to the live phase and hides setup',
+    !(await page.locator('#step-setup').isVisible()), 'setup hidden');
 
-  // It must decode without any capture step at all.
-  await page.waitForFunction(() => {
-    const w = parseFloat(document.getElementById('o-w').textContent);
-    return Number.isFinite(w);
-  }, { timeout: 8000 });
+  // Naming, which is what makes the profile a device rather than a decoder.
+  t('live: prompts for a name after verifying', await page.locator('#name-row').isVisible());
+  await page.fill('#device-name', 'Bench scale');
+  await page.click('#save-device');
+  t('live: name is applied', (await page.textContent('#device-chip')) === 'Bench scale',
+    await page.textContent('#device-chip'));
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}'));
+  const savedOne = Object.values(saved)[0] ?? {};
+  t('live: profile stores name, decoder and characteristic',
+    savedOne.name === 'Bench scale' && !!savedOne.decoder && !!savedOne.uuid,
+    JSON.stringify({ name: savedOne.name, uuid: savedOne.uuid?.slice(4, 8) }));
+
   await page.waitForFunction(() => {
     const s = document.getElementById('state').textContent.toLowerCase();
     return s.includes('extract') || s.includes('drip') || s.includes('complete');
   }, { timeout: 30000 }).catch(() => {});
-  const lefuState = await page.textContent('#state');
-  t('driver: shot runs with no teach step', /extract|drip|complete/i.test(lefuState), lefuState);
+  t('live: brew state machine advances', /extract|drip|complete/i.test(await page.textContent('#state')),
+    await page.textContent('#state'));
+
+  await page.waitForFunction(
+    () => document.querySelectorAll('#curve svg circle.pt').length > 5, { timeout: 25000 }).catch(() => {});
+  const pts = await page.locator('#curve svg circle.pt').count();
+  t('live: shot curve renders', pts > 5, pts + ' points');
+
+  const w1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  await page.waitForTimeout(4000);
+  const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0, `${w1} g -> ${w2} g`);
+
+  const shotsBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
+  await page.click('#save');
+  const shotsAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
+  t('live: captured shot saves to the log', shotsAfter === shotsBefore + 1, shotsBefore + ' -> ' + shotsAfter);
+
+  // ---- the profile is remembered on reconnect ----
+  // The whole point: a scale set up once is not set up again.
+  await page.goto(B + '/live.html?mock=generic');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 6000 });
+  t('remembered: reconnect skips setup entirely',
+    !(await page.locator('#step-setup').isVisible()), 'setup hidden');
+  t('remembered: the chosen name comes back',
+    (await page.textContent('#device-chip')) === 'Bench scale', await page.textContent('#device-chip'));
+  t('remembered: decoder noted as remembered',
+    /remembered/i.test(await page.textContent('#decoder-note')), await page.textContent('#decoder-note'));
+  t('remembered: no name prompt second time', !(await page.locator('#name-row').isVisible()));
+
+  // ---- settings: rename, re-validate, forget ----
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  await page.fill('#rename', 'Drip tray scale');
+  await page.click('#apply-rename');
+  t('settings: rename takes effect', (await page.textContent('#device-chip')) === 'Drip tray scale',
+    await page.textContent('#device-chip'));
+
+  await page.click('#revalidate');
+  t('settings: re-validate reopens setup', await page.locator('#step-setup').isVisible());
+  const keptCaps = await page.locator('#caps-table tbody tr').count();
+  t('settings: re-validating keeps existing captures', keptCaps >= 2, keptCaps + ' rows');
+
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  await page.click('#forget-device');
+  await page.waitForTimeout(300);
+  const afterForget = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}'));
+  t('settings: forget removes the profile', Object.keys(afterForget).length === 0,
+    Object.keys(afterForget).length + ' remaining');
+  t('settings: forget returns to connect', await page.locator('#step-connect').isVisible());
+
+  // ---- a recognised scale needs no teaching ----
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  t('driver: Lefu frames are auto-detected',
+    /Lefu/i.test(await page.textContent('#decoder-note')), await page.textContent('#decoder-note'));
+  t('driver: setup never shown for a known scale', !(await page.locator('#step-setup').isVisible()));
+
+  await page.waitForFunction(() => {
+    const s = document.getElementById('state').textContent.toLowerCase();
+    return s.includes('extract') || s.includes('drip') || s.includes('complete');
+  }, { timeout: 30000 }).catch(() => {});
+  t('driver: shot runs with no teach step',
+    /extract|drip|complete/i.test(await page.textContent('#state')), await page.textContent('#state'));
 
   const lw1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
   await page.waitForTimeout(4000);
   const lw2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
   t('driver: decoded weight climbs', lw2 > lw1, `${lw1} g -> ${lw2} g`);
+
+  // ---- captures survive a reload ----
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.evaluate(() => localStorage.removeItem('brewkit.captures.v1'));
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  await page.click('#revalidate');
+  await page.waitForFunction(() => document.querySelectorAll('#frames div').length > 2, { timeout: 6000 });
+  await page.fill('#ref', '0');
+  await page.click('#capture');
+  await page.waitForTimeout(900);
+  await page.fill('#ref', '120');
+  await page.click('#capture');
+  await page.waitForTimeout(300);
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.captures.v1') || '[]'));
+  t('captures: written to storage', stored.length === 2, stored.length + ' saved');
+  t('captures: frames stored as hex',
+    stored.every((c) => Object.values(c.frames).every((h) => /^[0-9a-f ]+$/.test(h))),
+    Object.values(stored[0]?.frames ?? {})[0] ?? 'none');
+  t('captures: reference mass recorded', stored.map((c) => c.grams).join(',') === '0,120',
+    stored.map((c) => c.grams).join(','));
+  const rowsBefore = await page.locator('#caps-table tbody tr').count();
+  t('captures: shown in a table, not just counted', rowsBefore >= 2, rowsBefore + ' rows');
+
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForTimeout(800);
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  await page.click('#revalidate');
+  await page.waitForTimeout(300);
+  const rowsAfter = await page.locator('#caps-table tbody tr').count();
+  t('captures: survive a reload', rowsAfter === rowsBefore, `${rowsBefore} -> ${rowsAfter}`);
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.

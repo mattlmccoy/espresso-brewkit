@@ -45,84 +45,118 @@
 
   <div id="unsupported" class="note warn" style="display:none;margin-bottom:22px"></div>
 
+  <!-- Connect: shown until a device is connected. -->
   <div class="bx panel" id="step-connect">
-    <div class="tag">01 — Connect</div>
+    <div class="tag">Connect</div>
+    <div id="saved-devices" style="margin-bottom:16px"></div>
     <div class="btn-row">
       <button class="primary" id="connect" type="button">Choose a scale</button>
-      <button id="demo" type="button">Run a demo shot</button>
-      <button id="demo-lefu" type="button">Demo: Lefu/INSMART</button>
-      <button class="ghost" id="disconnect" type="button" style="display:none">Disconnect</button>
       <span class="msg" id="conn-msg" style="margin:0"></span>
     </div>
-
-    <div class="row" style="margin-top:16px;max-width:640px;align-items:end">
-      <div class="field" style="margin:0">
-        <label for="wide">Discovery</label>
-        <label class="check">
-          <input id="wide" type="checkbox" checked>
-          Wide scan (~770 service UUIDs)
-        </label>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
+                      text-transform:uppercase;color:var(--ink-mute)">Discovery options</summary>
+      <div class="row" style="margin-top:14px;max-width:640px;align-items:end">
+        <div class="field" style="margin:0">
+          <label for="wide">Scan breadth</label>
+          <label class="check"><input id="wide" type="checkbox" checked>
+            Wide scan (~770 service UUIDs)</label>
+        </div>
+        <div class="field" style="margin:0">
+          <label for="extra-uuid">Specific service UUID</label>
+          <input id="extra-uuid" type="text" placeholder="0000ffe0-0000-1000-8000-00805f9b34fb">
+        </div>
       </div>
-      <div class="field" style="margin:0">
-        <label for="extra-uuid">Or a specific service UUID</label>
-        <input id="extra-uuid" type="text" placeholder="0000ffe0-0000-1000-8000-00805f9b34fb">
-      </div>
-    </div>
-
-    <div id="report" style="margin-top:14px"></div>
-
-    <p class="note" style="margin-top:14px">Chrome, Edge and Opera only — Firefox and Safari have no
-    Web Bluetooth, and on iOS no browser does. The demo needs no hardware and exercises the whole
-    pipeline, so you can see what a shot looks like before you own a supported scale.</p>
-    <p class="note warn" style="margin-top:12px"><strong>Scale not in the list?</strong> A BLE
-    device stops advertising while something else is connected to it — so if nRF Connect, the
-    vendor app, or another browser tab still holds the connection, it becomes invisible here.
-    Disconnect there first. Failing that, power-cycle the scale: many sleep and stop advertising
-    after a minute or two idle.</p>
-    <p class="note warn" style="margin-top:12px"><strong>A device with no services is normal, not
-    broken.</strong> Web Bluetooth only exposes services the page asked for in advance — there is no
-    way to list them all. Wide scan covers the ranges cheap modules use. If it still finds nothing,
-    read the real UUID off the scale with nRF Connect (free, iOS and Android) and paste it above.</p>
+      <div id="report" style="margin-top:14px"></div>
+      <p class="note warn" style="margin-top:14px"><strong>Scale not listed?</strong> A BLE device
+      stops advertising while something else is connected to it — close nRF Connect, the vendor app,
+      or another tab holding it. Many scales also sleep after a minute or two idle.</p>
+    </details>
+    <p class="note" style="margin-top:14px">Chrome, Edge and Opera only. Firefox and Safari have no
+    Web Bluetooth, and on iOS no browser does.</p>
   </div>
 
-  <div class="bx panel step" id="step-decode" style="margin-top:22px">
-    <div class="tag">02 — Teach it your scale</div>
+  <!-- Setup: only while a connected device has no verified decoder. -->
+  <div class="bx panel" id="step-setup" style="display:none;margin-top:22px">
+    <div class="tag">Set up this scale</div>
     <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
-    Undocumented scales send an unlabelled frame. Put known masses on and brewkit works out where
-    the weight lives — put something on, type what your scale reads, capture. Three captures at
-    different masses is enough; include zero.</p>
-    <div class="row" style="max-width:520px;align-items:end">
+    This scale sends an unlabelled frame, so brewkit needs to learn where the weight sits. Put a
+    known mass on, type what the scale's own display reads, and capture. Three at different masses
+    is plenty — include zero.</p>
+    <div class="row" style="max-width:560px;align-items:end">
       <div class="field" style="margin:0"><label for="ref">Scale currently reads (g)</label>
         <input id="ref" type="number" step="0.1" value="0"></div>
       <div class="btn-row"><button id="capture" type="button">Capture</button>
+        <button class="ghost" id="export-caps" type="button">Export</button>
         <button class="ghost" id="clear-caps" type="button">Clear</button></div>
     </div>
     <p class="msg" id="cap-msg"></p>
-    <div id="cands" style="margin-top:12px"></div>
-    <div style="margin-top:16px">
+    <div id="caps-table" style="margin-top:14px"></div>
+    <div id="cands" style="margin-top:14px"></div>
+    <div style="margin-top:18px">
       <div class="tag" style="margin-bottom:10px">Incoming frames</div>
       <div class="frames" id="frames"></div>
     </div>
   </div>
 
-  <div class="bx panel step" id="step-live" style="margin-top:22px">
-    <div class="tag">03 — Live</div>
-    <div class="state-strip" id="state">Idle</div>
-    <div class="readout" style="margin-top:14px">
-      <div class="st bx hero big"><div class="k">Weight</div>
-        <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
-      <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
-      <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
+  <!-- Live: only once a decoder is verified. -->
+  <div id="step-live" style="display:none">
+    <div class="bx panel" id="name-row" style="display:none;margin-top:22px">
+      <div class="tag">Name this scale</div>
+      <div class="row" style="max-width:520px;align-items:end">
+        <div class="field" style="margin:0"><label for="device-name">Call it</label>
+          <input id="device-name" type="text" placeholder="Kitchen scale"></div>
+        <div class="btn-row"><button class="primary" id="save-device" type="button">Save</button></div>
+      </div>
+      <p class="msg" id="name-msg"></p>
     </div>
-    <div class="btn-row" style="margin-top:16px">
-      <button class="primary" id="arm" type="button">Arm for a shot</button>
-      <button id="start" type="button">Start now</button>
-      <button id="stop" type="button">Stop</button>
-      <button class="ghost" id="save" type="button">Save shot to log</button>
-      <span class="msg" id="live-msg" style="margin:0"></span>
+
+    <div class="bx panel" style="margin-top:22px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div class="tag" style="margin:0" id="device-chip">Live</div>
+        <span class="msg" id="decoder-note" style="margin:0"></span>
+        <button class="ghost" id="disconnect" type="button"
+                style="margin-left:auto;padding:7px 12px;box-shadow:none">Disconnect</button>
+      </div>
+      <div class="state-strip" id="state">Idle</div>
+      <div class="readout" style="margin-top:14px">
+        <div class="st bx hero big"><div class="k">Weight</div>
+          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
+        <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
+        <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
+      </div>
+      <div class="btn-row" style="margin-top:16px">
+        <button class="primary" id="arm" type="button">Arm for a shot</button>
+        <button id="start" type="button">Start now</button>
+        <button id="stop" type="button">Stop</button>
+        <button class="ghost" id="save" type="button">Save shot to log</button>
+        <span class="msg" id="live-msg" style="margin:0"></span>
+      </div>
+      <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
     </div>
-    <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
   </div>
+
+  <!-- Settings: out of the way, but always reachable. -->
+  <details class="bx panel" id="advanced" style="display:none;margin-top:22px">
+    <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
+                    text-transform:uppercase;color:var(--ink-mute)">Device settings</summary>
+    <div style="margin-top:16px">
+      <div class="row" style="max-width:520px;align-items:end">
+        <div class="field" style="margin:0"><label for="rename">Name</label>
+          <input id="rename" type="text"></div>
+        <div class="btn-row"><button id="apply-rename" type="button">Rename</button></div>
+      </div>
+      <p class="msg" id="settings-msg"></p>
+      <div class="btn-row" style="margin-top:14px">
+        <button id="revalidate" type="button">Re-validate decoding</button>
+        <button class="danger ghost" id="forget-device" type="button">Forget this scale</button>
+      </div>
+      <p class="note" style="margin-top:14px">Re-validating reopens the setup step so you can capture
+      fresh reference masses — useful if readings drift or you swapped scales. Your existing captures
+      are kept.</p>
+    </div>
+  </details>
+
 </div>
 
 <footer class="site-foot">
@@ -134,45 +168,113 @@
 <script type="module">
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
+import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { FlowEstimator, BrewMachine, BREW } from './assets/js/core/filter.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
-         matchByCharacteristic, confirm } from './assets/js/ble/index.js';
-import { findCandidates, applyCandidate, describeCandidate, hex } from './assets/js/ble/decode.js';
+         matchByCharacteristic, confirm as confirmFrame } from './assets/js/ble/index.js';
+import { findCandidates, applyCandidate, describeCandidate, hex, unhex } from './assets/js/ble/decode.js';
 boot();
 
 const $ = (id) => document.getElementById(id);
-const DEC_KEY = 'brewkit.decoders.v1';
-const loadDecoders = () => { try { return JSON.parse(localStorage.getItem(DEC_KEY)) || {}; } catch { return {}; } };
-const saveDecoder = (name, c) => {
-  try { const all = loadDecoders(); all[name] = c; localStorage.setItem(DEC_KEY, JSON.stringify(all)); }
-  catch { /* storage blocked */ }
+
+/* ---------------------------------------------------------------- storage */
+// A device profile is everything needed to pick up where you left off: the
+// name you chose, and the decoder that was verified against that scale.
+const DEV_KEY = 'brewkit.devices.v1';
+const CAP_KEY = 'brewkit.captures.v1';
+const LEGACY_DEC_KEY = 'brewkit.decoders.v1';
+
+const readJSON = (k, fallback) => {
+  try { return JSON.parse(localStorage.getItem(k)) ?? fallback; } catch { return fallback; }
+};
+const writeJSON = (k, v) => {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; }
 };
 
-let link = null, deviceName = null, decoder = null, activeUuid = null, driver = null;
-let caps = [], recent = [], lastRaw = 0, lastDraw = 0;
+let devices = readJSON(DEV_KEY, {});
+let caps = readJSON(CAP_KEY, []);
+
+// Decoders used to be keyed by advertised name with no profile around them.
+// Carry them forward rather than making anyone re-calibrate.
+(function migrate() {
+  const old = readJSON(LEGACY_DEC_KEY, null);
+  if (!old || !Object.keys(old).length) return;
+  let changed = false;
+  for (const [bleName, decoder] of Object.entries(old)) {
+    const key = 'name:' + bleName;
+    if (devices[key]) continue;
+    devices[key] = { name: bleName, bleName, decoder, uuid: decoder.uuid ?? null,
+                     verifiedAt: null, migrated: true };
+    changed = true;
+  }
+  if (changed) writeJSON(DEV_KEY, devices);
+  try { localStorage.removeItem(LEGACY_DEC_KEY); } catch { /* ignore */ }
+}());
+
+const persistDevices = () => writeJSON(DEV_KEY, devices);
+const persistCaps = () => writeJSON(CAP_KEY, caps);
+
+/* ------------------------------------------------------------------ state */
+let link = null;
+let deviceKey = null;       // stable per-origin id from Web Bluetooth
+let profile = null;         // the saved record for the connected device
+let decoder = null;
+let activeUuid = null;
+let pendingDriver = null;   // driver awaiting frame confirmation
+let recent = [], lastRaw = 0, lastDraw = 0;
+
 const est = new FlowEstimator();
 const brew = new BrewMachine();
+
+const displayName = () => profile?.name || profile?.bleName || 'Scale';
+
+/** Captures belong to the device they came from; solving across two finds nothing in common. */
+function activeCaps() {
+  const who = deviceKey ?? caps.at(-1)?.deviceKey ?? null;
+  return caps.filter((c) => (c.deviceKey ?? null) === who);
+}
+
+/* ------------------------------------------------------------------ phases */
+function setPhase(phase) {
+  $('step-connect').style.display = phase === 'connect' ? '' : 'none';
+  $('step-setup').style.display = phase === 'setup' ? '' : 'none';
+  $('step-live').style.display = phase === 'live' ? '' : 'none';
+  $('advanced').style.display = phase === 'connect' ? 'none' : '';
+  if (phase !== 'connect') {
+    $('device-chip').textContent = displayName();
+    $('rename').value = profile?.name ?? '';
+  }
+}
 
 const reason = unsupportedReason();
 if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
 $('connect').disabled = !isSupported();
 
-// getAvailability() reports whether a radio exists at all, which separates
-// "no Bluetooth on this machine" from "the scale is not advertising".
 if (isSupported() && navigator.bluetooth.getAvailability) {
   navigator.bluetooth.getAvailability().then((ok) => {
     if (ok) return;
     $('unsupported').style.display = '';
-    $('unsupported').textContent = 'No Bluetooth adapter is available to this browser. '
-      + 'Check the adapter is switched on, and on macOS that your browser has Bluetooth '
-      + 'permission under System Settings → Privacy & Security → Bluetooth.';
-  }).catch(() => { /* not fatal — the picker will report its own errors */ });
+    $('unsupported').textContent = 'No Bluetooth adapter is available to this browser. Check the '
+      + 'adapter is on, and on macOS that your browser has Bluetooth permission under System '
+      + 'Settings → Privacy & Security → Bluetooth.';
+  }).catch(() => {});
 }
 
-function setStep(id, on) { $(id).classList.toggle('active', on); }
-setStep('step-connect', true);
+/** Web Bluetooth cannot reconnect without a user gesture, so this is a reminder, not a shortcut. */
+function renderSaved() {
+  const holder = $('saved-devices');
+  holder.replaceChildren();
+  const list = Object.values(devices);
+  if (!list.length) return;
+  holder.appendChild(el('div', { class: 'tag' }, `${list.length} saved scale(s)`));
+  holder.appendChild(el('p', { class: 'msg', style: 'margin-top:8px' },
+    list.map((d) => d.name).join(' · ')
+    + ' — choose the scale below and it will be recognised automatically.'));
+}
+renderSaved();
 
+/* ------------------------------------------------------------------ stream */
 function onFrame({ uuid, bytes, at }) {
   if (recent.length > 40) recent.shift();
   recent.push({ uuid, bytes, at });
@@ -182,16 +284,17 @@ function onFrame({ uuid, bytes, at }) {
   box.appendChild(el('div', {}, `${uuid.slice(4, 8)}  ${hex(bytes)}`));
   box.scrollTop = box.scrollHeight;
 
-  if (driver && uuid === activeUuid) {
-    if (!confirm(driver, bytes)) {
-      // Right UUIDs, wrong frame shape — a different scale on the same module.
-      driver = null; decoder = null; activeUuid = null;
-      $('cap-msg').textContent = 'This device uses the same UUIDs as a known scale but sends a '
-        + 'different frame, so the preset was discarded. Teach it below instead.';
-      setStep('step-decode', true);
+  // A recognised driver is a hint until a frame confirms it: FFF0/FFF3 is a
+  // generic module default, not a vendor fingerprint.
+  if (pendingDriver && uuid === activeUuid) {
+    if (!confirmFrame(pendingDriver, bytes)) {
+      pendingDriver = null; decoder = null; activeUuid = null;
+      $('cap-msg').textContent = 'This scale uses the same UUIDs as a known model but sends a '
+        + 'different frame, so the preset was discarded. Calibrate it below instead.';
+      setPhase('setup');
       return;
     }
-    driver = null;   // confirmed once; no need to re-check every frame
+    pendingDriver = null;
   }
 
   if (!decoder || uuid !== activeUuid) return;
@@ -199,8 +302,7 @@ function onFrame({ uuid, bytes, at }) {
   if (!Number.isFinite(grams)) return;
   lastRaw = grams;
   const { weight, flow } = est.step(at, grams);
-  const s = brew.step(at, weight, flow);
-  render(s);
+  render(brew.step(at, weight, flow));
 }
 
 function render(s) {
@@ -210,6 +312,7 @@ function render(s) {
   const strip = $('state');
   strip.textContent = s.label;
   strip.classList.toggle('on', s.state === BREW.EXTRACTING);
+
   const drawable = brew.curve.length > 2 && (s.state === BREW.EXTRACTING
     || s.state === BREW.COMPLETE || s.state === BREW.DRIPPING);
   const now = performance.now();
@@ -222,57 +325,79 @@ function render(s) {
   }
 }
 
-/** Show what the device actually exposed — the useful output of a failed connect. */
-function report(chars) {
-  const holder = $('report');
-  holder.replaceChildren();
-  if (!chars.length) return;
-  holder.appendChild(el('div', { class: 'tag' }, `Found ${chars.length} characteristic(s)`));
-  const rows = chars.map((c) => el('div', { class: 'cand' },
-    el('span', {}, `${c.service}`),
-    el('span', {}, `${c.uuid.slice(4, 8)}  ${[c.notify && 'notify', c.read && 'read', c.write && 'write']
-      .filter(Boolean).join(' ') || '—'}`)));
-  holder.append(...rows);
-}
-
+/* --------------------------------------------------------------- connecting */
 function attach(l) {
   link = l;
   l.addEventListener('frame', (e) => onFrame(e.detail));
   l.addEventListener('disconnected', () => {
-    $('conn-msg').textContent = 'Disconnected.';
-    $('disconnect').style.display = 'none';
-    $('connect').style.display = '';
+    $('conn-msg').textContent = `Disconnected from ${displayName()}.`;
+    link = null;
+    setPhase('connect');
+    renderSaved();
   });
 }
 
-async function afterConnect(name) {
-  deviceName = name;
+/** Show what the device exposed — the useful output of a connect that goes nowhere. */
+function report(chars) {
+  const holder = $('report');
+  holder.replaceChildren();
+  if (!chars.length) return;
+  holder.appendChild(el('div', { class: 'tag' }, `${chars.length} characteristic(s)`));
+  for (const c of chars) {
+    holder.appendChild(el('div', { class: 'cand' },
+      el('span', {}, c.service),
+      el('span', {}, `${c.uuid.slice(4, 8)}  ${[c.notify && 'notify', c.read && 'read', c.write && 'write']
+        .filter(Boolean).join(' ') || '—'}`)));
+  }
+}
+
+function verifyWith(dec, uuid, { driver = null, save = true, askName = false } = {}) {
+  decoder = dec;
+  activeUuid = uuid;
+  pendingDriver = driver;
+  if (save) {
+    profile = {
+      ...(profile ?? {}),
+      name: profile?.name ?? (driver?.name ?? profile?.bleName ?? 'Scale'),
+      decoder: dec,
+      uuid,
+      verifiedAt: new Date().toISOString(),
+    };
+    devices[deviceKey] = profile;
+    persistDevices();
+  }
+  $('decoder-note').textContent = describeCandidate(dec);
+  setPhase('live');
+  if (askName) {
+    $('name-row').style.display = '';
+    $('device-name').value = profile?.name ?? '';
+  }
+}
+
+async function afterConnect(name, id) {
+  deviceKey = id ?? ('name:' + name);
+  profile = devices[deviceKey] ?? { name, bleName: name };
   $('conn-msg').textContent = `Connected to ${name}.`;
-  $('disconnect').style.display = '';
-  $('connect').style.display = 'none';
   await link.subscribeAll();
-  const auto = matchByCharacteristic(link.chars);
-  if (auto) {
-    driver = auto;
-    decoder = auto.decoder;
-    activeUuid = auto.characteristic;
-    $('cap-msg').textContent = `Recognised as ${auto.name} — ${describeCandidate(auto.decoder)}. `
-      + 'No setup needed. If the readings look wrong, teach it below to override.';
-    setStep('step-live', true);
-    setStep('step-decode', true);
+
+  if (profile.decoder) {
+    verifyWith(profile.decoder, profile.uuid ?? profile.decoder.uuid, { save: false });
+    $('decoder-note').textContent = `${describeCandidate(profile.decoder)} · remembered`;
     return;
   }
 
-  const known = loadDecoders()[name];
-  if (known) {
-    decoder = known;
-    activeUuid = known.uuid;
-    $('cap-msg').textContent = `Using the saved decoder for ${name}: ${describeCandidate(known)}.`;
-    setStep('step-live', true);
-    setStep('step-decode', true);
-  } else {
-    setStep('step-decode', true);
+  const auto = matchByCharacteristic(link.chars);
+  if (auto) {
+    profile.bleName = name;
+    verifyWith(auto.decoder, auto.characteristic, { driver: auto, askName: true });
+    $('decoder-note').textContent = `${auto.name} · ${describeCandidate(auto.decoder)}`;
+    return;
   }
+
+  profile.bleName = name;
+  setPhase('setup');
+  renderCaps();
+  solve();
 }
 
 $('connect').addEventListener('click', async () => {
@@ -282,69 +407,133 @@ $('connect').addEventListener('click', async () => {
     const raw = $('extra-uuid').value.trim().toLowerCase();
     const extra = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(raw) ? [raw] : [];
     if (raw && !extra.length) {
-      $('conn-msg').textContent = 'That does not look like a 128-bit UUID. Expected the full '
-        + '8-4-4-4-12 form, e.g. 0000ffe0-0000-1000-8000-00805f9b34fb.';
+      $('conn-msg').textContent = 'That is not a 128-bit UUID. Expected the full 8-4-4-4-12 form, '
+        + 'e.g. 0000ffe0-0000-1000-8000-00805f9b34fb.';
       return;
     }
-    const { name } = await l.choose({ wide: $('wide').checked, extra });
+    const { name, id } = await l.choose({ wide: $('wide').checked, extra });
     await l.connect();
     report(l.chars);
-    const chars = l.chars.filter((c) => c.notify);
-    if (!chars.length) {
+    if (!l.chars.some((c) => c.notify)) {
       $('conn-msg').textContent = l.chars.length
-        ? `Connected to ${name}. Found ${l.chars.length} characteristic(s) but none of them notify — `
-          + 'see the list below; a read-only scale needs polling, which brewkit does not do yet.'
-        : `Connected to ${name}, but no services were reachable. Try wide scan, or paste the UUID `
-          + 'from nRF Connect.';
+        ? `Connected to ${name}, but nothing notifies — see Discovery options.`
+        : `Connected to ${name}, but no services were reachable. Try wide scan, or paste the UUID.`;
       return;
     }
-    await afterConnect(name);
+    await afterConnect(name, id);
   } catch (err) {
     $('conn-msg').textContent = err.message;
   }
 });
 
-$('demo').addEventListener('click', async () => {
-  const m = new MockScale();
-  attach(m);
-  await m.connect();
-  await afterConnect('Mock Scale');
-  brew.arm();
-  m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
-});
-
-$('demo-lefu').addEventListener('click', async () => {
-  const m = new LefuMockScale();
-  attach(m);
-  await m.connect();
-  await afterConnect('Lefu Mock (863A)');
-  brew.arm();
-  m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
-});
-
 $('disconnect').addEventListener('click', () => link?.disconnect());
 
+/* ------------------------------------------------------------------ naming */
+$('save-device').addEventListener('click', () => {
+  const n = $('device-name').value.trim();
+  if (!n) { $('name-msg').textContent = 'Give it a name first.'; return; }
+  profile = { ...profile, name: n };
+  devices[deviceKey] = profile;
+  persistDevices();
+  $('name-row').style.display = 'none';
+  $('device-chip').textContent = n;
+  $('rename').value = n;
+  renderSaved();
+});
+
+$('apply-rename').addEventListener('click', () => {
+  const n = $('rename').value.trim();
+  if (!n) { $('settings-msg').textContent = 'Name cannot be empty.'; return; }
+  profile = { ...profile, name: n };
+  devices[deviceKey] = profile;
+  persistDevices();
+  $('device-chip').textContent = n;
+  $('settings-msg').textContent = `Renamed to ${n}.`;
+  renderSaved();
+});
+
+$('revalidate').addEventListener('click', () => {
+  decoder = null; activeUuid = null;
+  $('settings-msg').textContent = '';
+  setPhase('setup');
+  renderCaps();
+  solve();
+});
+
+$('forget-device').addEventListener('click', () => {
+  if (!window.confirm(`Forget ${displayName()}? Its name and decoder are deleted.`)) return;
+  delete devices[deviceKey];
+  persistDevices();
+  caps = caps.filter((c) => c.deviceKey !== deviceKey);
+  persistCaps();
+  profile = null; decoder = null; activeUuid = null;
+  link?.disconnect();
+  setPhase('connect');
+  renderSaved();
+  $('conn-msg').textContent = 'Scale forgotten.';
+});
+
+/* ---------------------------------------------------------------- capturing */
 $('capture').addEventListener('click', () => {
   const grams = parseFloat($('ref').value);
   if (!Number.isFinite(grams)) { $('cap-msg').textContent = 'Enter what the scale reads.'; return; }
-  const byUuid = new Map();
-  for (const f of recent.slice(-12)) byUuid.set(f.uuid, f.bytes);
-  if (!byUuid.size) { $('cap-msg').textContent = 'No frames received yet.'; return; }
-  caps.push({ grams, byUuid });
-  $('cap-msg').textContent = `${caps.length} capture(s). ${caps.length < 2 ? 'Change the mass and capture again.' : ''}`;
+  const frames = {};
+  for (const f of recent.slice(-12)) frames[f.uuid] = hex(f.bytes);
+  if (!Object.keys(frames).length) { $('cap-msg').textContent = 'No frames received yet.'; return; }
+  caps.push({ grams, frames, deviceKey, device: displayName(), at: new Date().toISOString() });
+  persistCaps();
+  const n = activeCaps().length;
+  $('cap-msg').textContent = `${n} capture(s) for this scale, saved. `
+    + (n < 2 ? 'Change the mass and capture again.' : '');
+  renderCaps();
   solve();
 });
 
 $('clear-caps').addEventListener('click', () => {
-  caps = []; $('cands').replaceChildren(); $('cap-msg').textContent = 'Cleared.';
+  const mine = activeCaps();
+  if (mine.length && !window.confirm(`Delete ${mine.length} capture(s) for this scale?`)) return;
+  const drop = new Set(mine);
+  caps = caps.filter((c) => !drop.has(c));
+  persistCaps();
+  $('cands').replaceChildren();
+  renderCaps();
+  $('cap-msg').textContent = 'Cleared.';
 });
 
+$('export-caps').addEventListener('click', () => {
+  const set = activeCaps();
+  if (!set.length) { $('cap-msg').textContent = 'Nothing captured yet.'; return; }
+  const rows = [['grams', 'uuid', 'frame_hex', 'device', 'captured_at']];
+  for (const c of set) {
+    for (const [uuid, h] of Object.entries(c.frames)) rows.push([c.grams, uuid, h, c.device ?? '', c.at ?? '']);
+  }
+  download('captures.csv', rows.map((r) => r.join(',')).join('\n') + '\n');
+  $('cap-msg').textContent = `Exported ${set.length} capture(s).`;
+});
+
+/** Captures are the evidence a decoder rests on; show them, do not just count them. */
+function renderCaps() {
+  const holder = $('caps-table');
+  holder.replaceChildren();
+  const set = activeCaps();
+  if (!set.length) return;
+  const other = caps.length - set.length;
+  holder.appendChild(el('div', { class: 'tag' },
+    `${set.length} saved capture(s)${other ? ` · ${other} from other scales hidden` : ''}`));
+  const body = el('tbody', {}, set.flatMap((c) => Object.entries(c.frames).map(([uuid, h]) =>
+    el('tr', {}, el('td', {}, `${c.grams} g`), el('td', {}, uuid.slice(4, 8)), el('td', {}, h)))));
+  holder.appendChild(el('div', { class: 'table-scroll' }, el('table', {},
+    el('thead', {}, el('tr', {}, el('th', {}, 'Reads'), el('th', {}, 'Characteristic'), el('th', {}, 'Frame'))),
+    body)));
+}
+
 function solve() {
-  if (caps.length < 2) return;
-  const uuids = [...caps[0].byUuid.keys()].filter((u) => caps.every((c) => c.byUuid.has(u)));
+  const set = activeCaps();
+  if (set.length < 2) return;
+  const uuids = Object.keys(set[0].frames).filter((u) => set.every((c) => c.frames[u]));
   const found = [];
   for (const uuid of uuids) {
-    const samples = caps.map((c) => ({ bytes: c.byUuid.get(uuid), grams: c.grams }));
+    const samples = set.map((c) => ({ bytes: unhex(c.frames[uuid]), grams: c.grams }));
     for (const c of findCandidates(samples)) found.push({ ...c, uuid });
   }
   found.sort((a, b) => a.error - b.error);
@@ -353,8 +542,8 @@ function solve() {
   holder.replaceChildren();
   if (!found.length) {
     holder.appendChild(el('p', { class: 'note warn' },
-      'No encoding fits those captures. Try three well-separated masses including zero — and check '
-      + 'the frames below are actually changing when the weight does.'));
+      'No encoding fits those captures. Try three well-separated masses including zero, and check '
+      + 'the frames below actually change when the weight does.'));
     return;
   }
   holder.appendChild(el('div', { class: 'tag' }, 'Candidates'));
@@ -362,18 +551,17 @@ function solve() {
     holder.appendChild(el('div', { class: 'cand' },
       el('span', {}, `${describeCandidate(c)}  ·  ${c.uuid.slice(4, 8)}  ·  max err ${c.error.toFixed(3)} g`),
       el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none',
-        onclick: () => {
-          decoder = c; activeUuid = c.uuid;
-          saveDecoder(deviceName, { ...c });
-          $('cap-msg').textContent = `Using ${describeCandidate(c)}. Saved for ${deviceName}.`;
-          setStep('step-live', true);
-        } }, 'Use this')));
+        onclick: () => verifyWith(c, c.uuid, { askName: !profile?.verifiedAt }) }, 'Use this')));
   }
 }
 
-$('arm').addEventListener('click', () => { est.reset(lastRaw); brew.arm(); $('live-msg').textContent = ''; render(brew.snapshot(0, lastRaw, 0)); });
-$('start').addEventListener('click', () => { brew.startNow(performance.now() / 1000, lastRaw); });
-$('stop').addEventListener('click', () => { brew.stopNow(); });
+/* -------------------------------------------------------------------- shot */
+$('arm').addEventListener('click', () => {
+  est.reset(lastRaw); brew.arm(); $('live-msg').textContent = '';
+  render(brew.snapshot(0, lastRaw, 0));
+});
+$('start').addEventListener('click', () => brew.startNow(performance.now() / 1000, lastRaw));
+$('stop').addEventListener('click', () => brew.stopNow());
 
 $('save').addEventListener('click', () => {
   if (brew.curve.length < 3) { $('live-msg').textContent = 'No shot captured yet.'; return; }
@@ -381,11 +569,26 @@ $('save').addEventListener('click', () => {
   const timeS = brew.curve.at(-1)[0];
   const s = store.add({
     yield_g: +yieldG.toFixed(2), time_s: +timeS.toFixed(1), dose_g: 18,
-    notes: `captured live from ${deviceName ?? 'scale'}`,
+    notes: `captured live from ${displayName()}`,
   });
   $('live-msg').textContent = `Saved ${s.shot_id} — ${fmt(yieldG, 1)} g in ${fmt(timeS, 1)} s. `
     + 'Set the dose and Brix on the Log page.';
 });
+
+/* ------------------------------------------------------------- test harness */
+// The demo buttons are gone from the UI, but the mock scales remain drivable so
+// the pipeline stays testable without hardware: ?mock=lefu or ?mock=generic.
+const mock = new URLSearchParams(location.search).get('mock');
+if (mock) {
+  const m = mock === 'lefu' ? new LefuMockScale() : new MockScale();
+  const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
+  attach(m);
+  m.connect()
+    .then(() => afterConnect(label, 'mock:' + mock))
+    .then(() => { brew.arm(); m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } }); });
+}
+
+setPhase('connect');
 </script>
 </body>
 </html>
