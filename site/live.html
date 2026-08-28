@@ -189,6 +189,17 @@
       <p class="msg" id="scale-msg" style="margin-top:8px"></p>
     </div>
 
+    <!-- What is running out. Worst first, so the thing about to bite is on top. -->
+    <div class="bx panel" id="supply-panel" style="margin-top:22px;display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="tag" style="margin:0">Supplies</div>
+        <span class="msg" id="supply-msg" style="margin:0"></span>
+        <a href="./kit.html" class="ghost"
+           style="margin-left:auto;padding:7px 12px;text-decoration:none;font:700 12px/1 var(--sans)">Manage</a>
+      </div>
+      <div class="supply" id="supply"></div>
+    </div>
+
     <!-- What the session has captured so far. Auto-filled, always editable. -->
     <div class="bx panel" style="margin-top:22px">
       <div class="steps" id="stepper">
@@ -222,25 +233,23 @@
       <div class="grid g3" style="margin-top:14px">
         <div class="field" style="margin:0"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
         <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
-        <div class="field" style="margin:0"><label for="p-grind">Grind setting</label>
-          <input id="p-grind" type="number" step="0.1"></div>
+        <div class="field" style="margin:0"><label for="p-machine">Machine</label><select id="p-machine"></select></div>
       </div>
       <p class="msg" id="p-advice"></p>
       <div class="grid g3" style="margin-top:6px">
+        <div class="field" style="margin:0"><label for="p-grind">Grind setting</label>
+          <input id="p-grind" type="number" step="0.1"></div>
         <div class="field" style="margin:0"><label for="p-dose">Target dose (g)</label>
           <input id="p-dose" type="number" step="0.1" value="18"></div>
         <div class="field" style="margin:0"><label for="p-ratio">Ratio (1:x)</label>
           <input id="p-ratio" type="number" step="0.1" value="2"></div>
-        <div class="field" style="margin:0"><label for="p-basket">Basket</label>
-          <input id="p-basket" type="text" placeholder="18 g VST"></div>
       </div>
-      <p class="note" id="p-target" style="margin-top:6px"></p>
       <details style="margin-top:10px">
         <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
-                        text-transform:uppercase;color:var(--ink-mute)">Machine</summary>
+                        text-transform:uppercase;color:var(--ink-mute)">Basket and settings</summary>
         <div class="grid g3" style="margin-top:14px">
-          <div class="field" style="margin:0"><label for="p-machine">Machine</label>
-            <input id="p-machine" type="text"></div>
+          <div class="field" style="margin:0"><label for="p-basket">Basket</label>
+            <input id="p-basket" type="text" placeholder="18 g VST"></div>
           <div class="field" style="margin:0"><label for="p-temp">Water temp (°C)</label>
             <input id="p-temp" type="number" step="0.5"></div>
           <div class="field" style="margin:0"><label for="p-pressure">Pressure (bar)</label>
@@ -248,7 +257,11 @@
         </div>
         <div class="field" style="max-width:240px"><label for="p-preinf">Pre-infusion (s)</label>
           <input id="p-preinf" type="number" step="0.5"></div>
+        <p class="note" style="margin-top:6px">Picking a machine fills these in with what it
+        usually runs at. Anything you type here wins.</p>
       </details>
+      <p class="note" id="p-target" style="margin-top:6px"></p>
+      <details style="margin-top:10px">
     </div>
 
     <!-- Appears by itself when the shot finishes. -->
@@ -308,6 +321,7 @@
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
+import * as supply from './assets/js/core/supply.js';
 import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
@@ -976,12 +990,18 @@ function fillKitSelects() {
   gSel.replaceChildren(
     el('option', { value: '' }, grinders.length ? 'Not recorded' : 'No grinders yet — add one on Kit'),
     ...grinders.map((g) => el('option', { value: String(g.id) }, g.name || g.id)));
+  const mSel = $('p-machine');
+  const machines = kit.machines();
+  const keepM = mSel.value || st.machine_id;
+  mSel.replaceChildren(
+    el('option', { value: '' }, machines.length ? 'Not recorded' : 'No machines yet — add one on Kit'),
+    ...machines.map((m) => el('option', { value: String(m.id) }, m.name || m.id)));
+  mSel.value = keepM ?? '';
   bagSel.value = keepBag ?? ''; gSel.value = keepG ?? '';
   if (defaultsApplied) return;
   defaultsApplied = true;
   if (Number.isFinite(Number(st.grind_setting))) $('p-grind').value = st.grind_setting;
   $('p-basket').value = st.basket ?? '';
-  $('p-machine').value = st.machine_id ?? '';
   if (st.temp_c !== null) $('p-temp').value = st.temp_c;
   if (st.pressure_bar !== null) $('p-pressure').value = st.pressure_bar;
   if (Number.isFinite(Number(st.target_dose_g))) $('p-dose').value = st.target_dose_g;
@@ -1048,6 +1068,18 @@ $('stepper').addEventListener('click', (e) => {
 
 $('d-manual').addEventListener('input', () => { sess.set('dose', num('d-manual')); paintSession(); });
 $('g-manual').addEventListener('input', () => { sess.set('grounds', num('g-manual')); paintSession(); });
+// Picking a machine fills in the settings that machine usually runs at, so they
+// stop being four fields retyped on every shot. Typed values are left alone.
+$('p-machine').addEventListener('change', () => {
+  const m = kit.machine($('p-machine').value);
+  if (!m) return;
+  const put = (id, v) => { if (!$(id).value && Number.isFinite(Number(v))) $(id).value = v; };
+  put('p-temp', m.default_temp_c);
+  put('p-pressure', m.default_pressure_bar);
+  put('p-preinf', m.default_preinfusion_s);
+  if (!$('p-basket').value && m.basket) $('p-basket').value = m.basket;
+});
+
 for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
   $(id).addEventListener('change', refreshAdvice);
   $(id).addEventListener('input', () => { $('p-target').textContent =
@@ -1169,7 +1201,7 @@ $('save').addEventListener('click', () => {
   const record = kit.attachKit({
     bag_id: $('p-bag').value || '', grinder_id: $('p-grinder').value || '',
     grind_setting: num('p-grind'), basket: $('p-basket').value.trim(),
-    machine_id: $('p-machine').value.trim(), temp_c: num('p-temp'),
+    machine_id: $('p-machine').value, temp_c: num('p-temp'),
     pressure_bar: num('p-pressure'), preinfusion_s: num('p-preinf'),
     dose_g: dose, grounds_out_g: sess.grounds,
     yield_g: +Number(yieldG).toFixed(2),
@@ -1193,6 +1225,7 @@ $('save').addEventListener('click', () => {
   });
   $('save-msg').textContent = `Saved ${saved.shot_id}`
     + (Number.isFinite(saved.ey_pct) ? ` — ${fmt(saved.ey_pct, 2)}% yield.` : '.');
+  paintSupply();
   showDiagnosis(saved);
 });
 
@@ -1217,9 +1250,29 @@ function showDiagnosis(shot) {
     el('button', { type: 'button', onclick: () => $('discard').click() }, 'Next shot')));
 }
 
-kit.subscribe(refreshAdvice);
+/** Beans left, and anything else on its way out. */
+function paintSupply() {
+  const rows = supply.supplyBoard(kit.bags(), store.all());
+  const panel = $('supply-panel');
+  panel.style.display = rows.length ? '' : 'none';
+  if (!rows.length) return;
+  $('supply').replaceChildren(...rows.slice(0, 6).map((r) => el('div', { class: 'bx' },
+    el('div', { class: 'nm' }, r.name),
+    el('div', { class: 'dt' }, r.detail),
+    el('div', { class: `bar${r.low ? ' low' : ''}`, style: 'margin-top:8px' },
+      el('span', { style: `width:${(r.pct * 100).toFixed(1)}%` })))));
+  const low = rows.filter((r) => r.low);
+  $('supply-msg').textContent = low.length
+    ? `${low.map((r) => r.name).join(', ')} ${low.length === 1 ? 'is' : 'are'} nearly out.`
+    : '';
+}
+
+kit.subscribe(() => { refreshAdvice(); paintSupply(); });
+supply.subscribe(paintSupply);
+store.subscribe(paintSupply);
 refreshAdvice();
 paintSession();
+paintSupply();
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so

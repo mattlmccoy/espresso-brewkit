@@ -19,6 +19,7 @@ export const FIELDS = [
 
   // prep
   { key: 'grinder_id',    label: 'Grinder',        type: 'text', group: 'prep' },
+  { key: 'grinder_name',  label: 'Grinder name',   type: 'text', group: 'prep' },
   { key: 'grind_setting', label: 'Grind setting',  unit: '',    type: 'number', group: 'prep', step: 0.1 },
   { key: 'grind_label',   label: 'Grind label',    type: 'text', group: 'prep' },
   { key: 'dose_g',        label: 'Dose in',        unit: 'g',   type: 'number', group: 'prep', measured: true, step: 0.1 },
@@ -28,6 +29,7 @@ export const FIELDS = [
 
   // machine
   { key: 'machine_id',    label: 'Machine',        type: 'text', group: 'machine' },
+  { key: 'machine_name',  label: 'Machine name',   type: 'text', group: 'machine' },
   { key: 'temp_c',        label: 'Water temp',     unit: '°C',  type: 'number', group: 'machine', step: 0.5 },
   { key: 'pressure_bar',  label: 'Pressure',       unit: 'bar', type: 'number', group: 'machine', step: 0.1 },
   { key: 'preinfusion_s', label: 'Pre-infusion',   unit: 's',   type: 'number', group: 'machine', step: 0.5 },

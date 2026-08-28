@@ -13,6 +13,7 @@
 
 const BAG_KEY = 'brewkit.bags.v1';
 const GRINDER_KEY = 'brewkit.grinders.v1';
+const MACHINE_KEY = 'brewkit.machines.v1';
 const SESSION_KEY = 'brewkit.session.v1';
 
 const listeners = new Set();
@@ -109,6 +110,44 @@ export function snapSetting(g, value) {
   return Math.min(hi, Math.max(lo, +snapped.toFixed(4)));
 }
 
+/* ----------------------------------------------------------------- machines */
+
+/**
+ * How the machine makes pressure. It is not decoration: a lever's pressure is
+ * whatever the spring or your arm is doing at that instant, so a single
+ * `pressure_bar` on the shot means something quite different from a pump
+ * machine's gauge reading, and the advisor should not pool them blindly.
+ */
+export const MACHINE_KINDS = [
+  'Single boiler', 'Heat exchanger', 'Dual boiler',
+  'Spring lever', 'Manual lever', 'Pressure profiling', 'Other',
+];
+
+export const machines = () => readJSON(MACHINE_KEY, []);
+export const machine = (id) => machines().find((m) => m.id === id) ?? null;
+
+export function saveMachine(patch) {
+  const list = machines();
+  const i = list.findIndex((m) => m.id === patch.id);
+  const rec = {
+    name: '', kind: 'Dual boiler', basket: '',
+    default_temp_c: null, default_pressure_bar: null, default_preinfusion_s: null,
+    notes: '',
+    ...(i >= 0 ? list[i] : {}),
+    ...patch,
+    id: patch.id || list[i]?.id || nextId(list, 'machine'),
+  };
+  if (i >= 0) list[i] = rec; else list.push(rec);
+  writeJSON(MACHINE_KEY, list);
+  emit();
+  return rec;
+}
+
+export function removeMachine(id) {
+  writeJSON(MACHINE_KEY, machines().filter((m) => m.id !== id));
+  emit();
+}
+
 /* ------------------------------------------------------------------ session */
 // What you were last using. Reopening the page mid-session and being asked to
 // re-pick the bag, the grinder and the basket is the fastest way to make a tool
@@ -156,8 +195,27 @@ export function attachKit(shot, at = new Date()) {
     const d = daysOffRoast(b.roast_date, at);
     if (d !== null && !Number.isFinite(out.days_off_roast)) out.days_off_roast = d;
   }
+  // Names are copied alongside the ids for the same reason the bag's are: the
+  // exported CSV has to mean something on its own, months later, on a machine
+  // that has no localStorage.
   const g = out.grinder_id ? grinder(out.grinder_id) : null;
-  if (g && !out.grind_label) out.grind_label = g.name || '';
+  if (g) out.grinder_name = out.grinder_name || g.name || '';
+  const m = out.machine_id ? machine(out.machine_id) : null;
+  if (m) {
+    out.machine_name = out.machine_name || m.name || '';
+    // Machine settings are properties of the machine until a shot overrides
+    // them, which is most shots on most machines.
+    if (!Number.isFinite(out.temp_c) && Number.isFinite(Number(m.default_temp_c))) {
+      out.temp_c = Number(m.default_temp_c);
+    }
+    if (!Number.isFinite(out.pressure_bar) && Number.isFinite(Number(m.default_pressure_bar))) {
+      out.pressure_bar = Number(m.default_pressure_bar);
+    }
+    if (!Number.isFinite(out.preinfusion_s) && Number.isFinite(Number(m.default_preinfusion_s))) {
+      out.preinfusion_s = Number(m.default_preinfusion_s);
+    }
+    if (!out.basket && m.basket) out.basket = m.basket;
+  }
   if (Number.isFinite(out.dose_g) && Number.isFinite(out.grounds_out_g)) {
     out.retention_g = +(out.dose_g - out.grounds_out_g).toFixed(2);
   }
@@ -180,6 +238,6 @@ export function bagRemaining(shots, b) {
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if ([BAG_KEY, GRINDER_KEY, SESSION_KEY].includes(e.key)) emit();
+    if ([BAG_KEY, GRINDER_KEY, MACHINE_KEY, SESSION_KEY].includes(e.key)) emit();
   });
 }
