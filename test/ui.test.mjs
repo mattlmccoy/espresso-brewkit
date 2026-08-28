@@ -220,6 +220,31 @@ try {
   t('mobile: no horizontal page overflow', mobileOverflow <= 1, mobileOverflow + 'px');
   await page.setViewportSize({ width: 1400, height: 1000 });
 
+  // ---- form controls actually render and respond ----
+  // The global `appearance: none` on inputs once stripped checkboxes of their
+  // native rendering, so they toggled invisibly and read as dead controls.
+  await page.goto(B + '/live.html');
+  await page.waitForSelector('#wide');
+  const cb = await page.evaluate(() => {
+    const el = document.getElementById('wide');
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { appearance: cs.appearance, w: Math.round(r.width), h: Math.round(r.height) };
+  });
+  t('controls: checkbox keeps its native rendering',
+    cb.appearance !== 'none' && cb.w > 8 && cb.h > 8,
+    `appearance:${cb.appearance} ${cb.w}x${cb.h}`);
+
+  const wideWas = await page.isChecked('#wide');
+  await page.click('#wide');
+  const wideNow = await page.isChecked('#wide');
+  t('controls: checkbox toggles on click', wideWas !== wideNow, `${wideWas} -> ${wideNow}`);
+
+  // Clicking the wrapping label must toggle it too — that is most of its hit area.
+  await page.click('.check');
+  t('controls: label click toggles the checkbox', (await page.isChecked('#wide')) === wideWas,
+    'back to ' + wideWas);
+
   // ---- live capture, driven by the mock scale (no hardware) ----
   await page.goto(B + '/live.html');
   await page.waitForSelector('#demo');
@@ -286,6 +311,30 @@ try {
     const after = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
     t('live: captured shot saves to the log', after === before + 1, before + ' -> ' + after);
   }
+
+  // ---- a recognised scale needs no teaching ----
+  await page.goto(B + '/live.html');
+  await page.click('#demo-lefu');
+  await page.waitForFunction(
+    () => document.getElementById('cap-msg').textContent.includes('Recognised'), { timeout: 6000 });
+  t('driver: Lefu frames are auto-detected', true, await page.textContent('#cap-msg'));
+
+  // It must decode without any capture step at all.
+  await page.waitForFunction(() => {
+    const w = parseFloat(document.getElementById('o-w').textContent);
+    return Number.isFinite(w);
+  }, { timeout: 8000 });
+  await page.waitForFunction(() => {
+    const s = document.getElementById('state').textContent.toLowerCase();
+    return s.includes('extract') || s.includes('drip') || s.includes('complete');
+  }, { timeout: 30000 }).catch(() => {});
+  const lefuState = await page.textContent('#state');
+  t('driver: shot runs with no teach step', /extract|drip|complete/i.test(lefuState), lefuState);
+
+  const lw1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  await page.waitForTimeout(4000);
+  const lw2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  t('driver: decoded weight climbs', lw2 > lw1, `${lw1} g -> ${lw2} g`);
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.

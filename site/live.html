@@ -50,6 +50,7 @@
     <div class="btn-row">
       <button class="primary" id="connect" type="button">Choose a scale</button>
       <button id="demo" type="button">Run a demo shot</button>
+      <button id="demo-lefu" type="button">Demo: Lefu/INSMART</button>
       <button class="ghost" id="disconnect" type="button" style="display:none">Disconnect</button>
       <span class="msg" id="conn-msg" style="margin:0"></span>
     </div>
@@ -57,9 +58,8 @@
     <div class="row" style="margin-top:16px;max-width:640px;align-items:end">
       <div class="field" style="margin:0">
         <label for="wide">Discovery</label>
-        <label style="display:flex;gap:9px;align-items:center;font:600 13px/1.3 var(--sans);
-                      letter-spacing:0;text-transform:none;color:var(--ink-dim)">
-          <input id="wide" type="checkbox" checked style="width:auto;margin:0">
+        <label class="check">
+          <input id="wide" type="checkbox" checked>
           Wide scan (~770 service UUIDs)
         </label>
       </div>
@@ -74,6 +74,11 @@
     <p class="note" style="margin-top:14px">Chrome, Edge and Opera only — Firefox and Safari have no
     Web Bluetooth, and on iOS no browser does. The demo needs no hardware and exercises the whole
     pipeline, so you can see what a shot looks like before you own a supported scale.</p>
+    <p class="note warn" style="margin-top:12px"><strong>Scale not in the list?</strong> A BLE
+    device stops advertising while something else is connected to it — so if nRF Connect, the
+    vendor app, or another browser tab still holds the connection, it becomes invisible here.
+    Disconnect there first. Failing that, power-cycle the scale: many sleep and stop advertising
+    after a minute or two idle.</p>
     <p class="note warn" style="margin-top:12px"><strong>A device with no services is normal, not
     broken.</strong> Web Bluetooth only exposes services the page asked for in advance — there is no
     way to list them all. Wide scan covers the ranges cheap modules use. If it still finds nothing,
@@ -131,7 +136,8 @@ import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as chart from './assets/js/core/chart.js';
 import { FlowEstimator, BrewMachine, BREW } from './assets/js/core/filter.js';
-import { ScaleLink, MockScale, isSupported, unsupportedReason } from './assets/js/ble/index.js';
+import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
+         matchByCharacteristic, confirm } from './assets/js/ble/index.js';
 import { findCandidates, applyCandidate, describeCandidate, hex } from './assets/js/ble/decode.js';
 boot();
 
@@ -143,7 +149,7 @@ const saveDecoder = (name, c) => {
   catch { /* storage blocked */ }
 };
 
-let link = null, deviceName = null, decoder = null, activeUuid = null;
+let link = null, deviceName = null, decoder = null, activeUuid = null, driver = null;
 let caps = [], recent = [], lastRaw = 0, lastDraw = 0;
 const est = new FlowEstimator();
 const brew = new BrewMachine();
@@ -151,6 +157,18 @@ const brew = new BrewMachine();
 const reason = unsupportedReason();
 if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
 $('connect').disabled = !isSupported();
+
+// getAvailability() reports whether a radio exists at all, which separates
+// "no Bluetooth on this machine" from "the scale is not advertising".
+if (isSupported() && navigator.bluetooth.getAvailability) {
+  navigator.bluetooth.getAvailability().then((ok) => {
+    if (ok) return;
+    $('unsupported').style.display = '';
+    $('unsupported').textContent = 'No Bluetooth adapter is available to this browser. '
+      + 'Check the adapter is switched on, and on macOS that your browser has Bluetooth '
+      + 'permission under System Settings → Privacy & Security → Bluetooth.';
+  }).catch(() => { /* not fatal — the picker will report its own errors */ });
+}
 
 function setStep(id, on) { $(id).classList.toggle('active', on); }
 setStep('step-connect', true);
@@ -163,6 +181,18 @@ function onFrame({ uuid, bytes, at }) {
   if (box.childElementCount > 60) box.removeChild(box.firstChild);
   box.appendChild(el('div', {}, `${uuid.slice(4, 8)}  ${hex(bytes)}`));
   box.scrollTop = box.scrollHeight;
+
+  if (driver && uuid === activeUuid) {
+    if (!confirm(driver, bytes)) {
+      // Right UUIDs, wrong frame shape — a different scale on the same module.
+      driver = null; decoder = null; activeUuid = null;
+      $('cap-msg').textContent = 'This device uses the same UUIDs as a known scale but sends a '
+        + 'different frame, so the preset was discarded. Teach it below instead.';
+      setStep('step-decode', true);
+      return;
+    }
+    driver = null;   // confirmed once; no need to re-check every frame
+  }
 
   if (!decoder || uuid !== activeUuid) return;
   const grams = applyCandidate(decoder, bytes);
@@ -221,6 +251,18 @@ async function afterConnect(name) {
   $('disconnect').style.display = '';
   $('connect').style.display = 'none';
   await link.subscribeAll();
+  const auto = matchByCharacteristic(link.chars);
+  if (auto) {
+    driver = auto;
+    decoder = auto.decoder;
+    activeUuid = auto.characteristic;
+    $('cap-msg').textContent = `Recognised as ${auto.name} — ${describeCandidate(auto.decoder)}. `
+      + 'No setup needed. If the readings look wrong, teach it below to override.';
+    setStep('step-live', true);
+    setStep('step-decode', true);
+    return;
+  }
+
   const known = loadDecoders()[name];
   if (known) {
     decoder = known;
@@ -267,6 +309,15 @@ $('demo').addEventListener('click', async () => {
   attach(m);
   await m.connect();
   await afterConnect('Mock Scale');
+  brew.arm();
+  m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
+});
+
+$('demo-lefu').addEventListener('click', async () => {
+  const m = new LefuMockScale();
+  attach(m);
+  await m.connect();
+  await afterConnect('Lefu Mock (863A)');
   brew.arm();
   m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
 });
