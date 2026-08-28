@@ -16,4 +16,5 @@
 // add your origin under *Authorised JavaScript origins*, publish the consent
 // screen (every scope this app asks for is non-sensitive, so no verification
 // review is needed), and paste the id below.
-export const GOOGLE_CLIENT_ID = '';
+export const GOOGLE_CLIENT_ID =
+  '919707753958-octio7ddhsvt0uq19mest44dpnq811vd.apps.googleusercontent.com';

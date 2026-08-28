@@ -13,6 +13,32 @@ const server = await serve();
 const B = server.origin;
 
 let pass = 0, fail = 0;
+/**
+ * Kit is tabbed now, so a test has to be on the right tab to touch a form —
+ * exactly as a person does. The add-box is opened too: it folds itself away
+ * once a list has entries, and half these tests run against a list that does.
+ */
+/**
+ * A fork with no client id of its own. The repo ships one now, so the only way
+ * to test the "you must supply one" half of the page is to serve the module a
+ * deployment would have left empty.
+ */
+const noShippedId = () => page.route('**/config.js', (route) => route.fulfill({
+  contentType: 'text/javascript', body: "export const GOOGLE_CLIENT_ID = '';\n" }));
+const shippedIdBack = () => page.unroute('**/config.js');
+/** The client-id box folds away once the site ships an id of its own. */
+const openClientBox = () => page.evaluate(() => {
+  document.getElementById('own-project').open = true;
+});
+
+const kitTab = async (name) => {
+  await page.click(`[data-kit-tab="${name}"]`);
+  await page.evaluate((n) => {
+    const box = document.querySelector(`[data-add="${n}"]`);
+    if (box) box.open = true;
+  }, name);
+};
+
 const t = (name, ok, extra = '') => {
   if (ok) pass++; else fail++;
   console.log((ok ? '  ok   ' : '  FAIL ') + name + (extra ? '  — ' + extra : ''));
@@ -1019,6 +1045,7 @@ try {
 
   // ---- Kit: a bag and a grinder, through the UI ----
   await page.goto(B + '/kit.html');
+  await kitTab('bags');
   await page.fill('#b-name', 'Test Guji');
   await page.fill('#b-roaster', 'Test Roasters');
   await page.fill('#b-weight', '250');
@@ -1034,6 +1061,7 @@ try {
     && /window|degassing|off roast|fading/i.test(await page.innerText('#bags')),
     (await page.innerText('#bags')).replace(/\s+/g, ' ').slice(0, 80));
 
+  await kitTab('grinders');
   await page.fill('#g-name', 'Test DF64');
   await page.fill('#g-min', '0'); await page.fill('#g-max', '40'); await page.fill('#g-step', '0.5');
   await page.click('#g-save');
@@ -1059,6 +1087,38 @@ try {
   t('kit: selects carry ids as option values, not labels',
     bagOptionValues.includes(kitIds.bag), bagOptionValues.join(' | '));
   await page.goto(B + '/kit.html');
+
+  // ---- Kit shows one thing at a time ----
+  // Four add-forms and four lists down one page is a filing cabinet with every
+  // drawer pulled out, and the work is nearly always in one drawer.
+  await page.goto(B + '/kit.html');
+  const panes = await page.evaluate(() => ({
+    total: document.querySelectorAll('[data-pane]').length,
+    visible: [...document.querySelectorAll('[data-pane]')].filter((p) => !p.hidden)
+      .map((p) => p.dataset.pane),
+    selected: [...document.querySelectorAll('[data-kit-tab]')]
+      .filter((b) => b.getAttribute('aria-selected') === 'true').map((b) => b.dataset.kitTab),
+  }));
+  t('kit: one pane is on screen, not four',
+    panes.total === 4 && panes.visible.length === 1 && panes.selected.length === 1
+    && panes.visible[0] === panes.selected[0], `${panes.visible.join()} of ${panes.total}`);
+
+  await page.click('[data-kit-tab="machines"]');
+  await page.reload();
+  await page.waitForSelector('[data-kit-tab]', { timeout: 4000 });
+  t('kit: and the one you were on is the one you come back to',
+    await page.evaluate(() => !document.querySelector('[data-pane="machines"]').hidden),
+    'machines still open');
+
+  const boxes = await page.evaluate(() => ({
+    // Bags exist by now, grinders too; consumables do not.
+    bags: document.querySelector('[data-add="bags"]').open,
+    consumables: document.querySelector('[data-add="consumables"]').open,
+  }));
+  t('kit: the add form opens itself only while there is nothing to look at',
+    boxes.bags === false && boxes.consumables === true,
+    `bags ${boxes.bags}, consumables ${boxes.consumables}`);
+  await page.click('[data-kit-tab="bags"]');
 
   // ---- the session steps itself, driven by the scale ----
   // The whole point: weighing beans, grinding and pulling should advance the
@@ -1367,6 +1427,7 @@ try {
   // ---- signing in to Google, driven end to end against a fake ----
   // The real popup needs a Google account CI cannot have, so the transport is
   // injectable: everything except Google's own window is exercised here.
+  await noShippedId();
   await page.goto(B + '/sync.html');
   await page.evaluate(() => localStorage.removeItem('brewkit.sync.v1'));
   await page.reload();
@@ -1473,6 +1534,7 @@ try {
   // Google Cloud project before they could use a coffee log. The id ships with
   // the deployment instead — it can, because it is public by construction and
   // secured by an origin allowlist rather than by secrecy.
+  await shippedIdBack();
   await page.goto(B + '/sync.html');
   const shipped = await page.evaluate(async () => {
     const sync = await import('./assets/js/core/sync.js');
@@ -1522,8 +1584,19 @@ try {
     shipped.untouched === 'shipped-999.apps.googleusercontent.com', shipped.untouched);
   t('client id: pasting the shipped id by hand is not stored as an override',
     shipped.sameStored === '', `[${shipped.sameStored}]`);
-  t('client id: with no meta and none in config.js, there is nothing shipped',
-    shipped.afterMeta === '', `[${shipped.afterMeta}]`);
+  t('client id: with the meta gone, the deployment id is what is left',
+    /\.apps\.googleusercontent\.com$/.test(shipped.afterMeta), shipped.afterMeta);
+
+  // The repo really does ship one — which is the whole point, and the one
+  // assertion that would quietly stop meaning anything if config.js emptied.
+  await page.goto(B + '/sync.html');
+  const fromRepo = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    return { shipped: sync.shippedClientId(), disabled: document.getElementById('gsignin').disabled };
+  });
+  t('client id: this deployment ships one, so nobody is asked to make a project',
+    /^\d+-\w+\.apps\.googleusercontent\.com$/.test(fromRepo.shipped)
+    && fromRepo.disabled === false, fromRepo.shipped.slice(0, 22) + '…');
 
   // The page has to change shape too: with an id, sign-in is one click and the
   // console instructions stop being something you must do.
@@ -1556,6 +1629,7 @@ try {
     `open=${shippedUi.open} box="${shippedUi.box}"`);
 
   await page.unroute('**/sync.html');
+  await noShippedId();
   await page.goto(B + '/sync.html');
   const bareUi = await page.evaluate(() => ({
     disabled: document.getElementById('gsignin').disabled,
@@ -1565,6 +1639,7 @@ try {
   t('client id: without one, the page still asks for yours and says so',
     bareUi.disabled === true && bareUi.setup === 'Setting it up, once' && bareUi.open === true,
     `${bareUi.setup}, panel open`);
+  await shippedIdBack();
 
   // ---- the account, on every page ----
   // The chip reads the stored profile, not a token — which is the whole reason
@@ -1637,6 +1712,7 @@ try {
 
   // And it has to reach the screen, not just exist as a function.
   await page.goto(B + '/sync.html');
+  await openClientBox();
   await page.fill('#client', '123-abc.apps.googleusercontent.com');
   await page.click('#save-client');
   await page.waitForTimeout(150);
@@ -1857,6 +1933,7 @@ try {
 
   // ---- machines are entities, like grinders ----
   await page.goto(B + '/kit.html');
+  await kitTab('machines');
   await page.fill('#m-name', 'Test Bianca');
   await page.selectOption('#m-kind', 'Dual boiler');
   await page.fill('#m-temp', '93.5');
@@ -1981,6 +2058,7 @@ try {
     age.windows.join(' '));
 
   // Through the UI: freeze a bag, and its effective age stops climbing.
+  await kitTab('bags');
   await page.fill('#b-name', 'Freezer Test');
   await page.fill('#b-roast', '2026-01-10');
   await page.selectOption('#b-level', 'Light');
@@ -2118,6 +2196,7 @@ try {
 
   // Through the UI: the refreeze button is gone, and splitting is offered.
   await page.goto(B + '/kit.html');
+  await kitTab('bags');
   await page.waitForSelector('#bags .bx', { timeout: 4000 });
   const bagsUi = await page.innerText('#bags');
   // Buttons render uppercase through CSS and innerText honours that, so these
@@ -2136,6 +2215,7 @@ try {
     kit.saveBag({ id: p.id, thawed_at: '2026-08-27' });
   });
   await page.goto(B + '/kit.html');
+  await kitTab('bags');
   await page.waitForSelector('#bags .bx', { timeout: 4000 });
   const thawedUi = await page.innerText('#bags');
   t('portions: and once one is out, the card says the freezer is done with it',
@@ -2194,6 +2274,7 @@ try {
 
   // ---- deducting through the UI ----
   await page.goto(B + '/kit.html');
+  await kitTab('bags');
   await page.waitForSelector('#bags .bx', { timeout: 5000 });
   const beforeText = await page.innerText('#bags');
   await page.fill('#bags input[type="number"]', '30');
@@ -2210,6 +2291,7 @@ try {
     /1 manual entry/i.test(afterText), afterText.match(/\d+ manual entr\w+/i)?.[0] ?? 'not listed');
 
   // ---- consumables through the UI ----
+  await kitTab('consumables');
   await page.fill('#c-name', 'Test Filter');
   await page.selectOption('#c-kind', 'shots');
   await page.fill('#c-capacity', '3');

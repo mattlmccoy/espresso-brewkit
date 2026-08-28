@@ -112,8 +112,17 @@ that signed in under the old one.
 Publishing the consent screen is what lets anyone sign in rather than a list of
 named testers. Every scope here is **non-sensitive** — `drive.appdata` is the
 narrowest Drive scope there is, and `openid email profile` only names the
-account — so the app can go to production without the verification review that
-sensitive or restricted scopes require.
+account — so the app needs no verification *review* to go to production.
+
+It still cannot be published from `github.io`. The branding page requires an app
+home page and a privacy policy link, and the domains behind them must be listed
+as **Authorized domains** — where `github.io` is refused, because it sits on the
+[Public Suffix List](https://publicsuffix.org/) and Google treats it as a
+registry suffix like `.com`. That is a property of the hosting, not of the app:
+pointing a custom domain at the same GitHub Pages site clears it, and clears
+Search Console verification with it. Until then the app stays in **Testing**,
+where up to 100 accounts named on the tester list can sign in — which is the
+right shape for a personal tool anyway, and costs nothing.
 
 Setting that credential up is the one manual step for your own deployment, and
 two of its fields cause
