@@ -285,3 +285,155 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .supply .bx { padding: 12px 14px; }
 .supply .nm { font: 700 12.5px/1.2 var(--sans); }
 .supply .dt { font: 700 11.5px/1.3 var(--mono); color: var(--ink-dim); margin-top: 4px; }
+
+/* ---------------------------------------------------------------- the stage
+   The Live page is a dashboard, not a document: three columns that fill the
+   viewport once, so pulling a shot never means scrolling with a portafilter in
+   one hand. Each cell scrolls internally if its own content overflows, which is
+   what keeps a long tag list or a diagnosis from pushing the weight off screen.
+   Below 1100px it becomes one column and scrolls like anything else — on a
+   phone a fixed-height grid would just squeeze everything into illegibility. */
+.stage {
+  display: grid;
+  grid-template-columns: minmax(230px, 285px) minmax(0, 1fr) minmax(280px, 350px);
+  /* An auto row sizes to its tallest cell's content, which defeats the whole
+     point: the stage would grow to fit the side panel instead of the side panel
+     scrolling inside a stage that fits the screen. */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+  margin-top: 12px;
+}
+
+/* Rather than guessing how much chrome sits above the stage, make the page a
+   flex column the height of the viewport and let the stage take what is left.
+   Guessing was wrong by 349px, which is a scrollbar on every shot. */
+/* A dashboard should use the screen it is given. 1180px is right for reading
+   prose and wrong for six panels of instrumentation. */
+.dash-page .wrap { max-width: 1720px; padding-left: 18px; padding-right: 18px; }
+
+/* The footer lives outside .wrap, so a 100dvh wrap plus a footer overflows by
+   exactly the footer's height. The body is the flex column instead. */
+body.dash-page { min-height: 100dvh; display: flex; flex-direction: column; }
+.dash-page .wrap { flex: 1 1 auto; display: flex; flex-direction: column;
+  /* An auto-margined flex item sizes to its content on the cross axis, not to
+     the container — without an explicit width the wrap shrinks and squeezes the
+     middle column to a third of what it should be. */
+  width: 100%; min-height: 0; padding-bottom: 10px; }
+.dash-page #step-live { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.dash-page .stage { flex: 1 1 auto; min-height: 0; }
+.dash-page .page-head { margin: 0 0 6px; }
+.dash-page .page-head h1 { font-size: clamp(26px, 3.4vw, 40px); }
+.dash-page .page-head .desc { display: none; }
+.dash-page .site-head { padding: 12px 0 10px; }
+.dash-page .site-foot { margin-top: 10px; padding-top: 10px; font-size: 11px; }
+.dash-page #advanced { margin-top: 10px; padding: 12px 15px; }
+.cell { display: flex; flex-direction: column; padding: 14px 15px; min-height: 0; overflow: hidden; }
+.cell-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.cell-head .tag { margin: 0; }
+.cell-head > .ghost, .cell-head > button { margin-left: auto; padding: 5px 10px; box-shadow: none;
+  font: 700 11px/1 var(--sans); text-decoration: none; }
+.cell-scroll { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
+.cell .hint { margin: 9px 0 0; font-size: 12.5px; }
+.cell .msg { margin: 7px 0 0; font-size: 12px; }
+.cell .note { font-size: 12px; padding: 9px 11px; }
+.cell .field { margin-bottom: 9px; }
+.cell label { font-size: 10px; }
+.cell input, .cell select { padding: 7px 9px; font-size: 13px; }
+.cell details > summary { cursor: pointer; font: 700 10px/1 var(--sans); letter-spacing: .13em;
+  text-transform: uppercase; color: var(--ink-mute); margin-top: 10px; }
+.row.tight3 { grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+.btn-row.tight { gap: 6px; margin-top: 10px; }
+.btn-row.tight button { padding: 7px 10px; font-size: 11.5px; box-shadow: none; }
+
+/* Weight is the one number readable from across the kitchen. */
+#cell-now .hero { margin-top: 12px; }
+#cell-now .hero .v { font-size: clamp(40px, 6.2vw, 74px); }
+.mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 9px; }
+.mini .st { padding: 8px 9px 10px; }
+.mini .k { font-size: 9px; letter-spacing: .1em; }
+.mini .v { font-size: 19px; margin-top: 5px; }
+.mini .u { font-size: 10px; }
+
+/* The curve fills whatever height is left rather than dictating it. */
+.fillchart { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.fillchart svg.chart { width: 100%; height: 100%; }
+#cell-pour #b-summary .st { padding: 8px 10px; }
+#cell-pour #b-summary .v { font-size: 17px; }
+#cell-pour #b-summary .grid { gap: 7px; margin-top: 9px; }
+
+#cell-side .steps button { min-width: 0; padding: 9px 8px; }
+#cell-side .steps .l { font-size: 11.5px; margin-top: 4px; }
+#cell-side .steps .sv { font-size: 10.5px; margin-top: 4px; }
+#cell-side .supply { grid-template-columns: 1fr; gap: 7px; }
+#cell-side .rate button { width: 34px; padding: 7px 0; font-size: 12px; }
+#cell-side .chips button { padding: 5px 9px; font-size: 11px; }
+#s-rate .rate button { width: 38px; }
+
+@media (max-width: 1100px) {
+  .stage { grid-template-columns: 1fr; grid-template-rows: none; height: auto; min-height: 0; }
+  body.dash-page { display: block; min-height: 0; }
+  .dash-page .wrap { display: block; }
+  .dash-page #step-live { display: block; }
+  .dash-page .page-head .desc { display: block; }
+  .cell { overflow: visible; }
+  .cell-scroll { overflow: visible; }
+  .fillchart { min-height: 260px; }
+}
+
+/* A dismissible note keeps room for its own close control. */
+.note.has-x { position: relative; padding-right: 34px; }
+.notice-x {
+  position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; padding: 0;
+  box-shadow: none; border-width: 1.5px; background: transparent;
+  font: 700 14px/1 var(--sans); color: var(--ink-mute);
+}
+.notice-x:hover { background: var(--ink); color: var(--tag-fg); }
+
+/* The live pour. Weight is the subject; flow is the shape; the ghost is what
+   you are pouring against. Three weights of line, not three colours fighting. */
+.chart.live { width: 100%; height: 100%; display: block; }
+.chart .weightline { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; }
+.chart .flowline   { fill: none; stroke: var(--fit); stroke-width: 2.2; stroke-linejoin: round; }
+.chart .ghost      { fill: none; stroke: var(--ink-mute); stroke-width: 2; stroke-dasharray: 6 5;
+                     opacity: .75; }
+.chart .ghost-flow { stroke-width: 1.5; stroke-dasharray: 3 4; opacity: .5; }
+.chart .target     { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 3 4; opacity: .7; }
+.chart .marker     { stroke: var(--ink-mute); stroke-width: 1.5; stroke-dasharray: 2 4; }
+.chart .tick-alt   { fill: var(--fit); }
+.chart .axis-label.alt { fill: var(--fit); }
+
+/* Legend and reference picker, inline with the chart's title. */
+.legend { display: flex; align-items: center; gap: 6px; font: 700 10.5px/1 var(--sans);
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-mute); flex-wrap: wrap; }
+.legend i { width: 15px; height: 3px; display: inline-block; }
+.legend .sw-w { background: var(--accent); }
+.legend .sw-f { background: var(--fit); }
+.legend .sw-g { background: repeating-linear-gradient(90deg, var(--ink-mute) 0 4px, transparent 4px 7px); }
+.legend select { padding: 3px 6px; font-size: 11px; max-width: 150px; }
+
+/* The coffee in front of you. */
+.coffee-card { padding: 11px 12px; margin: 10px 0; }
+.cc-head { display: flex; align-items: baseline; gap: 8px; }
+.cc-head strong { font: 700 13.5px/1.2 var(--sans); }
+.cc-head .badge { margin-left: auto; }
+.cc-facts { font: 700 11px/1.45 var(--mono); color: var(--ink-dim); margin-top: 5px; }
+.cc-spark { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.cc-spark svg { width: 120px; height: 30px; flex: none; }
+.sparklabel { font: 700 10px/1.3 var(--mono); color: var(--ink-mute); }
+.spark path { fill: none; stroke: var(--accent); stroke-width: 2; }
+.spark .ref { stroke: var(--ink-mute); stroke-width: 1; stroke-dasharray: 2 3; }
+.spark .end { fill: var(--fit); }
+
+/* Past pours as shapes: a strip you read at a glance. */
+.histstrip { display: flex; gap: 6px; margin-top: 10px; overflow-x: auto; flex: none; }
+.histstrip .hist { padding: 5px 6px 4px; box-shadow: none; display: grid; justify-items: center;
+  gap: 2px; flex: none; }
+.histstrip .hist svg { width: 52px; height: 24px; }
+.histstrip .hist span { font: 700 9.5px/1 var(--mono); color: var(--ink-mute); }
+.histstrip .hist:hover { background: var(--flag); }
+
+@media (max-width: 1100px) {
+  .dash-page .wrap { max-width: 1180px; }
+  .cc-spark svg { width: 100%; }
+}

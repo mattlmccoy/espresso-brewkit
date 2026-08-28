@@ -144,6 +144,25 @@ export function matchByCharacteristic(chars) {
 }
 
 /**
+ * Do two decoders mean the same thing?
+ *
+ * Used to notice that a scale's remembered profile predates a fix to the driver
+ * for that same scale — the case that motivated it being a profile saved before
+ * the sign bit was understood, which decoded −416 g as +416 g and would have
+ * gone on doing so forever, because a saved decoder was never revisited.
+ */
+export function sameDecoder(a, b) {
+  if (!a || !b) return false;
+  const norm = (d) => JSON.stringify({
+    kind: d.kind ?? 'int', offset: d.offset, width: d.width,
+    littleEndian: !!d.littleEndian, signed: !!d.signed, scale: d.scale,
+    sign: d.sign ? [d.sign.offset, d.sign.mask] : null,
+    scaleIf: d.scaleIf ? [d.scaleIf.offset, d.scaleIf.mask, d.scaleIf.scale] : null,
+  });
+  return norm(a) === norm(b);
+}
+
+/**
  * Confirm a driver against a frame before trusting it. Two different scales can
  * share the FFF0/FFF3 pair — it is a generic module default, not a vendor
  * identifier — so the UUID alone is a hint, and the frame shape is the check.

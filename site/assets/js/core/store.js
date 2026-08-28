@@ -5,6 +5,7 @@
 // entire category of race conditions from the UI code.
 
 import { read, serialize } from './csv.js';
+import { tombstone } from './sync.js';
 import { deriveShot, DEFAULT_BRIX_FACTOR } from './coffee.js';
 
 const KEY = 'brewkit.shots.v1';
@@ -68,8 +69,11 @@ export function update(shotId, patch) {
   write(all().map((r) => (r.shot_id === shotId ? deriveShot({ ...r, ...patch }, brixFactor) : r)));
 }
 
-export const remove = (shotId) => write(all().filter((r) => r.shot_id !== shotId));
-export const clear = () => write([]);
+// A deletion has to be recorded, not just performed: syncing unions two
+// devices' rows, and a union can only ever add. Without a tombstone, deleting a
+// shot here and syncing would pull it straight back from the phone.
+export const remove = (shotId) => { tombstone('shot', shotId); return write(all().filter((r) => r.shot_id !== shotId)); };
+export const clear = () => { for (const r of all()) tombstone('shot', r.shot_id); return write([]); };
 
 /** Import CSV text. Returns a summary; does not silently drop conflicts. */
 export function importCsv(text, { replace = false } = {}) {

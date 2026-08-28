@@ -15,6 +15,8 @@
 const ADJ_KEY = 'brewkit.adjustments.v1';
 const CONS_KEY = 'brewkit.consumables.v1';
 
+import { tombstone } from './sync.js';
+
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -73,6 +75,7 @@ export function addAdjustment({ target_type = 'bag', target_id, amount, reason =
 }
 
 export function removeAdjustment(id) {
+  tombstone('adjustment', id);
   writeJSON(ADJ_KEY, adjustments().filter((a) => a.id !== id));
   emit();
 }
@@ -142,6 +145,7 @@ export function saveConsumable(patch) {
     installed_at: new Date().toISOString().slice(0, 10),
     ...(i >= 0 ? list[i] : {}),
     ...patch,
+    updated_at: new Date().toISOString(),
     id: patch.id || list[i]?.id || nextId(list, 'cons'),
   };
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -151,6 +155,7 @@ export function saveConsumable(patch) {
 }
 
 export function removeConsumable(id) {
+  tombstone('consumable', id);
   writeJSON(CONS_KEY, consumables().filter((c) => c.id !== id));
   emit();
 }

@@ -29,8 +29,11 @@
 
   <div class="page-head">
     <h1>Kit</h1>
-    <p class="desc">Bags and grinders. A shot stores which ones it used, so days off roast
-    is frozen at the moment you pulled it rather than recomputed later.</p>
+    <p class="desc">Bags, grinders, machines and what is running out. A shot stores which ones it
+    used, so days off roast is frozen at the moment you pulled it rather than recomputed later.</p>
+    <a class="ghost" href="./sync.html"
+       style="padding:9px 13px;text-decoration:none;font:700 12px/1 var(--sans);align-self:end;
+              margin-bottom:7px">Sync to phone</a>
   </div>
 
   <div class="split">
@@ -79,7 +82,7 @@
           <button class="ghost" id="m-cancel" type="button" style="display:none">Cancel edit</button>
         </div>
         <p class="msg" id="m-msg"></p>
-        <p class="note" style="margin-top:14px">The usual settings become a shot's defaults, so
+        <p class="note" data-notice="kit-1" style="margin-top:14px">The usual settings become a shot's defaults, so
         they stop being four fields you retype every time. Anything you set on the shot itself
         still wins.</p>
       </div>
@@ -124,7 +127,7 @@
           <button class="ghost" id="g-cancel" type="button" style="display:none">Cancel edit</button>
         </div>
         <p class="msg" id="g-msg"></p>
-        <p class="note" style="margin-top:14px">The step is what lets the advisor round a
+        <p class="note" data-notice="kit-0" style="margin-top:14px">The step is what lets the advisor round a
         recommendation to a setting your grinder actually has. Which direction is finer does not
         need declaring — it comes out of your own shots, with whichever sign your dial uses.</p>
       </div>
@@ -173,11 +176,13 @@
   </footer>
 </div>
 <script type="module">
+import { initNotices } from './assets/js/core/notice.js';
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
 boot();
+initNotices();
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };

@@ -16,6 +16,8 @@ const GRINDER_KEY = 'brewkit.grinders.v1';
 const MACHINE_KEY = 'brewkit.machines.v1';
 const SESSION_KEY = 'brewkit.session.v1';
 
+import { tombstone } from './sync.js';
+
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());
 export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
@@ -56,6 +58,7 @@ export function saveBag(patch) {
     added_at: new Date().toISOString().slice(0, 10),
     ...(i >= 0 ? list[i] : {}),
     ...patch,
+    updated_at: new Date().toISOString(),
     // Last, not first: a form for a new bag sends `id: null`, and spreading
     // that over a generated id leaves every record keyed on null.
     id: patch.id || list[i]?.id || nextId(list, 'bag'),
@@ -67,6 +70,7 @@ export function saveBag(patch) {
 }
 
 export function removeBag(id) {
+  tombstone('bag', id);
   writeJSON(BAG_KEY, bags().filter((b) => b.id !== id));
   emit();
 }
@@ -87,6 +91,7 @@ export function saveGrinder(patch) {
     name: '', burr: '', min: 0, max: 40, step: 1, notes: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
+    updated_at: new Date().toISOString(),
     id: patch.id || list[i]?.id || nextId(list, 'grinder'),
   };
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -96,6 +101,7 @@ export function saveGrinder(patch) {
 }
 
 export function removeGrinder(id) {
+  tombstone('grinder', id);
   writeJSON(GRINDER_KEY, grinders().filter((g) => g.id !== id));
   emit();
 }
@@ -135,6 +141,7 @@ export function saveMachine(patch) {
     notes: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
+    updated_at: new Date().toISOString(),
     id: patch.id || list[i]?.id || nextId(list, 'machine'),
   };
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -144,6 +151,7 @@ export function saveMachine(patch) {
 }
 
 export function removeMachine(id) {
+  tombstone('machine', id);
   writeJSON(MACHINE_KEY, machines().filter((m) => m.id !== id));
   emit();
 }

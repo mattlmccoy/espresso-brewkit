@@ -89,6 +89,31 @@ Machine *type* is recorded too, and is not decoration: a lever's pressure is
 whatever the spring or your arm is doing at that instant, which means something
 quite different from a pump machine's gauge reading.
 
+## Two devices, no server
+
+[Sync](https://mattlmccoy.github.io/espresso-brewkit/sync.html) keeps a computer
+and a phone holding the same log, using **Google Drive's `appDataFolder`** — a
+hidden per-app folder inside your own Drive, invisible in your file list and
+readable only by this app. There is no backend, nothing hosted, and no account
+here. The OAuth client id is public by design: a browser cannot keep a secret,
+so Google secures it with an origin allowlist instead.
+
+It **merges rather than overwrites**. Every sync pulls, merges and pushes. Shots
+are unioned by id, so using both devices without syncing in between loses
+nothing; where the same shot was edited in both places the later edit wins.
+Deletions travel as **tombstones**, because a union can only ever add — without
+them, deleting a shot on the laptop would pull it straight back from the phone.
+
+The merge is pure and tested hard against a fake transport. The Drive half needs
+a real Google account, so it is kept as thin as it can be — the less that lives
+there, the less is taken on trust.
+
+**On an iPhone or iPad it is a viewer and a logger.** No iOS browser has Web
+Bluetooth — not Safari, and not Chrome, which is Safari underneath — so a phone
+cannot stream the scale. It can read shots and curves, rate a shot, check what
+is running low, and take weights by hand. Scale streaming stays on the computer.
+That is Apple's decision, not something this project can work around.
+
 ## What is running out
 
 Shots alone never account for a bag. Beans get purged through the grinder to
@@ -111,6 +136,47 @@ only in what they count: a **water filter** by shots pulled, **burrs** by kilos
 ground, a **descale** by days elapsed. All of it appears on the Live dashboard
 worst-first, so the thing about to bite is the thing you see while you are
 standing at the machine.
+
+## One screen
+
+Live is a dashboard, not a document: three columns that fill the viewport once,
+so pulling a shot never means scrolling with a portafilter in one hand. Each
+column scrolls internally if its own content overflows, which is what stops a
+long tag list pushing the weight off screen. Below 1100px it becomes a single
+column and scrolls like anything else.
+
+The fit is a test, not an intention: the suite asserts the page ends up **0px**
+past the viewport, because the first three attempts were over by 349, 59 and
+153px in ways that were not visible by eye.
+
+What is on it, and why each thing earns its place:
+
+| | |
+|---|---|
+| **Weight, time, flow** | the three you look at with a portafilter in one hand |
+| **Lands at · to target · trend** | where the cup ends up if you cut now, seconds left, and which way flow is heading |
+| **The pour** | weight *and* flow on one time axis, the target as a line, and a **ghost of a past shot** underneath |
+| **This coffee** | days off roast, grams and shots left, average rating, and shot time over the last ten as a sparkline |
+| **History strip** | the last eight pours as shapes — click one to make it the ghost |
+| **Session** | the four steps with what each captured, and the pickers |
+| **Supplies** | whatever is closest to running out |
+
+Weight alone is the least informative thing a scale can draw: it only goes up,
+and every shot looks like the same tilted line. Flow is where the shape is, and
+the shape is what says whether the puck held. The **ghost** is the point of the
+whole panel — pouring to match a curve you already liked is a far more direct
+instruction than "aim for 28 seconds".
+
+## Notes that stop explaining
+
+A first-run explanation and a permanent fixture are different things, and this
+had been treating them as the same. Three stacked paragraphs about browser
+support are useful once and furniture thereafter, especially on a dashboard
+whose whole promise is that it fits one screen.
+
+Every recurring note carries a dismiss, and dismissal is permanent. There is one
+control in the footer that brings them all back, because a preference you cannot
+reverse is a trap rather than a preference.
 
 ## What you can watch while it pours
 
@@ -292,7 +358,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-212 assertions across the site in both themes: the analysis results, the
+245 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.

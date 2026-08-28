@@ -308,18 +308,30 @@ try {
   t('live: brew state machine advances', /extract|drip|complete/i.test(await page.textContent('#state')),
     await page.textContent('#state'));
 
+  // The pour is a line plot now, not a scatter: assert the trace itself.
   await page.waitForFunction(
-    () => document.querySelectorAll('#curve svg circle.pt').length > 5, { timeout: 25000 }).catch(() => {});
-  const pts = await page.locator('#curve svg circle.pt').count();
-  t('live: shot curve renders', pts > 5, pts + ' points');
-
-  const w1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-  await page.waitForTimeout(4000);
-  const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
-  t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0, `${w1} g -> ${w2} g`);
+    () => (document.querySelector('#curve svg path.weightline')?.getAttribute('d') ?? '')
+      .split('L').length > 8, { timeout: 25000 }).catch(() => {});
+  const trace = await page.evaluate(() => {
+    const d = document.querySelector('#curve svg path.weightline')?.getAttribute('d') ?? '';
+    const pts = d.replace('M', '').split('L').map((p) => p.split(',').map(Number))
+      .filter((p) => p.length === 2 && p.every(Number.isFinite));
+    return { n: pts.length, first: pts[0], last: pts.at(-1) };
+  });
+  t('live: the pour draws as a weight trace', trace.n > 8, trace.n + ' vertices');
+  // y grows downward in SVG, so a climbing weight is a falling y.
+  t('live: the trace climbs as the shot pours',
+    trace.last && trace.first && trace.last[1] < trace.first[1] && trace.last[0] > trace.first[0],
+    `y ${trace.first?.[1]?.toFixed(0)} → ${trace.last?.[1]?.toFixed(0)}`);
+  t('live: flow is plotted alongside weight, not just printed',
+    (await page.locator('#curve svg path.flowline').count()) === 1, 'flow trace present');
 
   // Saving is on the Rate step now, and Stop is what turns a running curve into
   // the scalars a record is made of. Walking that path is the test.
+  // Let the shot actually run before cutting it: the curve scalars need a shot
+  // to read, and a 0.9 s stub has no steady flow or late slope to speak of.
+  await page.waitForFunction(
+    () => parseFloat(document.getElementById('o-t').textContent) > 9, { timeout: 30000 });
   const shotsBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
   await page.click('#stop');
   await page.waitForFunction(() => /g in/.test(document.getElementById('live-msg').textContent),
@@ -747,8 +759,11 @@ try {
   await page.goto(B + '/live.html');
   await page.evaluate(() => localStorage.removeItem('brewkit.devices.v1'));
   await page.goto(B + '/live.html?mock=lefu');
+  // A driver is only remembered once a live frame confirms it — never on the
+  // strength of a UUID match alone — so wait for the profile, not the phase.
   await page.waitForFunction(
-    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+    () => Object.keys(JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}')).length > 0,
+    { timeout: 10000 });
 
   await page.goto(B + '/live.html?mock=lefu&manual=1');
   await page.waitForSelector('#saved-devices [data-reopen]', { timeout: 5000 });
@@ -1080,6 +1095,270 @@ try {
     navLinks.join(' '));
 
 
+
+
+
+
+
+  // ---- the dashboard shows more than the shot in front of you ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.selectOption('#p-bag', kitIds.bag);
+  await page.waitForTimeout(400);
+
+  const ctx = await page.evaluate(() => ({
+    name: document.getElementById('cc-name').textContent,
+    age: document.getElementById('cc-age').textContent,
+    facts: document.getElementById('cc-facts').textContent,
+    trend: document.getElementById('cc-trend').textContent,
+    hist: document.querySelectorAll('#history .hist').length,
+    ghosts: [...document.getElementById('ghost-pick').options].map((o) => o.textContent),
+  }));
+  t('dashboard: the coffee in front of you is on screen',
+    /Test Guji/.test(ctx.name) && /9 d/.test(ctx.age), `${ctx.name} · ${ctx.age}`);
+  t('dashboard: with how much is left and how it has been going',
+    /g left/.test(ctx.facts) && /shot/.test(ctx.facts), ctx.facts);
+  t('dashboard: past pours are shown as shapes, not just numbers',
+    ctx.hist >= 1, ctx.hist + ' in the history strip');
+  // Pouring against a curve you already liked beats aiming for a number.
+  t('dashboard: a reference shot can be poured against',
+    ctx.ghosts.some((o) => /best rated/.test(o)), ctx.ghosts.join(' | ').slice(0, 70));
+
+  await page.selectOption('#ghost-pick', { index: 1 });
+  await page.waitForTimeout(300);
+  t('dashboard: choosing one draws it behind the live pour',
+    (await page.locator('#curve svg path.ghost').count()) >= 1,
+    (await page.locator('#curve svg path.ghost').count()) + ' ghost traces');
+  t('dashboard: the target is a line on the plot, not only a digit',
+    (await page.locator('#curve svg line.target').count()) === 1, 'target line drawn');
+
+  // ---- notes stop explaining once you have read them ----
+  // The notes that actually repeat are the connect-screen ones — browser
+  // support, the reconnect path, "scale not listed".
+  // The notes that actually repeat are the connect-screen ones — browser
+  // support, the reconnect path, "scale not listed". Some tagged notes live
+  // inside closed disclosures, so count only what is actually on screen.
+  await page.goto(B + '/live.html');
+  const shown = page.locator('[data-notice]:not([hidden]):visible');
+  await page.waitForFunction(
+    () => [...document.querySelectorAll('[data-notice]:not([hidden])')]
+      .some((n) => n.offsetParent !== null), { timeout: 8000 });
+  const notesBefore = await shown.count();
+  t('dashboard: recurring notes carry a dismiss', notesBefore > 0
+    && (await page.locator('[data-notice]:not([hidden]):visible .notice-x').count()) > 0,
+    notesBefore + ' dismissible notes');
+  await page.locator('[data-notice]:not([hidden]):visible .notice-x').first().click();
+  await page.waitForTimeout(200);
+  const notesAfter = await shown.count();
+  t('dashboard: dismissing one hides it', notesAfter === notesBefore - 1,
+    `${notesBefore} → ${notesAfter}`);
+  await page.reload();
+  await page.waitForTimeout(900);
+  t('dashboard: and it stays hidden on the next visit',
+    (await shown.count()) === notesAfter, 'still ' + (await shown.count()));
+  // A preference you cannot reverse is a trap — and the control has to be
+  // reachable from where the note was, which is the connect screen.
+  t('dashboard: hidden notes can be brought back',
+    /Restore 1 hidden note/.test(await page.textContent('#restore-notes')),
+    await page.textContent('#restore-notes'));
+  await page.click('#restore-notes');
+  await page.waitForTimeout(300);
+  t('dashboard: restoring brings them all back',
+    (await shown.count()) === notesBefore, `${notesAfter} → ${await shown.count()}`);
+
+  // ---- syncing two devices ----
+  // The merge is pure and gets tested hard; the Drive half needs a real Google
+  // account, so it is kept thin and exercised here through a fake transport.
+  await page.goto(B + '/sync.html');
+  const merge = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    const local = [{ shot_id: 'a', rating: 7, timestamp: '2026-08-01 09:00:00' },
+                   { shot_id: 'b', rating: 5, timestamp: '2026-08-02 09:00:00' }];
+    const remote = [{ shot_id: 'a', rating: 9, timestamp: '2026-08-05 09:00:00' },
+                    { shot_id: 'c', rating: 6, timestamp: '2026-08-03 09:00:00' }];
+    const union = sync.mergeStore(local, remote, 'shot_id', 'shot');
+    const withDeath = sync.mergeStore(local, remote, 'shot_id', 'shot',
+      [{ type: 'shot', id: 'c' }, { type: 'bag', id: 'a' }]);
+    const noStamps = sync.mergeStore(
+      [{ shot_id: 'x', rating: 1 }], [{ shot_id: 'x', rating: 2 }], 'shot_id', 'shot');
+    return {
+      ids: union.map((r) => r.shot_id).sort().join(','),
+      clash: union.find((r) => r.shot_id === 'a').rating,
+      afterDeath: withDeath.map((r) => r.shot_id).sort().join(','),
+      localWins: noStamps[0].rating,
+    };
+  });
+  t('sync: merging two devices loses nothing', merge.ids === 'a,b,c', merge.ids);
+  t('sync: the later edit wins a clash', merge.clash === 9,
+    `kept ${merge.clash} (remote, edited 08-05) over 7 (local, 08-01)`);
+  t('sync: a deletion travels, and only for its own type',
+    merge.afterDeath === 'a,b', `${merge.afterDeath} — the bag tombstone must not delete shot a`);
+  t('sync: with no usable timestamp, the device in front of you wins',
+    merge.localWins === 1, String(merge.localWins));
+
+  // Round-trip the whole dataset through a fake Drive. The stores are shared
+  // fixture for everything after this, so put them back afterwards — a test
+  // that wrecks the fixture fails three unrelated ones further down.
+  const fixture = await page.evaluate(() => ({
+    shots: localStorage.getItem('brewkit.shots.v1'),
+    tombs: localStorage.getItem('brewkit.tombstones.v1'),
+  }));
+  const round = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify(
+      [{ shot_id: 'keep-1', dose_g: 18 }]));
+    localStorage.setItem('brewkit.tombstones.v1', '[]');
+    const fromOtherDevice = {
+      format: 1, written_at: '2026-08-20T00:00:00Z',
+      tombstones: [{ type: 'shot', id: 'gone-1', at: '2026-08-20T00:00:00Z' }],
+      data: { 'brewkit.shots.v1': [{ shot_id: 'phone-1', dose_g: 17 },
+                                   { shot_id: 'gone-1', dose_g: 16 }] },
+    };
+    const applied = sync.apply(fromOtherDevice);
+    const after = JSON.parse(localStorage.getItem('brewkit.shots.v1')).map((r) => r.shot_id).sort();
+    const snap = sync.snapshot();
+    const badFormat = sync.apply({ format: 99 });
+    return { applied: applied.ok, after, snapFormat: snap.format,
+             stores: Object.keys(snap.data).length, badFormat: badFormat.ok,
+             badMsg: badFormat.error };
+  });
+  t('sync: a remote snapshot merges into local storage',
+    round.applied && round.after.join(',') === 'keep-1,phone-1',
+    round.after.join(',') + ' (gone-1 deleted on the other device)');
+  t('sync: a snapshot carries every store that travels',
+    round.snapFormat === 1 && round.stores === 6, round.stores + ' stores');
+  t('sync: an unknown format is refused rather than half-applied',
+    round.badFormat === false && /format/i.test(round.badMsg), round.badMsg);
+
+  // Deleting really does leave a tombstone, through the app's own code paths.
+  const deaths = await page.evaluate(async () => {
+    const store = await import('./assets/js/core/store.js');
+    const sync = await import('./assets/js/core/sync.js');
+    localStorage.setItem('brewkit.tombstones.v1', '[]');
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify([{ shot_id: 'doomed', dose_g: 18 }]));
+    store.remove('doomed');
+    return sync.tombstones().map((x) => `${x.type}:${x.id}`);
+  });
+  t('sync: deleting a shot records a tombstone, not just a removal',
+    deaths.includes('shot:doomed'), deaths.join(',') || 'none recorded');
+
+  await page.evaluate((f) => {
+    if (f.shots === null) localStorage.removeItem('brewkit.shots.v1');
+    else localStorage.setItem('brewkit.shots.v1', f.shots);
+    if (f.tombs === null) localStorage.removeItem('brewkit.tombstones.v1');
+    else localStorage.setItem('brewkit.tombstones.v1', f.tombs);
+  }, fixture);
+
+  const setup = await page.innerText('#client-msg, .steps-list');
+  t('sync: the page states what only the user can do',
+    /console\.cloud\.google\.com/i.test(await page.innerText('.steps-list')),
+    'setup steps present');
+  t('sync: and is honest that a phone cannot stream the scale',
+    /no iOS browser has Web Bluetooth/i.test(await page.innerText('body')),
+    'iOS limitation stated');
+  await page.fill('#client', 'not-a-client-id');
+  await page.click('#save-client');
+  t('sync: a client id that cannot work is refused up front',
+    /apps\.googleusercontent\.com/.test(await page.textContent('#client-msg')),
+    await page.textContent('#client-msg'));
+
+  // ---- the Live page is a dashboard, and has to fit on one screen ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.waitForTimeout(500);
+  const fits = await page.evaluate(() => ({
+    over: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    vh: window.innerHeight,
+    chart: (() => { const r = document.getElementById('curve').getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) }; })(),
+  }));
+  t('dashboard: the whole session fits one screen without scrolling',
+    fits.over <= 2, `${fits.over}px past a ${fits.vh}px viewport`);
+  t('dashboard: the curve takes the space the stage leaves it',
+    fits.chart.h > 200 && fits.chart.w > 300, `${fits.chart.w}×${fits.chart.h}`);
+
+  // Two structural faults that each shipped a real bug today: an element the
+  // script talks to that is not in the document (a null textContent throw that
+  // stops the page dead), and one id used twice (getElementById returns the
+  // first, so the field read is not the field on screen).
+  const structure = await page.evaluate(() => {
+    const ids = [...document.querySelectorAll('[id]')].map((e) => e.id);
+    const dupes = [...new Set(ids.filter((v, i) => ids.indexOf(v) !== i))];
+    return { dupes, count: ids.length };
+  });
+  t('dashboard: no id appears twice in the document',
+    structure.dupes.length === 0, structure.dupes.join(', ') || `${structure.count} ids, all unique`);
+  const dangling = await page.evaluate(async () => {
+    const src = await (await fetch('./live.html')).text();
+    const used = new Set([...src.matchAll(/\$\('([\w-]+)'\)/g)].map((m) => m[1]));
+    return [...used].filter((id) => !document.getElementById(id));
+  });
+  t('dashboard: every element the script reaches for exists',
+    dangling.length === 0, dangling.join(', ') || 'none dangling');
+
+  // ---- a saved profile must not pin a decoder that was later fixed ----
+  // Reported from real use: negatives showing as positives. The cause was not
+  // the decoder — it was that a profile taught before the sign bit was
+  // understood shadowed the corrected built-in driver, forever.
+  const stale = await page.evaluate(async () => {
+    const dec = await import('./assets/js/ble/decode.js');
+    const drv = await import('./assets/js/ble/drivers.js');
+    const before = { kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1 };
+    const after = drv.DRIVERS.find((d) => d.id === 'lefu-fff0').decoder;
+    const neg = dec.unhex('12 06 15 00 44 10 05 00');
+    return {
+      staleReads: dec.applyCandidate(before, neg),
+      driverReads: dec.applyCandidate(after, neg),
+      differs: !drv.sameDecoder(before, after),
+      sameAsSelf: drv.sameDecoder(after, after),
+    };
+  });
+  t('stale profile: the old decoder is what reported a negative as positive',
+    stale.staleReads > 0 && stale.driverReads < 0,
+    `saved ${stale.staleReads.toFixed(1)} g vs driver ${stale.driverReads.toFixed(1)} g`);
+  t('stale profile: the difference is detectable',
+    stale.differs === true && stale.sameAsSelf === true,
+    `differs ${stale.differs}, identical-to-itself ${stale.sameAsSelf}`);
+
+  // Plant exactly that stale profile, reconnect, and it should be replaced.
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => {
+    localStorage.setItem('brewkit.devices.v1', JSON.stringify({
+      'mock:lefu': {
+        name: 'Old Profile Scale', bleName: 'Lefu Mock (863A)',
+        uuid: '0000fff3-0000-1000-8000-00805f9b34fb',
+        decoder: { kind: 'int', offset: 4, width: 2, littleEndian: true, signed: false, scale: 0.1 },
+        verifiedAt: '2026-01-01T00:00:00Z',
+      },
+    }));
+  });
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  // Wait for the profile to actually be rewritten, not for the note that
+  // precedes it — the driver is not trusted until a frame confirms it.
+  await page.waitForFunction(
+    () => !!JSON.parse(localStorage.getItem('brewkit.devices.v1') || '{}')['mock:lefu']?.decoder?.sign,
+    { timeout: 10000 });
+  const repaired = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('brewkit.devices.v1'))['mock:lefu'].decoder);
+  t('stale profile: a confirmed driver supersedes it on reconnect',
+    !!repaired.sign && repaired.sign.offset === 2 && repaired.sign.mask === 0x10,
+    JSON.stringify(repaired.sign));
+  t('stale profile: the saved name is kept, not clobbered',
+    (await page.textContent('#device-chip')) === 'Old Profile Scale',
+    await page.textContent('#device-chip'));
+  t('stale profile: the repair is reported rather than done silently',
+    /negative weights/i.test(await page.textContent('#conn-msg')),
+    await page.textContent('#conn-msg'));
+
+  // And a negative weight must now actually render as negative.
+  await page.evaluate(() => { window.__mock.grams = -52; });
+  await page.waitForFunction(
+    () => parseFloat(document.getElementById('o-w').textContent) < -40, { timeout: 6000 });
+  t('negatives: a negative reading renders negative on the dashboard',
+    parseFloat(await page.textContent('#o-w')) < -40, (await page.textContent('#o-w')) + ' g');
+  await page.evaluate(() => { window.__mock.grams = 0; });
 
   // ---- machines are entities, like grinders ----
   await page.goto(B + '/kit.html');
