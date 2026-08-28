@@ -137,6 +137,16 @@ function why(fit, grinderName) {
     ? `Staleness is in the model at ${fit.c.toFixed(4)} log-flow per day.`
     : 'Days off roast is not in the model — too few distinct ages to separate it from grind.');
   bits.push(`Residual scatter ${(fit.sigma * 100).toFixed(1)}% in flow.`);
+  // Shots ground straight from the freezer are held out of the fit, so say so
+  // rather than leaving the shot count quietly short of the log.
+  if (fit.frozen) {
+    bits.push(`${fit.frozen} first shot${fit.frozen === 1 ? '' : 's'} from frozen `
+      + `${fit.frozen === 1 ? 'was' : 'were'} held out: cold beans grind finer, so those are a `
+      + 'reading of the freezer rather than of the dial. '
+      + (fit.frozenEffect?.known
+        ? fit.frozenEffect.note
+        : 'Not enough of them yet to say by how much.'));
+  }
   return bits.join(' ');
 }
 

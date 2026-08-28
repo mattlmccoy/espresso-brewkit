@@ -175,7 +175,7 @@ $("add").addEventListener("click", () => {
     temp_c: num("temp_c"), pressure_bar: num("pressure_bar"),
     rating: num("rating"), tags: $("tags").value.trim().toLowerCase(),
     notes: $("notes").value.trim(),
-  }));
+  }, new Date(), { shots: store.all() }));
   $("add-msg").textContent = "Added " + s.shot_id
     + (Number.isFinite(s.ey_pct) ? " — " + fmt(s.ey_pct, 2) + "% yield." : " (no Brix, so no yield).");
   $("brix").value = ""; $("notes").value = "";

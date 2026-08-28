@@ -87,10 +87,49 @@ export function resistanceRows(shots, { grinderId = null, bagId = null } = {}) {
     // tail, so it is only a fallback for rows logged before the curve existed.
     logQ: Math.log(F(s.steady_flow_gs) > 0.05 ? F(s.steady_flow_gs) : F(s.flow_gs)),
     days: Number.isFinite(F(s.days_off_roast)) ? F(s.days_off_roast) : null,
+    // Ground straight from the freezer. Kept on the row rather than filtered
+    // out here, so the scatter can still show the shot while the fit ignores it.
+    fromFrozen: !!s.from_frozen,
     bag_id: s.bag_id ?? '',
     rating: F(s.rating),
     shot_id: s.shot_id,
   }));
+}
+
+/**
+ * How much slower a first-shot-from-frozen actually runs, for this person.
+ *
+ * The direction is settled — colder beans fracture into a smaller mean particle
+ * size and a narrower distribution, which is a finer grind at an unchanged dial
+ * (Uman et al., 2016). The magnitude is not, and it should not be: it depends
+ * on the burr, on how cold the freezer is, and on how long the portion sat out
+ * before it was ground. So it is measured against the same fit the shot was
+ * excluded from, rather than asserted, and until there are enough of them the
+ * honest answer is the direction alone.
+ */
+export function frozenEffect(rows, fit, { minN = 3 } = {}) {
+  const res = rows.map((r) => r.logQ - (fit.a + fit.b * r.grind + (fit.c ?? 0) * (r.days ?? 0)));
+  if (res.length < minN) {
+    const need = minN - res.length;
+    return { known: false, n: res.length,
+      note: 'Colder beans grind finer, so the first shot off a portion runs slower than the rest '
+        + 'of it. How much is a property of your grinder and your freezer rather than a constant, '
+        + `so it is measured rather than assumed: ${need} more frozen first shot`
+        + `${need === 1 ? '' : 's'} and this becomes a number.` };
+  }
+  const m = mean(res);
+  const sd = Math.sqrt(res.reduce((t, v) => t + (v - m) ** 2, 0) / (res.length - 1));
+  const se = sd / Math.sqrt(res.length);
+  const pct = (Math.exp(m) - 1) * 100;
+  return {
+    known: true, n: res.length, logRatio: m, se, pct,
+    // Two standard errors either side, on the ratio scale where the fit lives.
+    lo: (Math.exp(m - 2 * se) - 1) * 100,
+    hi: (Math.exp(m + 2 * se) - 1) * 100,
+    note: `Across ${res.length} first shots from frozen, flow ran `
+      + `${Math.abs(pct).toFixed(0)}% ${pct < 0 ? 'slower' : 'faster'} than the same dial setting `
+      + 'gives once the portion is at room temperature.',
+  };
 }
 
 /**
@@ -108,9 +147,19 @@ export function resistanceRows(shots, { grinderId = null, bagId = null } = {}) {
  * itself barely identified, so a fixed κ is the more honest simplification.
  */
 export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
-  const pooledRows = resistanceRows(shots, { grinderId });
+  // A shot pulled from frozen beans is not a reading of the bag's resistance.
+  // Colder beans fracture into a smaller mean particle size and a narrower
+  // distribution (Uman et al., Scientific Reports, 2016), so at a fixed dial
+  // setting they run slower — the dial did not move, the bean did. Leaving
+  // those rows in would drag the bag intercept toward a grind you never set,
+  // and with only a handful of shots on a fresh bag, one of them is enough.
+  const all = resistanceRows(shots, { grinderId });
+  const frozen = all.filter((r) => r.fromFrozen).length;
+  const pooledRows = all.filter((r) => !r.fromFrozen);
   if (pooledRows.length < 3) {
-    return { ok: false, reason: 'needs at least 3 shots on this grinder with a grind setting and a flow rate',
+    return { ok: false, frozen,
+             reason: 'needs at least 3 shots on this grinder with a grind setting and a flow rate'
+               + (frozen ? `, and ${frozen} of them came straight from the freezer` : ''),
              n: pooledRows.length };
   }
   const spread = (rows) => {
@@ -118,7 +167,8 @@ export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
     return Math.max(...gs) - Math.min(...gs);
   };
   if (spread(pooledRows) < 1e-6) {
-    return { ok: false, reason: 'every shot used the same grind setting, so nothing separates grind from noise',
+    return { ok: false, frozen,
+             reason: 'every shot used the same grind setting, so nothing separates grind from noise',
              n: pooledRows.length };
   }
 
@@ -129,7 +179,9 @@ export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
     ? [withDays.map((r) => r.grind), withDays.map((r) => r.days)]
     : [withDays.map((r) => r.grind)];
   const pooled = ols(cols, withDays.map((r) => r.logQ));
-  if (!pooled) return { ok: false, reason: 'the grinder-wide fit is singular', n: pooledRows.length };
+  if (!pooled) {
+    return { ok: false, frozen, reason: 'the grinder-wide fit is singular', n: pooledRows.length };
+  }
 
   const bPool = pooled.beta[1];
   const c = useDays ? pooled.beta[2] : 0;
@@ -157,6 +209,7 @@ export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
     ok: true, a, b, c, bPool, bBag, lambda, sigma,
     seB: pooled.se[1], usesDays: useDays,
     n: pooledRows.length, nBag: bagRows.length,
+    frozen, frozenEffect: frozenEffect(all.filter((r) => r.fromFrozen), { a, b, c }),
     /** Predicted steady flow, g/s, at a dial setting. */
     predictFlow: (grind, days = 0) => Math.exp(a + b * grind + c * (days ?? 0)),
   };

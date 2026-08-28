@@ -1348,7 +1348,7 @@ $('save').addEventListener('click', () => {
     tags: [...draft.tags].join(' '),
     notes: $('r-notes').value.trim()
       || (decoder ? `captured live from ${displayName()}` : 'entered on the Live page'),
-  });
+  }, new Date(), { shots: store.all() });
   const saved = store.add(record);
   kit.saveSession({
     bag_id: record.bag_id, grinder_id: record.grinder_id, grind_setting: num('p-grind'),

@@ -12,6 +12,20 @@
 // 2024 study in Foods tracked the same effect across storage temperatures. The
 // model here reflects that: frozen time is heavily discounted, not ignored.
 //
+// ONE WAY IN, ONE WAY OUT. The model above is a single freeze and a single
+// thaw, and that is not a simplification — it is the protocol. Frozen beans are
+// below the dew point, so the moment a portion is opened the air inside
+// condenses onto it; put it back and that water freezes into the bean, and the
+// next thaw brings more. Staling is hydrolytic as well as oxidative, so wet
+// beans do not merely taste worse, they age faster. That is why the working
+// method is to portion at the start and freeze the portions, not to freeze the
+// bag and open it repeatedly: a 900 g purchase split into single-session
+// portions of 130–150 g, vacuum-sealed and frozen on the same day, is six
+// coffees each paused at day zero. Each portion comes out once. Nothing goes
+// back. This module refuses to model a refreeze rather than pretending to,
+// because a bag that has been round the loop three times has an age the
+// calendar cannot recover.
+//
 // The rest windows below are roasting convention rather than a measured
 // constant, and they vary by bean density and roast profile. What is not
 // convention is the mechanism: roughly 40% of a bean's CO2 leaves in the first
@@ -106,6 +120,66 @@ export function beanAge(bag, at = new Date()) {
   };
 }
 
+/**
+ * Where a bag is in the freezer cycle, and whether the freezer is still an
+ * option for it.
+ *
+ * Three states, and only two legal moves: never → frozen → thawed. There is no
+ * edge back. Offering one would be offering a mistake with a button, and the
+ * age model behind it cannot represent the result anyway — `beanAge` carries a
+ * single frozen interval, so a second freeze would silently overwrite the first
+ * and report a bag as younger than it is.
+ */
+export function freezeState(bag, at = new Date()) {
+  const now = at instanceof Date ? at.getTime() : Date.parse(at);
+  const frozen = day(bag?.frozen_at);
+  const thawed = day(bag?.thawed_at);
+  if (frozen === null) {
+    return { state: 'never', canFreeze: true, canThaw: false,
+      note: 'Freeze it fresh and in single-session portions: the freezer preserves whatever state '
+        + 'you put in, so day 4 keeps, and day 40 keeps too.' };
+  }
+  if (thawed === null || thawed > now) {
+    return { state: 'frozen', canFreeze: false, canThaw: true, since: bag.frozen_at,
+      note: 'Take it out once, and use it. Let a sealed portion reach room temperature before '
+        + 'opening it, or the air inside will condense straight onto the beans.' };
+  }
+  return { state: 'thawed', canFreeze: false, canThaw: false, since: bag.thawed_at,
+    note: REFREEZE_REFUSAL };
+}
+
+export const REFREEZE_REFUSAL =
+  'This portion has already been out, so the freezer is finished with it. Frozen beans sit well '
+  + 'below the dew point: opening them condenses water onto the beans, refreezing locks that water '
+  + 'in, and each round trip adds more. Staling is hydrolytic as well as oxidative, so the result '
+  + 'ages faster than the bag it came from — and its age stops being something a date can recover. '
+  + 'Portion at the start instead, and bring out one portion at a time.';
+
+/**
+ * Was this shot ground from beans that were still frozen?
+ *
+ * Only the first shot off a portion is. The rest of that portion spends the
+ * session on the counter, so "this bag was frozen once" is not the question —
+ * "is this the first dose since it came out" is. It matters because cold beans
+ * fracture differently: Uman et al. (2016) found lower bean temperature gives a
+ * smaller mean particle size and a narrower distribution, which at a fixed dial
+ * setting is a finer grind and a slower shot. Recording it is what keeps that
+ * one shot from being read as the bag's resistance.
+ */
+export function fromFrozen(bag, priorShots = [], at = new Date()) {
+  const thawed = day(bag?.thawed_at);
+  if (thawed === null) return false;
+  const now = at instanceof Date ? at.getTime() : Date.parse(at);
+  if (!Number.isFinite(now) || now < thawed) return false;
+  // Same day the portion came out, and nothing pulled from it since.
+  if (daysBetween(thawed, now) > 0) return false;
+  return !priorShots.some((s) => {
+    if (s?.bag_id !== bag?.id) return false;
+    const t = day(s.timestamp ?? s.at);
+    return t !== null && t >= thawed;
+  });
+}
+
 export const restWindow = (level) => REST_WINDOW[level] ?? DEFAULT_REST;
 
 /**
@@ -161,15 +235,20 @@ export function freshness(bag, at = new Date()) {
     action: 'Worth replacing before drawing conclusions from these shots.' };
 }
 
-/** What to actually do about a bag you are about to freeze, or just took out. */
+/** The protocol, in the order you actually do it. */
 export const FREEZER_ADVICE = [
-  'Freeze in single-dose portions. Every thaw and refreeze pulls moisture onto the beans, so a '
-    + 'bag opened repeatedly loses most of the benefit.',
-  'Vacuum-seal or push the air out. Freezing slows oxidation; it does not remove the oxygen.',
-  'Freeze it fresh. The freezer preserves whatever state you put in, so a bag frozen at day 4 '
+  'Portion before you freeze, not after. Split the purchase into single-session amounts — a '
+    + 'week or so each — on the day it arrives. The portion, not the bag, is the unit that goes '
+    + 'in and comes out.',
+  'Vacuum-seal each portion. Freezing slows oxidation; it does not remove the oxygen, and a '
+    + 'sealed portion is also what keeps freezer air off the beans.',
+  'Freeze it fresh. The freezer preserves whatever state you put in, so a portion frozen at day 4 '
     + 'comes out at roughly day 4 — but one frozen at day 40 comes out at day 40.',
-  'Grinding straight from frozen is fine, and there is evidence it helps: colder beans fracture '
-    + 'into a narrower particle size distribution (Uman et al., Scientific Reports, 2016). Let a '
-    + 'sealed portion reach room temperature before opening it if you would rather avoid '
-    + 'condensation.',
+  'One portion out at a time, and never back in. Frozen beans are below the dew point, so opening '
+    + 'a portion condenses water onto it; refreezing seals that water in, and staling is '
+    + 'hydrolytic as well as oxidative. A portion that has been out is out.',
+  'Let the sealed portion reach room temperature before you open it — that is what stops the '
+    + 'condensation. Grinding the first dose straight from frozen is fine, and there is evidence '
+    + 'it helps: colder beans fracture into a narrower particle size distribution (Uman et al., '
+    + 'Scientific Reports, 2016). Expect that one shot to run slower than the rest of the portion.',
 ];

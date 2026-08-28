@@ -160,6 +160,38 @@ again, because oxidation needs oxygen; that factor is a judgement and is
 labelled as one. Freezing **slows** staling rather than stopping it, which is
 what the literature actually supports.
 
+### One way in, one way out
+
+The model is a single freeze and a single thaw, and that is the protocol rather
+than a simplification. Frozen beans sit well below the dew point, so opening a
+portion condenses water straight onto them; refreezing seals that water in, and
+the next thaw adds more. Staling is hydrolytic as well as oxidative, so a bag
+that has been round the loop three times does not merely taste worse — it ages
+faster, and its age stops being something a date can recover.
+
+So the unit that goes in the freezer is the **portion**, not the bag. Kit will
+split a purchase into portions: 900 g into six 145 g vacuum-sealed bags, frozen
+the day it arrives, is six coffees each paused at day one, each opened exactly
+once. Each portion is an ordinary bag with its own weight, its own thaw date and
+its own shots, because from the grinder's point of view the portion *is* the
+bag; what it shares with the parent is fixed at roast and simply copied. Once a
+portion has been out, the app will not offer to put it back — there is no button
+for a mistake, and `beanAge` carries one frozen interval, so a second freeze
+could only be recorded by silently overwriting the first.
+
+**The first shot off a portion is a different shot.** Only that one is actually
+ground from frozen; the rest of the portion spends the session on the counter.
+Cold beans fracture into a smaller mean particle size and a narrower
+distribution ([Uman et al.,
+2016](https://www.nature.com/articles/srep24483)) — a finer grind at an
+unchanged dial, and so a slower shot. It is flagged on the row, badged in the
+shot list, and held out of the resistance fit, because otherwise one shot in
+eight drags the bag's intercept toward a grind that was never set. The
+*direction* is settled; the *size* depends on your burrs and your freezer, so it
+is measured from your own frozen shots against the fit they were excluded from,
+and until there are three of them the app says the direction and admits it
+cannot yet say more.
+
 Age is reported as a phase rather than a bare number, because the same twelve
 days is early for a light roast and squarely in the window for a dark one:
 
@@ -180,7 +212,8 @@ mechanism is not.
 
 Sources: [Uman et al., *Scientific Reports* 6:24483
 (2016)](https://www.nature.com/articles/srep24483) — grinding cold narrows the
-particle size distribution, which is a reason to grind straight from frozen;
+particle size distribution, which is both a reason to grind the first dose
+straight from frozen and the reason that dose is excluded from the fit;
 [SCA, *A Literature Review on Coffee
 Staling*](https://sca.coffee/sca-news/2012/02/15/what-is-the-shelf-life-of-roasted-coffee-a-literature-review-on-coffee-staling);
 [*Effect of Temperature and Storage on Coffee's Volatile Compound Profile*,

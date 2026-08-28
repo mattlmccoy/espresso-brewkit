@@ -17,7 +17,7 @@ const MACHINE_KEY = 'brewkit.machines.v1';
 const SESSION_KEY = 'brewkit.session.v1';
 
 import { tombstone } from './sync.js';
-import { beanAge } from './beans.js';
+import { beanAge, fromFrozen } from './beans.js';
 
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());
@@ -70,6 +70,70 @@ export function saveBag(patch) {
   emit();
   return rec;
 }
+
+/**
+ * Split a purchase into single-session portions, and freeze them.
+ *
+ * This is the shape the freezer is actually useful in. A 900 g bag frozen whole
+ * gets opened once a week for two months, and every opening condenses water
+ * onto beans that are well below the dew point — so the thing that was supposed
+ * to preserve the coffee is instead wetting it, repeatedly. Portioned on day
+ * one, the same purchase is six coffees each paused at day one, each opened
+ * exactly once.
+ *
+ * Portions are ordinary bags, not a new kind of record. They have their own
+ * weight, their own thaw date and their own shots, because that is what they
+ * are: from the grinder's point of view the portion *is* the bag. What they
+ * share with the parent — roaster, roast date, roast level — is copied, since
+ * that is fixed at roast and cannot drift between them.
+ */
+export function splitBag(id, { count, grams, frozen_at = '', vacuum_sealed = true } = {}) {
+  const parent = bag(id);
+  const n = Math.floor(Number(count));
+  const g = Number(grams);
+  if (!parent) throw new Error('No such bag.');
+  if (!Number.isFinite(n) || n < 2) throw new Error('Split into at least two portions.');
+  if (!Number.isFinite(g) || g <= 0) throw new Error('Give each portion a weight.');
+  // Splitting off more than the bag holds is a typo, not an intention, and it
+  // would leave the parent with a negative weight that every later reading of
+  // "grams left" would inherit.
+  const held = Number(parent.weight_g);
+  if (Number.isFinite(held) && n * g > held) {
+    throw new Error(`${n} × ${g} g is ${(n * g).toFixed(0)} g, and this bag holds `
+      + `${held.toFixed(0)} g.`);
+  }
+
+  const froze = frozen_at || new Date().toISOString().slice(0, 10);
+  const portions = [];
+  for (let i = 1; i <= n; i++) {
+    portions.push(saveBag({
+      id: null,
+      roaster: parent.roaster, bean_name: parent.bean_name, roast_date: parent.roast_date,
+      process: parent.process, roast_level: parent.roast_level,
+      weight_g: +g.toFixed(1), notes: parent.notes,
+      frozen_at: froze, thawed_at: '', vacuum_sealed: !!vacuum_sealed,
+      parent_id: parent.id, portion_index: i, portion_of: n,
+    }));
+  }
+
+  // What the portions took has left the parent. If that is all of it, the
+  // parent is a purchase record rather than a bag you can dose from, so it
+  // stops cluttering the active list.
+  const left = Number.isFinite(held) ? +(held - n * g).toFixed(1) : null;
+  const rest = saveBag({
+    id: parent.id,
+    weight_g: left === null ? null : Math.max(0, left),
+    split_into: n,
+    archived: left !== null && left < 15 ? true : parent.archived,
+  });
+  emit();
+  return { portions, parent: rest, leftover: left };
+}
+
+/** The portions a purchase was split into, in order. */
+export const portionsOf = (id) => bags()
+  .filter((b) => b.parent_id === id)
+  .sort((a, b) => (a.portion_index ?? 0) - (b.portion_index ?? 0));
 
 export function removeBag(id) {
   tombstone('bag', id);
@@ -194,7 +258,7 @@ export function daysOffRoast(roastDate, at = new Date()) {
  * Called by the session flow and the logger, not by the store: the store should
  * not have to know that bags exist.
  */
-export function attachKit(shot, at = new Date()) {
+export function attachKit(shot, at = new Date(), { shots = [] } = {}) {
   const out = { ...shot };
   const b = out.bag_id ? bag(out.bag_id) : null;
   if (b) {
@@ -212,6 +276,11 @@ export function attachKit(shot, at = new Date()) {
       out.days_off_roast = age.effective;
       out.days_frozen = age.frozenDays;
     }
+    // Only the first dose off a portion is actually frozen; the rest of it
+    // spends the session on the counter. Cold beans grind finer, so that one
+    // shot is not a reading of the bag's resistance and must not be filed as
+    // one — see beans.fromFrozen and advisor.resistanceRows.
+    if (out.from_frozen === undefined) out.from_frozen = fromFrozen(b, shots, at);
   }
   // Names are copied alongside the ids for the same reason the bag's are: the
   // exported CSV has to mean something on its own, months later, on a machine

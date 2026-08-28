@@ -964,6 +964,59 @@ try {
     advisorMath.unrated.ok === false && /at least 4/.test(advisorMath.unrated.reason),
     advisorMath.unrated.reason);
 
+  // ---- the frozen first shot is not a reading of the bag ----
+  // Cold beans fracture into a smaller mean particle size (Uman et al., 2016),
+  // so at an unchanged dial they run slower. Left in the fit, that pulls the
+  // bag intercept toward a grind that was never set.
+  const frozenFit = await page.evaluate(async () => {
+    const a = await import('./assets/js/core/advisor.js');
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 - 0.5; };
+    const q = (g, d, k = 1) => +(Math.exp(-1.0 + 0.22 * g - 0.008 * d + rnd() * 0.06) * k).toFixed(3);
+    const warm = [[10, 3], [12, 5], [14, 7], [11, 9], [13, 11], [15, 13], [9, 15], [12.5, 17]]
+      .map(([g, d], i) => ({ shot_id: 'w' + i, grinder_id: 'g', bag_id: 'b', grind_setting: g,
+        days_off_roast: d, steady_flow_gs: q(g, d), dose_g: 18, yield_g: 36 }));
+    // Four first-shots-from-frozen, each running 20% slower at the same dial.
+    const cold = [[10, 4], [12, 8], [14, 12], [11, 16]]
+      .map(([g, d], i) => ({ shot_id: 'c' + i, grinder_id: 'g', bag_id: 'b', grind_setting: g,
+        days_off_roast: d, steady_flow_gs: q(g, d, 0.8), dose_g: 18, yield_g: 36,
+        from_frozen: true }));
+    const all = [...warm, ...cold];
+    const fit = a.fitResistance(all, { grinderId: 'g', bagId: 'b' });
+    // The same rows with the flag stripped: what the fit would have been.
+    const naive = a.fitResistance(all.map((s) => ({ ...s, from_frozen: false })),
+      { grinderId: 'g', bagId: 'b' });
+    const warmOnly = a.fitResistance(warm, { grinderId: 'g', bagId: 'b' });
+    const rows = a.resistanceRows(all, { grinderId: 'g' });
+    const thin = a.fitResistance([...warm, cold[0]], { grinderId: 'g', bagId: 'b' });
+    return {
+      n: fit.n, frozen: fit.frozen, allRows: rows.length,
+      flagged: rows.filter((r) => r.fromFrozen).length,
+      a: fit.a, aNaive: naive.a, aWarm: warmOnly.a,
+      effect: fit.frozenEffect, thinEffect: thin.frozenEffect,
+    };
+  });
+  t('advisor: frozen first shots are kept out of the resistance fit',
+    frozenFit.n === 8 && frozenFit.frozen === 4,
+    `${frozenFit.n} shots fitted, ${frozenFit.frozen} set aside`);
+  t('advisor: but they are still carried on the rows, not discarded',
+    frozenFit.allRows === 12 && frozenFit.flagged === 4,
+    `${frozenFit.allRows} rows, ${frozenFit.flagged} flagged`);
+  t('advisor: excluding them leaves the fit where the warm shots put it',
+    Math.abs(frozenFit.a - frozenFit.aWarm) < 1e-9, 'identical to the warm-only fit');
+  t('advisor: leaving them in would have dragged the intercept down',
+    frozenFit.aNaive < frozenFit.a - 0.03,
+    `a = ${frozenFit.a.toFixed(3)} excluded vs ${frozenFit.aNaive.toFixed(3)} included`);
+  t('advisor: and the size of the frozen effect is measured, not assumed',
+    frozenFit.effect.known && Math.abs(frozenFit.effect.pct + 20) < 4,
+    `${frozenFit.effect.pct.toFixed(1)}% (true −20%)`);
+  t('advisor: with an interval, because four shots is four shots',
+    frozenFit.effect.lo < frozenFit.effect.pct && frozenFit.effect.pct < frozenFit.effect.hi,
+    `${frozenFit.effect.lo.toFixed(0)}% to ${frozenFit.effect.hi.toFixed(0)}%`);
+  t('advisor: one frozen shot buys a direction, not a number',
+    frozenFit.thinEffect.known === false && /grind finer/.test(frozenFit.thinEffect.note),
+    frozenFit.thinEffect.note.slice(0, 56));
+
   // ---- Kit: a bag and a grinder, through the UI ----
   await page.goto(B + '/kit.html');
   await page.fill('#b-name', 'Test Guji');
@@ -1748,6 +1801,134 @@ try {
   t('beans: the shot row carries effective age and frozen days separately',
     rowAge.days < 40 && rowAge.frozen > 200 && rowAge.level === 'Light',
     `${rowAge.days} days off roast, ${rowAge.frozen} of them frozen`);
+
+  // ---- the freezer as a one-way door ----
+  // Freezing is not a state you toggle. A portion that has been out has had the
+  // room condense onto it, and refreezing locks that water in — so the model
+  // refuses to represent a second freeze rather than quietly mis-dating it.
+  const oneWay = await page.evaluate(async () => {
+    const beans = await import('./assets/js/core/beans.js');
+    const at = new Date('2026-08-28T12:00:00Z');
+    const st = (bag) => {
+      const r = beans.freezeState(bag, at);
+      return `${r.state}:${r.canFreeze ? 'F' : '-'}${r.canThaw ? 'T' : '-'}`;
+    };
+    return {
+      fresh: st({ roast_date: '2026-08-20' }),
+      frozen: st({ roast_date: '2026-01-10', frozen_at: '2026-01-15' }),
+      thawed: st({ roast_date: '2026-01-10', frozen_at: '2026-01-15', thawed_at: '2026-08-24' }),
+      refusal: beans.freezeState({ frozen_at: '2026-01-15', thawed_at: '2026-08-24' }, at).note,
+      advice: beans.FREEZER_ADVICE.join(' '),
+    };
+  });
+  t('beans: a bag that has never been frozen can be',
+    oneWay.fresh === 'never:F-', oneWay.fresh);
+  t('beans: one in the freezer can only come out',
+    oneWay.frozen === 'frozen:-T', oneWay.frozen);
+  t('beans: and one that has been out can do neither',
+    oneWay.thawed === 'thawed:--', oneWay.thawed);
+  t('beans: the refusal explains the chemistry rather than just saying no',
+    /condens/i.test(oneWay.refusal) && /hydrolytic|water/i.test(oneWay.refusal),
+    oneWay.refusal.slice(0, 64));
+  t('beans: the advice leads with portioning, not with freezing the bag',
+    /Portion before you freeze/.test(oneWay.advice) && /never back in/i.test(oneWay.advice),
+    'portion first, one way out');
+
+  // Only the first dose off a portion is actually frozen.
+  const ff = await page.evaluate(async () => {
+    const beans = await import('./assets/js/core/beans.js');
+    const bag = { id: 'bag-x', thawed_at: '2026-08-24' };
+    const on = (d, prior = []) => beans.fromFrozen(bag, prior, new Date(`${d}T12:00:00Z`));
+    const earlier = [{ bag_id: 'bag-x', timestamp: '2026-08-24 08:00:00' }];
+    return {
+      dayOf: on('2026-08-24'),
+      afterOne: on('2026-08-24', earlier),
+      otherBag: on('2026-08-24', [{ bag_id: 'bag-y', timestamp: '2026-08-24 08:00:00' }]),
+      nextDay: on('2026-08-25'),
+      beforeThaw: on('2026-08-23'),
+      neverFrozen: beans.fromFrozen({ id: 'b' }, [], new Date('2026-08-24T12:00:00Z')),
+    };
+  });
+  t('beans: the first dose the day a portion comes out is from frozen',
+    ff.dayOf === true, String(ff.dayOf));
+  t('beans: the second one is not — the portion is on the counter by then',
+    ff.afterOne === false, String(ff.afterOne));
+  t('beans: a shot from a different bag does not use up the frozen one',
+    ff.otherBag === true, String(ff.otherBag));
+  t('beans: nor is the next day, or a day before it came out',
+    ff.nextDay === false && ff.beforeThaw === false, `${ff.nextDay}/${ff.beforeThaw}`);
+  t('beans: a bag that was never frozen never qualifies',
+    ff.neverFrozen === false, String(ff.neverFrozen));
+
+  // ---- portioning a purchase ----
+  // The shape the freezer is actually useful in: split on day one, so the
+  // purchase becomes N coffees each paused at day one and each opened once.
+  const split = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const parent = kit.saveBag({ id: null, bean_name: 'Split Test', roaster: 'Test Roasters',
+      roast_date: '2026-08-20', roast_level: 'Light', weight_g: 907 });
+    const r = kit.splitBag(parent.id, { count: 6, grams: 145, frozen_at: '2026-08-21' });
+    const after = kit.bag(parent.id);
+    let refused = '';
+    try { kit.splitBag(parent.id, { count: 1, grams: 145 }); } catch (e) { refused = e.message; }
+    let overdrawn = '';
+    try { kit.splitBag(parent.id, { count: 6, grams: 145 }); } catch (e) { overdrawn = e.message; }
+    return {
+      n: r.portions.length,
+      names: r.portions.map((p) => `${p.portion_index}/${p.portion_of}`).join(','),
+      grams: r.portions[0].weight_g,
+      inherited: [r.portions[0].roaster, r.portions[0].roast_date, r.portions[0].roast_level]
+        .join('|'),
+      frozen: r.portions.every((p) => p.frozen_at === '2026-08-21' && p.vacuum_sealed
+        && !p.thawed_at),
+      leftover: after.weight_g,
+      archived: after.archived,
+      splitInto: after.split_into,
+      children: kit.portionsOf(parent.id).length,
+      refused, overdrawn,
+      parentId: parent.id,
+    };
+  });
+  t('portions: a purchase splits into portions that are ordinary bags',
+    split.n === 6 && split.names === '1/6,2/6,3/6,4/6,5/6,6/6', split.names);
+  t('portions: each carries its own weight and the roast it came from',
+    split.grams === 145 && split.inherited === 'Test Roasters|2026-08-20|Light', split.inherited);
+  t('portions: all of them go in frozen and sealed, none of them thawed',
+    split.frozen === true, 'frozen 2026-08-21, sealed');
+  t('portions: what they took has left the parent',
+    Math.abs(split.leftover - 37) < 0.05 && split.archived === false && split.splitInto === 6,
+    `${split.leftover} g left of 907`);
+  t('portions: and the parent knows its children',
+    split.children === 6, String(split.children));
+  t('portions: splitting into one portion is not a split',
+    /at least two/i.test(split.refused), split.refused);
+  t('portions: and taking out more than the bag holds is refused, not stored negative',
+    /870 g, and this bag holds 37 g/.test(split.overdrawn), split.overdrawn);
+
+  // Through the UI: the refreeze button is gone, and splitting is offered.
+  await page.goto(B + '/kit.html');
+  await page.waitForSelector('#bags .bx', { timeout: 4000 });
+  const bagsUi = await page.innerText('#bags');
+  // Buttons render uppercase through CSS and innerText honours that, so these
+  // have to be case-insensitive or they pass by never matching anything.
+  t('portions: the UI never offers to re-freeze',
+    !/re-froze/i.test(bagsUi), (bagsUi.match(/re-froze[^\n]*/i) ?? ['none found'])[0]);
+  t('portions: an unfrozen bag is offered the split instead',
+    /split into portions/i.test(bagsUi), 'split offered');
+  t('portions: a bag with no logged dose reports grams, not "about null shots"',
+    !/null shot/i.test(bagsUi), (bagsUi.match(/[^\n]*null[^\n]*/i) ?? ['no nulls'])[0]);
+
+  // A portion that has been out is refused the freezer, in the UI as in the model.
+  await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const p = kit.bags().find((b) => b.portion_index === 1);
+    kit.saveBag({ id: p.id, thawed_at: '2026-08-27' });
+  });
+  await page.goto(B + '/kit.html');
+  await page.waitForSelector('#bags .bx', { timeout: 4000 });
+  const thawedUi = await page.innerText('#bags');
+  t('portions: and once one is out, the card says the freezer is done with it',
+    /already been out/i.test(thawedUi), 'refusal on the card');
 
   // ---- what is running out ----
   // Shots alone never account for a bag: beans get purged through the grinder,
