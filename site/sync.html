@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sync · espresso·brewkit</title>
+<meta name="description" content="Keep your shot log the same on a computer and a phone, using your own Google Drive.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  ol.steps-list { counter-reset: s; list-style: none; padding: 0; margin: 14px 0 0; }
+  ol.steps-list li { counter-increment: s; position: relative; padding: 0 0 14px 34px;
+    font: 600 13.5px/1.55 var(--sans); color: var(--ink-dim); }
+  ol.steps-list li::before { content: counter(s); position: absolute; left: 0; top: 0;
+    width: 22px; height: 22px; display: grid; place-items: center; background: var(--ink);
+    color: var(--tag-fg); font: 700 11px/1 var(--mono); }
+  ol.steps-list strong { color: var(--ink); }
+  ol.steps-list code { background: var(--panel-2); padding: 2px 5px; font-size: 12px;
+    word-break: break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html">Live</a>
+      <a href="./shots.html">Shots</a>
+      <a href="./advisor.html">Advisor</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./lab.html">Lab</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Sync</h1>
+    <p class="desc">Keep the same shot log on a computer and a phone, stored in your own
+    Google Drive. No server, no account here.</p>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="bx panel">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <div class="tag" style="margin:0">Status</div>
+          <span class="badge" id="status">Not set up</span>
+        </div>
+        <p class="msg" id="last"></p>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="primary" id="sync" type="button">Sign in and sync</button>
+          <button class="ghost" id="signout" type="button" style="display:none">Sign out</button>
+        </div>
+        <p class="msg" id="sync-msg"></p>
+        <div id="summary" style="margin-top:12px"></div>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Your Google client ID</div>
+        <div class="field" style="margin-top:14px"><label for="client">OAuth client ID</label>
+          <input id="client" type="text" placeholder="…apps.googleusercontent.com"></div>
+        <div class="btn-row">
+          <button id="save-client" type="button">Save</button>
+          <button class="danger ghost" id="clear-client" type="button">Clear</button>
+        </div>
+        <p class="msg" id="client-msg"></p>
+        <p class="note" style="margin-top:14px">This is public by design. A browser cannot keep a
+        secret, so Google secures it with an origin allowlist instead: the id only works from the
+        exact web address you register. Pasting it here is safe; putting it in the repository would
+        be too.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="bx panel">
+        <div class="tag">Setting it up, once</div>
+        <p class="msg" style="margin-top:10px">Ten minutes, and only you can do it — the credential
+        belongs to your Google account, not to this project.</p>
+        <ol class="steps-list">
+          <li>Open <strong>console.cloud.google.com</strong> and make a new project. Call it
+          anything.</li>
+          <li>Under <strong>APIs &amp; Services → Library</strong>, find <strong>Google Drive
+          API</strong> and enable it.</li>
+          <li>Under <strong>OAuth consent screen</strong>, choose <strong>External</strong>, fill in
+          the app name and your email, and add yourself under <strong>Test users</strong>. Leaving
+          it unpublished is fine — a test user is exactly what you are.</li>
+          <li>Add the scope <code>.../auth/drive.appdata</code>. It is the narrowest one there is:
+          it grants access to a hidden folder this app creates, and to nothing else in your Drive.</li>
+          <li>Under <strong>Credentials</strong>, create an <strong>OAuth client ID</strong> of type
+          <strong>Web application</strong>. Under <em>Authorised JavaScript origins</em> add
+          <code id="origin">this site's origin</code>.</li>
+          <li>Copy the client ID and paste it on the left. Then <strong>Sign in and sync</strong> on
+          each device you want to keep in step.</li>
+        </ol>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">What this does and does not do</div>
+        <p class="note" style="margin-top:12px"><strong>It merges, it does not overwrite.</strong>
+        Every sync pulls, merges and pushes. Shots are unioned by id, so using two devices without
+        syncing in between loses nothing. If the same shot was edited in both places, the later edit
+        wins. Deletions are recorded as tombstones and travel too — without them a union could only
+        ever add, and a shot deleted on the laptop would come straight back from the phone.</p>
+        <p class="note" style="margin-top:12px"><strong>On an iPhone or iPad it is a viewer and a
+        logger.</strong> No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is
+        Safari underneath — so a phone cannot stream the scale. It can read your shots and curves,
+        rate a shot, check what is running low, and enter weights by hand. Scale streaming stays on
+        the computer, and that is Apple's decision rather than something this project can work
+        around.</p>
+        <p class="note" style="margin-top:12px"><strong>It is stored in appDataFolder.</strong> A
+        hidden area of your Drive that only this app can see; it will not appear among your files.
+        Removing the app's access from your Google account permissions deletes it.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device except to your own Drive.
+  </footer>
+</div>
+<script type="module">
+import { boot, el } from './assets/js/ui.js';
+import * as sync from './assets/js/core/sync.js';
+import * as store from './assets/js/core/store.js';
+boot();
+
+const $ = (id) => document.getElementById(id);
+$('origin').textContent = location.origin;
+
+let client = null;
+
+function paint() {
+  const cfg = sync.config();
+  $('client').value = cfg.clientId ?? '';
+  const ready = !!cfg.clientId;
+  $('status').textContent = !ready ? 'Not set up' : client?.token ? 'Signed in' : 'Ready';
+  $('status').className = `badge ${!ready ? '' : client?.token ? 'ok' : 'flag'}`;
+  $('sync').disabled = !ready;
+  $('signout').style.display = client?.token ? '' : 'none';
+  $('last').textContent = cfg.lastSync
+    ? `Last synced ${new Date(cfg.lastSync).toLocaleString()}. `
+      + `${store.all().length} shots on this device.`
+    : `Never synced. ${store.all().length} shots on this device.`;
+}
+
+$('save-client').addEventListener('click', () => {
+  const id = $('client').value.trim();
+  if (id && !/\.apps\.googleusercontent\.com$/.test(id)) {
+    $('client-msg').textContent = 'That does not look like a Google client ID — they end in '
+      + '.apps.googleusercontent.com.';
+    return;
+  }
+  sync.saveConfig({ clientId: id });
+  client = null;
+  $('client-msg').textContent = id ? 'Saved. Sign in below.' : 'Cleared.';
+  paint();
+});
+
+$('clear-client').addEventListener('click', () => {
+  sync.saveConfig({ clientId: '', lastSync: null });
+  client = null;
+  $('client').value = '';
+  $('client-msg').textContent = 'Cleared.';
+  paint();
+});
+
+$('signout').addEventListener('click', () => {
+  client?.signOut();
+  $('sync-msg').textContent = 'Signed out on this device. Your Drive copy is untouched.';
+  paint();
+});
+
+$('sync').addEventListener('click', async () => {
+  const cfg = sync.config();
+  $('sync-msg').textContent = 'Signing in…';
+  $('summary').replaceChildren();
+  try {
+    client = client ?? new sync.DriveClient({ clientId: cfg.clientId });
+    if (!client.token) await client.signIn();
+    $('sync-msg').textContent = 'Syncing…';
+    const r = await sync.syncNow(client);
+    if (!r.ok) { $('sync-msg').textContent = r.error; return; }
+    $('sync-msg').textContent = r.firstTime
+      ? 'First sync done — this device is now the copy in Drive. Sign in on the other one next.'
+      : 'Synced.';
+    if (r.summary) {
+      $('summary').replaceChildren(el('div', { class: 'tag' }, 'Merged'),
+        ...Object.entries(r.summary)
+          .filter(([, v]) => v.added !== 0 || v.after !== v.before)
+          .map(([k, v]) => el('p', { class: 'msg', style: 'margin:6px 0' },
+            `${k}: ${v.before} → ${v.after}${v.added > 0 ? ` (+${v.added} from the other device)` : ''}`)));
+    }
+  } catch (err) {
+    $('sync-msg').textContent = err.message;
+  }
+  paint();
+});
+
+store.subscribe(paint);
+paint();
+</script>
+</body>
+</html>

@@ -1086,6 +1086,103 @@ try {
 
 
 
+
+  // ---- syncing two devices ----
+  // The merge is pure and gets tested hard; the Drive half needs a real Google
+  // account, so it is kept thin and exercised here through a fake transport.
+  await page.goto(B + '/sync.html');
+  const merge = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    const local = [{ shot_id: 'a', rating: 7, timestamp: '2026-08-01 09:00:00' },
+                   { shot_id: 'b', rating: 5, timestamp: '2026-08-02 09:00:00' }];
+    const remote = [{ shot_id: 'a', rating: 9, timestamp: '2026-08-05 09:00:00' },
+                    { shot_id: 'c', rating: 6, timestamp: '2026-08-03 09:00:00' }];
+    const union = sync.mergeStore(local, remote, 'shot_id', 'shot');
+    const withDeath = sync.mergeStore(local, remote, 'shot_id', 'shot',
+      [{ type: 'shot', id: 'c' }, { type: 'bag', id: 'a' }]);
+    const noStamps = sync.mergeStore(
+      [{ shot_id: 'x', rating: 1 }], [{ shot_id: 'x', rating: 2 }], 'shot_id', 'shot');
+    return {
+      ids: union.map((r) => r.shot_id).sort().join(','),
+      clash: union.find((r) => r.shot_id === 'a').rating,
+      afterDeath: withDeath.map((r) => r.shot_id).sort().join(','),
+      localWins: noStamps[0].rating,
+    };
+  });
+  t('sync: merging two devices loses nothing', merge.ids === 'a,b,c', merge.ids);
+  t('sync: the later edit wins a clash', merge.clash === 9,
+    `kept ${merge.clash} (remote, edited 08-05) over 7 (local, 08-01)`);
+  t('sync: a deletion travels, and only for its own type',
+    merge.afterDeath === 'a,b', `${merge.afterDeath} — the bag tombstone must not delete shot a`);
+  t('sync: with no usable timestamp, the device in front of you wins',
+    merge.localWins === 1, String(merge.localWins));
+
+  // Round-trip the whole dataset through a fake Drive. The stores are shared
+  // fixture for everything after this, so put them back afterwards — a test
+  // that wrecks the fixture fails three unrelated ones further down.
+  const fixture = await page.evaluate(() => ({
+    shots: localStorage.getItem('brewkit.shots.v1'),
+    tombs: localStorage.getItem('brewkit.tombstones.v1'),
+  }));
+  const round = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify(
+      [{ shot_id: 'keep-1', dose_g: 18 }]));
+    localStorage.setItem('brewkit.tombstones.v1', '[]');
+    const fromOtherDevice = {
+      format: 1, written_at: '2026-08-20T00:00:00Z',
+      tombstones: [{ type: 'shot', id: 'gone-1', at: '2026-08-20T00:00:00Z' }],
+      data: { 'brewkit.shots.v1': [{ shot_id: 'phone-1', dose_g: 17 },
+                                   { shot_id: 'gone-1', dose_g: 16 }] },
+    };
+    const applied = sync.apply(fromOtherDevice);
+    const after = JSON.parse(localStorage.getItem('brewkit.shots.v1')).map((r) => r.shot_id).sort();
+    const snap = sync.snapshot();
+    const badFormat = sync.apply({ format: 99 });
+    return { applied: applied.ok, after, snapFormat: snap.format,
+             stores: Object.keys(snap.data).length, badFormat: badFormat.ok,
+             badMsg: badFormat.error };
+  });
+  t('sync: a remote snapshot merges into local storage',
+    round.applied && round.after.join(',') === 'keep-1,phone-1',
+    round.after.join(',') + ' (gone-1 deleted on the other device)');
+  t('sync: a snapshot carries every store that travels',
+    round.snapFormat === 1 && round.stores === 6, round.stores + ' stores');
+  t('sync: an unknown format is refused rather than half-applied',
+    round.badFormat === false && /format/i.test(round.badMsg), round.badMsg);
+
+  // Deleting really does leave a tombstone, through the app's own code paths.
+  const deaths = await page.evaluate(async () => {
+    const store = await import('./assets/js/core/store.js');
+    const sync = await import('./assets/js/core/sync.js');
+    localStorage.setItem('brewkit.tombstones.v1', '[]');
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify([{ shot_id: 'doomed', dose_g: 18 }]));
+    store.remove('doomed');
+    return sync.tombstones().map((x) => `${x.type}:${x.id}`);
+  });
+  t('sync: deleting a shot records a tombstone, not just a removal',
+    deaths.includes('shot:doomed'), deaths.join(',') || 'none recorded');
+
+  await page.evaluate((f) => {
+    if (f.shots === null) localStorage.removeItem('brewkit.shots.v1');
+    else localStorage.setItem('brewkit.shots.v1', f.shots);
+    if (f.tombs === null) localStorage.removeItem('brewkit.tombstones.v1');
+    else localStorage.setItem('brewkit.tombstones.v1', f.tombs);
+  }, fixture);
+
+  const setup = await page.innerText('#client-msg, .steps-list');
+  t('sync: the page states what only the user can do',
+    /console\.cloud\.google\.com/i.test(await page.innerText('.steps-list')),
+    'setup steps present');
+  t('sync: and is honest that a phone cannot stream the scale',
+    /no iOS browser has Web Bluetooth/i.test(await page.innerText('body')),
+    'iOS limitation stated');
+  await page.fill('#client', 'not-a-client-id');
+  await page.click('#save-client');
+  t('sync: a client id that cannot work is refused up front',
+    /apps\.googleusercontent\.com/.test(await page.textContent('#client-msg')),
+    await page.textContent('#client-msg'));
+
   // ---- the Live page is a dashboard, and has to fit on one screen ----
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
   await page.waitForFunction(
