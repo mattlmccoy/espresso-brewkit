@@ -20,7 +20,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 for the Node 24 runtime: Node 20 is removed from GitHub runners on
+      # 2026-09-16, which would otherwise break this deploy.
+      - uses: actions/checkout@v5
 
       # The dataset is versioned at data/ and served from the site root, so the
       # sample loader can fetch ./data/shots.csv. Copied at build time rather
