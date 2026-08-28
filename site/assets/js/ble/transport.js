@@ -13,6 +13,30 @@
 
 const short = (n) => `0000${n.toString(16).padStart(4, '0')}-0000-1000-8000-00805f9b34fb`;
 
+/**
+ * Wide sweep: every 16-bit service UUID in the ranges cheap BLE modules
+ * actually use. Declaring ~750 UUIDs is unusual but legal, and it is the
+ * difference between seeing an unknown scale's service and seeing nothing.
+ *
+ *   0xFFxx  vendor/proprietary — where nearly every no-name scale lives
+ *   0xFExx  Bluetooth SIG member services
+ *   0x18xx  SIG standard services (Weight Scale is 0x181D)
+ */
+export function sweepServices() {
+  const out = [];
+  for (const base of [0xff00, 0xfe00, 0x1800]) {
+    for (let i = 0; i < 256; i++) out.push(short(base + i));
+  }
+  return [...new Set([...out, ...VENDOR_SERVICES])];
+}
+
+/** 128-bit services belonging to specific vendors or module makers. */
+export const VENDOR_SERVICES = [
+  '6e400001-b5a3-f393-e0a9-e50e24dcca9e',   // Nordic UART — very common relabel
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',   // Microchip transparent UART (Acaia)
+  '0000fe80-0000-1000-8000-00805f9b34fb',
+];
+
 /** Service UUIDs worth asking for when we do not know what we are talking to. */
 export const COMMON_SERVICES = [
   short(0x181d),  // Weight Scale (SIG standard — rare in practice, but correct)
@@ -56,10 +80,11 @@ export class ScaleLink extends EventTarget {
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
   /** Must be called from a user gesture. */
-  async choose({ services = COMMON_SERVICES, namePrefix = null } = {}) {
+  async choose({ services = COMMON_SERVICES, namePrefix = null, wide = false, extra = [] } = {}) {
+    const list = [...new Set([...(wide ? sweepServices() : services), ...extra])];
     const opts = namePrefix
-      ? { filters: [{ namePrefix }], optionalServices: services }
-      : { acceptAllDevices: true, optionalServices: services };
+      ? { filters: [{ namePrefix }], optionalServices: list }
+      : { acceptAllDevices: true, optionalServices: list };
     this.device = await navigator.bluetooth.requestDevice(opts);
     this.device.addEventListener('gattserverdisconnected', () => {
       this.server = null;
