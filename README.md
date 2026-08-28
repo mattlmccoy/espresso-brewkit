@@ -98,6 +98,21 @@ readable only by this app. There is no backend, nothing hosted, and no account
 here. The OAuth client id is public by design: a browser cannot keep a secret,
 so Google secures it with an origin allowlist instead.
 
+Setting that credential up is the one manual step, and two of its fields cause
+nearly all the trouble. **Authorised JavaScript origins**, on the OAuth client
+id itself, is the one that matters: scheme and host, no path and no trailing
+slash. **Authorised domains**, on the consent screen, is a different field and
+will not take a `github.io` address at all — `github.io` is on the [Public
+Suffix List](https://publicsuffix.org/), so Google treats it as a registry
+suffix like `.com`, and no amount of site verification changes that. An
+unpublished app has no use for the field anyway. What an unpublished app *does*
+need is your own address under **Audience → Test users**; without it Google
+answers *"Access blocked — has not completed the Google verification process"*,
+and owning the project does not stand in for being listed on it. When a sign-in
+fails the page names these causes itself, because Google's popup reports the
+reason on its own page and then never returns to this origin — a blocked app and
+a window you closed arrive here as the same event.
+
 Signing in is Google's own flow: their account chooser, their consent screen,
 their button. The page names each permission **before** you click, because a
 consent screen is easier to approve honestly when you already know what it will

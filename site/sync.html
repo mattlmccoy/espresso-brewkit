@@ -39,6 +39,16 @@
   .account .who { display: grid; gap: 2px; min-width: 0; }
   .account .who strong { font-size: 14.5px; }
   .account .badge { margin-left: auto; }
+  /* The diagnosis after a failed sign-in. Loud enough to be read, quiet enough
+     that it is clearly advice rather than an error the page itself hit. */
+  .helpbox { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--hair);
+    border-left: var(--bw) solid var(--flag, var(--ink)); background: var(--panel-2); }
+  .helpbox h3 { margin: 0 0 8px; font: 700 11px/1 var(--mono); letter-spacing: .06em;
+    text-transform: uppercase; color: var(--ink); }
+  .helpbox p { margin: 0; font: 600 13px/1.55 var(--sans); color: var(--ink); }
+  .helpbox p + h4 { margin-top: 12px; }
+  .helpbox h4 { margin: 0 0 3px; font: 700 13px/1.5 var(--sans); color: var(--ink); }
+  .helpbox .detail { font-weight: 500; color: var(--ink-dim); }
 </style>
 </head>
 <body>
@@ -104,6 +114,7 @@
 
         <p class="msg" id="last"></p>
         <p class="msg" id="sync-msg"></p>
+        <div id="signin-help" class="helpbox" hidden></div>
         <div id="summary" style="margin-top:12px"></div>
       </div>
 
@@ -133,14 +144,21 @@
           anything.</li>
           <li>Under <strong>APIs &amp; Services → Library</strong>, find <strong>Google Drive
           API</strong> and enable it.</li>
-          <li>Under <strong>OAuth consent screen</strong>, choose <strong>External</strong>, fill in
-          the app name and your email, and add yourself under <strong>Test users</strong>. Leaving
-          it unpublished is fine — a test user is exactly what you are.</li>
+          <li>Under <strong>OAuth consent screen</strong> — newer consoles call the whole section
+          <strong>Google Auth Platform</strong> — choose <strong>External</strong> and fill in the
+          app name and your email.</li>
+          <li><strong>Add yourself under <em>Audience → Test users</em>.</strong> Use the same
+          address you will sign in with. This step is not optional and owning the project does not
+          cover it: without it Google refuses with <em>“Access blocked: … has not completed the
+          Google verification process”</em>. Leaving the app unpublished is correct — a test user
+          is exactly what you are.</li>
           <li>Add the scope <code>.../auth/drive.appdata</code>. It is the narrowest one there is:
           it grants access to a hidden folder this app creates, and to nothing else in your Drive.</li>
           <li>Under <strong>Credentials</strong>, create an <strong>OAuth client ID</strong> of type
           <strong>Web application</strong>. Under <em>Authorised JavaScript origins</em> add
-          <code id="origin">this site's origin</code>.</li>
+          <code id="origin">this site's origin</code> — exactly that, no path and no trailing
+          slash. Ignore <em>Authorised domains</em> on the consent screen: it will not take a
+          github.io address, and an unpublished app has no use for one.</li>
           <li>Copy the client ID and paste it on the left. Then <strong>Sign in and sync</strong> on
           each device you want to keep in step.</li>
         </ol>
@@ -238,10 +256,30 @@ function paint() {
     : `Never synced. ${store.all().length} shots on this device.`;
 }
 
+/**
+ * Google will not say why it refused, so say what it is most likely to be.
+ * A window the user closed and an app Google blocked arrive here as the same
+ * event, which is why the list can name two causes for one failure.
+ */
+function showHelp(message) {
+  const box = $('signin-help');
+  const causes = message ? sync.signInHelp(message, { origin: location.origin }) : [];
+  box.hidden = causes.length === 0;
+  if (!causes.length) { box.replaceChildren(); return false; }
+  box.replaceChildren(
+    el('h3', {}, 'Sign-in did not complete'),
+    ...causes.flatMap((c) => [
+      el('h4', {}, c.title),
+      el('p', { class: 'detail' }, c.detail),
+    ]));
+  return true;
+}
+
 async function signInAndSync() {
   const c = ensureClient();
   if (!c) { $('sync-msg').textContent = 'Set your OAuth client ID first.'; return; }
   $('summary').replaceChildren();
+  showHelp(null);
   try {
     if (!c.token) {
       $('sync-msg').textContent = 'Waiting for Google…';
@@ -262,7 +300,9 @@ async function signInAndSync() {
             `${k}: ${v.before} → ${v.after}${v.added > 0 ? ` (+${v.added} from the other device)` : ''}`)));
     }
   } catch (err) {
-    $('sync-msg').textContent = err.message;
+    // When the box explains the failure, repeating the raw message above it
+    // only adds a second, less useful account of the same event.
+    $('sync-msg').textContent = showHelp(err.message) ? '' : err.message;
   }
   paint();
 }

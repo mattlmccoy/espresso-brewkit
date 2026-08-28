@@ -1297,6 +1297,71 @@ try {
     out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
     `revoked ${out.revoked}, account cleared`);
 
+  // ---- when Google refuses ----
+  // The commonest failure by far is an unpublished app whose owner never added
+  // themselves as a test user. Google's popup shows the reason on its own page
+  // and then never redirects back, so the page has to infer it.
+  const help = await page.evaluate(async () => {
+    const s = await import('./assets/js/core/sync.js');
+    const ids = (m) => s.signInHelp(m, { origin: 'https://x.test' }).map((c) => c.id).join(',');
+    return {
+      blocked: ids('Access blocked: has not completed the Google verification process'),
+      denied: ids('The user did not approve (access_denied)'),
+      closed: ids('Sign-in window was closed.'),
+      mismatch: ids('Error 400: redirect_uri_mismatch'),
+      badClient: ids('invalid_client'),
+      offline: ids('Could not load Google Sign-In. Check the network, and any content blocker.'),
+      originAdvice: s.signInHelp('Sign-in window was closed.', { origin: 'https://x.test' })[1],
+      testerAdvice: s.signInHelp('access_denied', {})[0].detail,
+    };
+  });
+  t('signin: a blocked app is diagnosed as the missing test user',
+    help.blocked === 'tester', help.blocked);
+  t('signin: so is a bare access_denied', help.denied === 'tester', help.denied);
+  t('signin: a closed window is indistinguishable, so it names both causes',
+    help.closed === 'tester,origin', help.closed);
+  t('signin: a mismatch points at the origin allowlist alone',
+    help.mismatch === 'origin', help.mismatch);
+  t('signin: a bad client id leads with the client id',
+    help.badClient === 'client,origin', help.badClient);
+  t('signin: failing to reach Google is not a setup mistake, and says nothing',
+    help.offline === '', `[${help.offline}]`);
+  t('signin: the origin advice quotes the exact origin to paste',
+    help.originAdvice.title.includes('https://x.test'), help.originAdvice.title);
+  t('signin: and separates the two fields people confuse',
+    /Authorised domains/.test(help.originAdvice.detail)
+    && /github\.io/.test(help.originAdvice.detail), 'origins vs domains named');
+  t('signin: the test-user advice says where the setting lives',
+    /Test users/.test(help.testerAdvice) && /Audience/.test(help.testerAdvice),
+    help.testerAdvice.slice(0, 60));
+
+  // And it has to reach the screen, not just exist as a function.
+  await page.goto(B + '/sync.html');
+  await page.fill('#client', '123-abc.apps.googleusercontent.com');
+  await page.click('#save-client');
+  await page.waitForTimeout(150);
+  const refused = await page.evaluate(async () => {
+    const gis = { initTokenClient: (o) => ({
+      requestAccessToken: () => o.error_callback({ type: 'popup_closed' }) }) };
+    window.__syncTest.use(gis, async () => ({ ok: true, json: async () => ({}) }));
+    document.getElementById('gsignin').click();
+    await new Promise((r) => setTimeout(r, 120));
+    const box = document.getElementById('signin-help');
+    return { hidden: box.hidden, text: box.textContent,
+             msg: document.getElementById('sync-msg').textContent };
+  });
+  t('signin: a refusal puts the fix on screen rather than "window was closed"',
+    !refused.hidden && /Test users/.test(refused.text),
+    `${refused.msg} → ${refused.text.replace(/\s+/g, ' ').slice(0, 70)}`);
+
+  // The setup instructions must carry the same answer, for someone reading
+  // before they hit the error rather than after.
+  const steps = (await page.innerText('.steps-list')).replace(/\s+/g, ' ');
+  t('setup: the step people miss is its own step, with the error it causes',
+    /Test users/.test(steps) && /Access blocked/.test(steps), 'named and quoted');
+  t('setup: and the origin field is distinguished from authorised domains',
+    /JavaScript origins/.test(steps) && /Authorised domains/.test(steps), 'both named');
+
   // ---- syncing two devices ----
   // The merge is pure and gets tested hard; the Drive half needs a real Google
   // account, so it is kept thin and exercised here through a fake transport.
