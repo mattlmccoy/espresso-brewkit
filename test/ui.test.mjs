@@ -312,6 +312,30 @@ try {
     t('live: captured shot saves to the log', after === before + 1, before + ' -> ' + after);
   }
 
+  // ---- a recognised scale needs no teaching ----
+  await page.goto(B + '/live.html');
+  await page.click('#demo-lefu');
+  await page.waitForFunction(
+    () => document.getElementById('cap-msg').textContent.includes('Recognised'), { timeout: 6000 });
+  t('driver: Lefu frames are auto-detected', true, await page.textContent('#cap-msg'));
+
+  // It must decode without any capture step at all.
+  await page.waitForFunction(() => {
+    const w = parseFloat(document.getElementById('o-w').textContent);
+    return Number.isFinite(w);
+  }, { timeout: 8000 });
+  await page.waitForFunction(() => {
+    const s = document.getElementById('state').textContent.toLowerCase();
+    return s.includes('extract') || s.includes('drip') || s.includes('complete');
+  }, { timeout: 30000 }).catch(() => {});
+  const lefuState = await page.textContent('#state');
+  t('driver: shot runs with no teach step', /extract|drip|complete/i.test(lefuState), lefuState);
+
+  const lw1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  await page.waitForTimeout(4000);
+  const lw2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+  t('driver: decoded weight climbs', lw2 > lw1, `${lw1} g -> ${lw2} g`);
+
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
   for (const scheme of ['light', 'dark']) {

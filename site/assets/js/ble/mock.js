@@ -58,3 +58,24 @@ export class MockScale extends EventTarget {
 
   disconnect() { clearInterval(this.timer); this.timer = null; this.emit('disconnected', {}); }
 }
+
+/**
+ * Emits the frame layout captured from a real Lefu-based scale (INSMART 5 kg):
+ * 12 06 05 00 <weight u16LE, 0.1 g> 05 00, on service FFF0 characteristic FFF3.
+ * Used to test driver auto-detection without the hardware present.
+ */
+export class LefuMockScale extends MockScale {
+  constructor(opts = {}) {
+    super(opts);
+    this.chars = [{
+      service: '0000fff0-0000-1000-8000-00805f9b34fb',
+      uuid: '0000fff3-0000-1000-8000-00805f9b34fb',
+      notify: true, read: false, write: false,
+    }];
+  }
+
+  frame() {
+    const v = Math.max(0, Math.round((this.grams + (Math.random() - 0.5) * this.noise * 2) * 10));
+    return Uint8Array.from([0x12, 0x06, 0x05, 0x00, v & 0xff, (v >> 8) & 0xff, 0x05, 0x00]);
+  }
+}

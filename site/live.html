@@ -50,6 +50,7 @@
     <div class="btn-row">
       <button class="primary" id="connect" type="button">Choose a scale</button>
       <button id="demo" type="button">Run a demo shot</button>
+      <button id="demo-lefu" type="button">Demo: Lefu/INSMART</button>
       <button class="ghost" id="disconnect" type="button" style="display:none">Disconnect</button>
       <span class="msg" id="conn-msg" style="margin:0"></span>
     </div>
@@ -135,7 +136,8 @@ import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as chart from './assets/js/core/chart.js';
 import { FlowEstimator, BrewMachine, BREW } from './assets/js/core/filter.js';
-import { ScaleLink, MockScale, isSupported, unsupportedReason } from './assets/js/ble/index.js';
+import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
+         matchByCharacteristic, confirm } from './assets/js/ble/index.js';
 import { findCandidates, applyCandidate, describeCandidate, hex } from './assets/js/ble/decode.js';
 boot();
 
@@ -147,7 +149,7 @@ const saveDecoder = (name, c) => {
   catch { /* storage blocked */ }
 };
 
-let link = null, deviceName = null, decoder = null, activeUuid = null;
+let link = null, deviceName = null, decoder = null, activeUuid = null, driver = null;
 let caps = [], recent = [], lastRaw = 0, lastDraw = 0;
 const est = new FlowEstimator();
 const brew = new BrewMachine();
@@ -179,6 +181,18 @@ function onFrame({ uuid, bytes, at }) {
   if (box.childElementCount > 60) box.removeChild(box.firstChild);
   box.appendChild(el('div', {}, `${uuid.slice(4, 8)}  ${hex(bytes)}`));
   box.scrollTop = box.scrollHeight;
+
+  if (driver && uuid === activeUuid) {
+    if (!confirm(driver, bytes)) {
+      // Right UUIDs, wrong frame shape — a different scale on the same module.
+      driver = null; decoder = null; activeUuid = null;
+      $('cap-msg').textContent = 'This device uses the same UUIDs as a known scale but sends a '
+        + 'different frame, so the preset was discarded. Teach it below instead.';
+      setStep('step-decode', true);
+      return;
+    }
+    driver = null;   // confirmed once; no need to re-check every frame
+  }
 
   if (!decoder || uuid !== activeUuid) return;
   const grams = applyCandidate(decoder, bytes);
@@ -237,6 +251,18 @@ async function afterConnect(name) {
   $('disconnect').style.display = '';
   $('connect').style.display = 'none';
   await link.subscribeAll();
+  const auto = matchByCharacteristic(link.chars);
+  if (auto) {
+    driver = auto;
+    decoder = auto.decoder;
+    activeUuid = auto.characteristic;
+    $('cap-msg').textContent = `Recognised as ${auto.name} — ${describeCandidate(auto.decoder)}. `
+      + 'No setup needed. If the readings look wrong, teach it below to override.';
+    setStep('step-live', true);
+    setStep('step-decode', true);
+    return;
+  }
+
   const known = loadDecoders()[name];
   if (known) {
     decoder = known;
@@ -283,6 +309,15 @@ $('demo').addEventListener('click', async () => {
   attach(m);
   await m.connect();
   await afterConnect('Mock Scale');
+  brew.arm();
+  m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
+});
+
+$('demo-lefu').addEventListener('click', async () => {
+  const m = new LefuMockScale();
+  attach(m);
+  await m.connect();
+  await afterConnect('Lefu Mock (863A)');
   brew.arm();
   m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
 });
