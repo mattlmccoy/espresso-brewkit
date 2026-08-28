@@ -95,10 +95,12 @@
       <div class="field" style="margin:0"><label for="ref">Scale currently reads (g)</label>
         <input id="ref" type="number" step="0.1" value="0"></div>
       <div class="btn-row"><button id="capture" type="button">Capture</button>
+        <button class="ghost" id="export-caps" type="button">Export</button>
         <button class="ghost" id="clear-caps" type="button">Clear</button></div>
     </div>
     <p class="msg" id="cap-msg"></p>
-    <div id="cands" style="margin-top:12px"></div>
+    <div id="caps-table" style="margin-top:14px"></div>
+    <div id="cands" style="margin-top:14px"></div>
     <div style="margin-top:16px">
       <div class="tag" style="margin-bottom:10px">Incoming frames</div>
       <div class="frames" id="frames"></div>
@@ -134,15 +136,32 @@
 <script type="module">
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
+import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { FlowEstimator, BrewMachine, BREW } from './assets/js/core/filter.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
          matchByCharacteristic, confirm } from './assets/js/ble/index.js';
-import { findCandidates, applyCandidate, describeCandidate, hex } from './assets/js/ble/decode.js';
+import { findCandidates, applyCandidate, describeCandidate, hex, unhex } from './assets/js/ble/decode.js';
 boot();
 
 const $ = (id) => document.getElementById(id);
 const DEC_KEY = 'brewkit.decoders.v1';
+const CAP_KEY = 'brewkit.captures.v1';
+const loadCaps = () => { try { return JSON.parse(localStorage.getItem(CAP_KEY)) || []; } catch { return []; } };
+const persistCaps = () => {
+  try { localStorage.setItem(CAP_KEY, JSON.stringify(caps)); } catch { /* storage blocked */ }
+};
+
+/**
+ * Captures belong to the device they came from. Solving across two different
+ * scales finds no characteristic common to both and quietly yields nothing —
+ * so scope to the connected device, falling back to whichever device the most
+ * recent capture came from when nothing is connected yet.
+ */
+function activeCaps() {
+  const who = deviceName ?? caps.at(-1)?.device ?? null;
+  return caps.filter((c) => (c.device ?? null) === who);
+}
 const loadDecoders = () => { try { return JSON.parse(localStorage.getItem(DEC_KEY)) || {}; } catch { return {}; } };
 const saveDecoder = (name, c) => {
   try { const all = loadDecoders(); all[name] = c; localStorage.setItem(DEC_KEY, JSON.stringify(all)); }
@@ -150,7 +169,7 @@ const saveDecoder = (name, c) => {
 };
 
 let link = null, deviceName = null, decoder = null, activeUuid = null, driver = null;
-let caps = [], recent = [], lastRaw = 0, lastDraw = 0;
+let caps = loadCaps(), recent = [], lastRaw = 0, lastDraw = 0;
 const est = new FlowEstimator();
 const brew = new BrewMachine();
 
@@ -172,6 +191,14 @@ if (isSupported() && navigator.bluetooth.getAvailability) {
 
 function setStep(id, on) { $(id).classList.toggle('active', on); }
 setStep('step-connect', true);
+
+// Captures survive a reload: they cost physical measurements to produce.
+renderCaps();
+if (activeCaps().length) {
+  setStep('step-decode', true);
+  $('cap-msg').textContent = `${activeCaps().length} capture(s) restored from a previous session.`;
+  solve();
+}
 
 function onFrame({ uuid, bytes, at }) {
   if (recent.length > 40) recent.shift();
@@ -327,24 +354,63 @@ $('disconnect').addEventListener('click', () => link?.disconnect());
 $('capture').addEventListener('click', () => {
   const grams = parseFloat($('ref').value);
   if (!Number.isFinite(grams)) { $('cap-msg').textContent = 'Enter what the scale reads.'; return; }
-  const byUuid = new Map();
-  for (const f of recent.slice(-12)) byUuid.set(f.uuid, f.bytes);
-  if (!byUuid.size) { $('cap-msg').textContent = 'No frames received yet.'; return; }
-  caps.push({ grams, byUuid });
-  $('cap-msg').textContent = `${caps.length} capture(s). ${caps.length < 2 ? 'Change the mass and capture again.' : ''}`;
+  const frames = {};
+  for (const f of recent.slice(-12)) frames[f.uuid] = hex(f.bytes);
+  if (!Object.keys(frames).length) { $('cap-msg').textContent = 'No frames received yet.'; return; }
+  caps.push({ grams, frames, device: deviceName ?? null, at: new Date().toISOString() });
+  persistCaps();
+  const n = activeCaps().length;
+  $('cap-msg').textContent = `${n} capture(s) for this device, saved. `
+    + (n < 2 ? 'Change the mass and capture again.' : '');
+  renderCaps();
   solve();
 });
 
 $('clear-caps').addEventListener('click', () => {
-  caps = []; $('cands').replaceChildren(); $('cap-msg').textContent = 'Cleared.';
+  const mine = activeCaps();
+  if (mine.length && !window.confirm(`Delete ${mine.length} saved capture(s) for this device?`)) return;
+  const drop = new Set(mine);
+  caps = caps.filter((c) => !drop.has(c)); persistCaps();
+  $('cands').replaceChildren(); renderCaps();
+  $('cap-msg').textContent = 'Cleared.';
 });
 
+$('export-caps').addEventListener('click', () => {
+  if (!caps.length) { $('cap-msg').textContent = 'Nothing captured yet.'; return; }
+  const rows = [['grams', 'uuid', 'frame_hex', 'device', 'captured_at']];
+  for (const c of caps) {
+    for (const [uuid, h] of Object.entries(c.frames)) {
+      rows.push([c.grams, uuid, h, c.device ?? '', c.at ?? '']);
+    }
+  }
+  download('captures.csv', rows.map((r) => r.join(',')).join('\n') + '\n');
+  $('cap-msg').textContent = `Exported ${caps.length} capture(s).`;
+});
+
+/** Captures are the evidence a decoder rests on; show them, do not just count them. */
+function renderCaps() {
+  const holder = $('caps-table');
+  holder.replaceChildren();
+  const set = activeCaps();
+  if (!set.length) return;
+  const other = caps.length - set.length;
+  holder.appendChild(el('div', { class: 'tag' },
+    `${set.length} saved capture(s)${other ? ` · ${other} from other devices hidden` : ''}`));
+  const body = el('tbody', {}, set.flatMap((c) => Object.entries(c.frames).map(([uuid, h]) =>
+    el('tr', {}, el('td', {}, `${c.grams} g`), el('td', {}, uuid.slice(4, 8)), el('td', {}, h)))));
+  const t = el('table', {},
+    el('thead', {}, el('tr', {}, el('th', {}, 'Reads'), el('th', {}, 'Characteristic'), el('th', {}, 'Frame'))),
+    body);
+  holder.appendChild(el('div', { class: 'table-scroll' }, t));
+}
+
 function solve() {
-  if (caps.length < 2) return;
-  const uuids = [...caps[0].byUuid.keys()].filter((u) => caps.every((c) => c.byUuid.has(u)));
+  const set = activeCaps();
+  if (set.length < 2) return;
+  const uuids = Object.keys(set[0].frames).filter((u) => set.every((c) => c.frames[u]));
   const found = [];
   for (const uuid of uuids) {
-    const samples = caps.map((c) => ({ bytes: c.byUuid.get(uuid), grams: c.grams }));
+    const samples = set.map((c) => ({ bytes: unhex(c.frames[uuid]), grams: c.grams }));
     for (const c of findCandidates(samples)) found.push({ ...c, uuid });
   }
   found.sort((a, b) => a.error - b.error);

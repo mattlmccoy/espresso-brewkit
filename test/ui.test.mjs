@@ -312,6 +312,45 @@ try {
     t('live: captured shot saves to the log', after === before + 1, before + ' -> ' + after);
   }
 
+  // ---- captures must survive a reload ----
+  // They cost physical measurements to produce; discarding them on navigation
+  // silently throws away the user's work.
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => localStorage.removeItem('brewkit.captures.v1'));
+  await page.reload();          // clearing storage does not clear in-memory state
+  await page.waitForSelector('#demo-lefu');
+  await page.click('#demo-lefu');
+  await page.waitForFunction(() => document.querySelectorAll('#frames div').length > 2, { timeout: 6000 });
+  await page.fill('#ref', '0');
+  await page.click('#capture');
+  await page.waitForTimeout(900);
+  await page.fill('#ref', '120');
+  await page.click('#capture');
+  await page.waitForTimeout(300);
+
+  const stored = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('brewkit.captures.v1') || '[]'));
+  t('captures: written to storage', stored.length === 2, stored.length + ' saved');
+  t('captures: tagged with the device they came from',
+    stored.every((c) => c.device === 'Lefu Mock (863A)'),
+    [...new Set(stored.map((c) => c.device))].join(', '));
+  t('captures: frames stored as hex', stored.every(c =>
+    Object.values(c.frames).every(h => /^[0-9a-f ]+$/.test(h))),
+    Object.values(stored[0]?.frames ?? {})[0] ?? 'none');
+  t('captures: reference mass recorded', stored.map(c => c.grams).join(',') === '0,120',
+    stored.map(c => c.grams).join(','));
+
+  const rowsBefore = await page.locator('#caps-table tbody tr').count();
+  t('captures: shown in a table, not just counted', rowsBefore >= 2, rowsBefore + ' rows');
+
+  // The real test: reload and confirm they come back.
+  await page.reload();
+  await page.waitForTimeout(500);
+  const rowsAfter = await page.locator('#caps-table tbody tr').count();
+  const capMsg = await page.textContent('#cap-msg');
+  t('captures: survive a reload', rowsAfter === rowsBefore, `${rowsBefore} -> ${rowsAfter}`);
+  t('captures: restored message shown', /restored/i.test(capMsg), capMsg.trim());
+
   // ---- a recognised scale needs no teaching ----
   await page.goto(B + '/live.html');
   await page.click('#demo-lefu');
