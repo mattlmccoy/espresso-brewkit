@@ -166,6 +166,15 @@
         <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
         <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
       </div>
+      <div class="readout" style="margin-top:14px">
+        <div class="st bx"><div class="k">Lands at</div>
+          <div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
+        <div class="st bx"><div class="k">To target</div>
+          <div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
+        <div class="st bx"><div class="k">Flow trend</div>
+          <div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
+      </div>
+      <p class="note warn" id="live-warn" style="display:none;margin-top:14px"></p>
       <div class="btn-row" style="margin-top:14px">
         <button id="tare" type="button">Tare</button>
         <span class="badge" id="settled">—</span>
@@ -570,6 +579,30 @@ function render(s) {
   $('o-w').textContent = fmt(s.net, 1);
   $('o-t').textContent = fmt(s.elapsed, 1);
   $('o-f').textContent = fmt(s.flow, 2);
+
+  // What the cup will actually hold once the puck stops dripping, and how long
+  // until you should cut. Both are only meaningful while it is pouring.
+  const lag = Number(kit.session().stop_lag_s) || 1.0;
+  const tgt = targetYield();
+  const lands = s.running && s.flow > 0.02 ? s.net + s.flow * lag : NaN;
+  const eta = s.running && s.flow > 0.05 && Number.isFinite(tgt)
+    ? (tgt - s.flow * lag - s.net) / s.flow : NaN;
+  $('o-proj').textContent = fmt(lands, 1);
+  $('o-eta').textContent = Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—';
+  $('o-trend').textContent = fmt(s.trend, 3);
+
+  // A channel is worth knowing about while the shot is still running, not only
+  // in the post-mortem. The trend is NaN until there is enough shot to judge,
+  // so the opening ramp cannot set it off.
+  const warn = $('live-warn');
+  if (Number.isFinite(s.trend) && s.trend > 0.05) {
+    warn.style.display = '';
+    warn.textContent = `Flow is climbing (${s.trend.toFixed(3)} g/s²). An intact puck compacts as it `
+      + 'runs, so flow should be sagging by now — this is what a channel opening looks like. '
+      + 'Nothing to fix mid-shot; note it, and check distribution and tamp on the next one.';
+  } else if (s.state !== BREW.EXTRACTING) {
+    warn.style.display = 'none';
+  }
   $('d-live').textContent = `${fmt(s.net, 1)} g`;
   $('g-live').textContent = `${fmt(s.net, 1)} g`;
   const set = $('settled');

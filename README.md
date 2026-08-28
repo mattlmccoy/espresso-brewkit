@@ -39,6 +39,30 @@ and the rating you gave are all in the same table as the extraction yield.
 - **The curve is kept.** First-drip time, peak flow, steady flow and the late-shot
   flow slope are computed at full rate, then the curve is stored downsampled to 4 Hz
   (`t:w|t:w|…`, about 1.4 kB) so a CSV of shots still opens in a spreadsheet.
+- **Idle means idle.** Weighing beans, taring, swapping a dosing cup for a
+  portafilter — none of that is a shot, and the state machine does not react to
+  any of it. Only arming starts vessel detection. Your scale's own tare button
+  works too: when the reading jumps to zero brewkit follows it rather than
+  stacking its own offset on top and showing a large negative number.
+
+## What you can watch while it pours
+
+Six live numbers, none of which a scale's own display gives you:
+
+| | |
+|---|---|
+| **Weight** and **Time** | tared and running, as you'd expect |
+| **Flow** | estimated as a Kalman state, not differenced off the weight |
+| **Lands at** | where the cup ends up if you cut *now*, including the drip that follows the pump |
+| **To target** | seconds until you should cut, at the current flow |
+| **Flow trend** | which way flow is heading, g/s² over the last few seconds |
+
+That last one is the one worth having. An intact puck compacts as it runs, so
+flow should be **sagging** by the middle of the shot. Flow that climbs is water
+finding a path around the bed — and brewkit says so **while the shot is still
+running**, about 0.5 s after the channel opens in testing, rather than in the
+post-mortem. The trend is deliberately undefined until there is enough shot to
+judge, so the opening ramp can never set it off.
 - **The stop is predicted, not observed.** The puck keeps dripping after the pump
   cuts, so stopping when the cup reads the target overshoots it every time. The lag
   is learned from your own completed shots rather than assumed.
@@ -201,7 +225,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-181 assertions across all eight tools in both themes: the analysis results, the
+188 assertions across all eight tools in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
