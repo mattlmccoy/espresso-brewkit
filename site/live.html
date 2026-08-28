@@ -51,13 +51,10 @@
     <a class="brand" href="./index.html">Brewkit</a>
     <nav class="nav">
       <a href="./live.html" aria-current="page">Live</a>
-      <a href="./kit.html">Kit</a>
+      <a href="./shots.html">Shots</a>
       <a href="./advisor.html">Advisor</a>
-      <a href="./calculator.html">Calculator</a>
-      <a href="./logger.html">Log</a>
-      <a href="./explore.html">Explore</a>
-      <a href="./quality.html">Quality</a>
-      <a href="./uncertainty.html">Uncertainty</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./lab.html">Lab</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
   </header>
@@ -155,44 +152,74 @@
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">
         <div class="tag" style="margin:0" id="device-chip">Live</div>
         <span class="msg" id="decoder-note" style="margin:0"></span>
+        <span class="badge" id="settled">—</span>
         <button class="ghost" id="disconnect" type="button"
                 style="margin-left:auto;padding:7px 12px;box-shadow:none">Disconnect</button>
       </div>
       <p class="note" id="driver-note" style="display:none;margin-bottom:14px"></p>
+
+      <!-- The banner is the whole interface most of the time: it says what the
+           session is doing and what to do next, and it changes by itself. -->
       <div class="state-strip" id="state">Idle</div>
-      <div class="readout" style="margin-top:14px">
+      <p class="hint" id="step-hint" style="margin:10px 0 0"></p>
+
+      <div class="dash" style="margin-top:14px">
         <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
           <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
         <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
         <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
-      </div>
-      <div class="readout" style="margin-top:14px">
-        <div class="st bx"><div class="k">Lands at</div>
-          <div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
-        <div class="st bx"><div class="k">To target</div>
-          <div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
-        <div class="st bx"><div class="k">Flow trend</div>
-          <div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
+        <div class="st bx"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
+        <div class="st bx"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
+        <div class="st bx"><div class="k">Flow trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
       </div>
       <p class="note warn" id="live-warn" style="display:none;margin-top:14px"></p>
-      <div class="btn-row" style="margin-top:14px">
-        <button id="tare" type="button">Tare</button>
-        <span class="badge" id="settled">—</span>
-        <span class="msg" id="scale-msg" style="margin:0"></span>
+
+      <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
+      <div id="b-summary" style="margin-top:14px"></div>
+
+      <!-- Manual overrides. Present, but you should not need them. -->
+      <div class="btn-row" style="margin-top:16px">
+        <button class="ghost" id="tare" type="button">Tare</button>
+        <button class="ghost" id="arm" type="button">Arm</button>
+        <button class="ghost" id="start" type="button">Start now</button>
+        <button class="ghost" id="stop" type="button">Stop</button>
+        <button class="ghost" id="discard" type="button">Reset session</button>
+        <span class="msg" id="live-msg" style="margin:0"></span>
       </div>
+      <p class="msg" id="scale-msg" style="margin-top:8px"></p>
     </div>
 
-    <div class="steps" id="stepper">
-      <button type="button" data-step="prep"><span class="n">01</span><span class="l">Prep</span></button>
-      <button type="button" data-step="dose"><span class="n">02</span><span class="l">Dose</span></button>
-      <button type="button" data-step="grind"><span class="n">03</span><span class="l">Grind</span></button>
-      <button type="button" data-step="brew"><span class="n">04</span><span class="l">Brew</span></button>
-      <button type="button" data-step="rate"><span class="n">05</span><span class="l">Rate</span></button>
+    <!-- What the session has captured so far. Auto-filled, always editable. -->
+    <div class="bx panel" style="margin-top:22px">
+      <div class="steps" id="stepper">
+        <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
+          <span class="sv" id="sv-dose">—</span></button>
+        <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
+          <span class="sv" id="sv-grind">—</span></button>
+        <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
+          <span class="sv" id="sv-brew">—</span></button>
+        <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
+          <span class="sv" id="sv-rate">—</span></button>
+      </div>
+      <div class="grid g3" style="margin-top:16px">
+        <div class="field" style="margin:0"><label for="d-manual">Dose in (g)</label>
+          <input id="d-manual" type="number" step="0.1"></div>
+        <div class="field" style="margin:0"><label for="g-manual">Grounds out (g)</label>
+          <input id="g-manual" type="number" step="0.1"></div>
+        <div class="field" style="margin:0"><label for="r-yield">Yield out (g)</label>
+          <input id="r-yield" type="number" step="0.1"></div>
+      </div>
+      <p class="note" id="g-retention" style="margin-top:0"></p>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
+                        text-transform:uppercase;color:var(--ink-mute)">What the scale decided</summary>
+        <div id="s-events" style="margin-top:12px"></div>
+      </details>
     </div>
 
-    <div class="bx panel" id="s-prep" style="margin-top:0">
-      <div class="tag">Prep</div>
-      <div class="grid g3">
+    <div class="bx panel" style="margin-top:22px">
+      <div class="tag">This shot</div>
+      <div class="grid g3" style="margin-top:14px">
         <div class="field" style="margin:0"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
         <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
         <div class="field" style="margin:0"><label for="p-grind">Grind setting</label>
@@ -207,6 +234,7 @@
         <div class="field" style="margin:0"><label for="p-basket">Basket</label>
           <input id="p-basket" type="text" placeholder="18 g VST"></div>
       </div>
+      <p class="note" id="p-target" style="margin-top:6px"></p>
       <details style="margin-top:10px">
         <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
                         text-transform:uppercase;color:var(--ink-mute)">Machine</summary>
@@ -221,85 +249,22 @@
         <div class="field" style="max-width:240px"><label for="p-preinf">Pre-infusion (s)</label>
           <input id="p-preinf" type="number" step="0.5"></div>
       </details>
-      <div class="btn-row" style="margin-top:14px">
-        <button class="primary" type="button" data-goto="dose">Weigh the beans</button>
-        <button class="ghost" type="button" data-goto="brew">Skip to the shot</button>
-      </div>
-      <p class="note" id="p-target" style="margin-top:14px"></p>
     </div>
 
-    <div class="bx panel" id="s-dose" style="margin-top:0;display:none">
-      <div class="tag">Dose in</div>
-      <p class="hint" style="margin-top:0">Put your dosing cup on the scale, tare, then add beans.
-      Weighing the beans rather than trusting the grinder's timer is what makes dose a measurement
-      instead of an assumption.</p>
-      <div class="capture-line" style="margin:16px 0">
-        <span class="val" id="d-live">0.0 g</span>
-        <button class="primary" id="d-take" type="button">Use as dose</button>
-        <span class="msg" id="d-msg" style="margin:0"></span>
-      </div>
-      <div class="row" style="max-width:420px;align-items:end">
-        <div class="field" style="margin:0"><label for="d-manual">Or type it (g)</label>
-          <input id="d-manual" type="number" step="0.1"></div>
-      </div>
-      <div class="btn-row" style="margin-top:14px">
-        <button type="button" data-goto="grind">Next — weigh the grounds</button>
-        <button class="ghost" type="button" data-goto="brew">Skip to the shot</button>
-      </div>
-    </div>
-
-    <div class="bx panel" id="s-grind" style="margin-top:0;display:none">
-      <div class="tag">Grounds out</div>
-      <p class="hint" style="margin-top:0">Tare with the empty portafilter on the scale, grind into
-      it, and weigh again. The difference from the dose is retention — grounds still inside the
-      grinder — and it is the reason a "single dose" workflow rarely gives you back what you put in.</p>
-      <div class="capture-line" style="margin:16px 0">
-        <span class="val" id="g-live">0.0 g</span>
-        <button class="primary" id="g-take" type="button">Use as grounds out</button>
-        <span class="msg" id="g-msg" style="margin:0"></span>
-      </div>
-      <div class="row" style="max-width:420px;align-items:end">
-        <div class="field" style="margin:0"><label for="g-manual">Or type it (g)</label>
-          <input id="g-manual" type="number" step="0.1"></div>
-      </div>
-      <p class="note" id="g-retention" style="margin-top:6px"></p>
-      <div class="btn-row" style="margin-top:14px">
-        <button class="primary" type="button" data-goto="brew">Next — pull the shot</button>
-      </div>
-    </div>
-
-    <div class="bx panel" id="s-brew" style="margin-top:0;display:none">
-      <div class="tag">Pull the shot</div>
-      <p class="hint" id="b-target" style="margin-top:0"></p>
-      <div class="btn-row" style="margin-top:14px">
-        <button class="primary" id="arm" type="button">Arm for a shot</button>
-        <button id="start" type="button">Start now</button>
-        <button id="stop" type="button">Stop</button>
-        <button class="ghost" type="button" data-goto="rate">Skip to rating</button>
-        <span class="msg" id="live-msg" style="margin:0"></span>
-      </div>
-      <p class="note" style="margin-top:14px">Armed, the scale auto-tares when you set the cup down
-      and the timer starts on first flow. If it guesses wrong, Start now overrides it — the machine
-      is a convenience, not a cage.</p>
-      <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
-      <div id="b-summary" style="margin-top:14px"></div>
-    </div>
-
-    <div class="bx panel" id="s-rate" style="margin-top:0;display:none">
+    <!-- Appears by itself when the shot finishes. -->
+    <div class="bx panel" id="s-rate" style="margin-top:22px;display:none">
       <div class="tag">Rate</div>
-      <div class="row" style="max-width:520px;align-items:end">
-        <div class="field" style="margin:0"><label for="r-brix">Brix (°Bx)</label>
-          <input id="r-brix" type="number" step="0.01" placeholder="if you measured it"></div>
-        <div class="field" style="margin:0"><label for="r-yield">Yield out (g)</label>
-          <input id="r-yield" type="number" step="0.1"></div>
-      </div>
       <div class="field" style="margin-top:14px"><label>Rating</label>
         <div class="rate" id="r-rate"></div></div>
       <div class="field"><label>Tags</label><div class="chips" id="r-tags"></div></div>
-      <div class="field"><label for="r-notes">Notes</label><input id="r-notes" type="text"></div>
+      <div class="row" style="max-width:520px;align-items:end">
+        <div class="field" style="margin:0"><label for="r-brix">Brix (°Bx)</label>
+          <input id="r-brix" type="number" step="0.01" placeholder="if you measured it"></div>
+        <div class="field" style="margin:0"><label for="r-notes">Notes</label>
+          <input id="r-notes" type="text"></div>
+      </div>
       <div class="btn-row">
         <button class="primary" id="save" type="button">Save shot</button>
-        <button class="ghost" id="discard" type="button">Discard</button>
         <span class="msg" id="save-msg" style="margin:0"></span>
       </div>
       <div id="r-diag" style="margin-top:6px"></div>
@@ -349,6 +314,7 @@ import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
+import { SessionMachine, STEP_ORDER } from './assets/js/core/session.js';
 import { ScaleLink, MockScale, LefuMockScale, isSupported, unsupportedReason,
          matchByCharacteristic, confirm as confirmFrame,
          serializeProfile, parseProfile } from './assets/js/ble/index.js';
@@ -365,6 +331,9 @@ const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(
 const params = new URLSearchParams(location.search);
 const mock = params.get('mock');
 const manualMock = params.has('manual');
+// Connect the mock but leave its weight alone, so a test can drive real
+// sequences through the session machine instead of watching a canned shot.
+const noShot = params.has('noshot');
 const makeLink = () => (mock
   ? (mock === 'lefu' ? new LefuMockScale() : new MockScale())
   : new ScaleLink());
@@ -572,7 +541,10 @@ function onFrame({ uuid, bytes, at }) {
   lastRaw = grams;
   const { weight, flow, settled } = est.step(at, grams);
   lastSettled = settled;
-  render(brew.step(at, weight, flow));
+  const snap = brew.step(at, weight, flow);
+  const moved = sess.step_(at, weight, snap.net, settled);
+  render(snap);
+  if (moved.advancedTo || moved.committed) paintSession();
 }
 
 function render(s) {
@@ -603,8 +575,6 @@ function render(s) {
   } else if (s.state !== BREW.EXTRACTING) {
     warn.style.display = 'none';
   }
-  $('d-live').textContent = `${fmt(s.net, 1)} g`;
-  $('g-live').textContent = `${fmt(s.net, 1)} g`;
   const set = $('settled');
   set.textContent = lastSettled ? 'settled' : 'moving';
   set.className = `badge ${lastSettled ? 'ok' : 'flag'}`;
@@ -631,6 +601,7 @@ function render(s) {
   strip.classList.toggle('stop', stopArmed && s.state === BREW.EXTRACTING);
 
   if (s.state === BREW.COMPLETE && draft.time_s === null && brew.curve.length > 2) finishShot();
+  if (s.state === BREW.EXTRACTING && sess.step !== 'brew') { sess.goto('brew'); paintSession(); }
 
   const drawable = brew.curve.length > 2 && (s.state === BREW.EXTRACTING
     || s.state === BREW.COMPLETE || s.state === BREW.DRIPPING);
@@ -707,9 +678,7 @@ function verifyWith(dec, uuid, { driver = null, save = true, askName = false } =
   }
   $('decoder-note').textContent = describeCandidate(dec);
   setPhase('live');
-  // Re-render whichever step is current rather than jumping to the first one:
-  // re-validating a decoder mid-session should not throw away where you were.
-  goStep(step);
+  paintSession();
   if (askName) {
     $('name-row').style.display = '';
     $('device-name').value = profile?.name ?? '';
@@ -778,7 +747,7 @@ $('no-scale').addEventListener('click', () => {
   setPhase('live');
   $('decoder-note').textContent = 'No scale connected — weights are typed in.';
   $('disconnect').style.display = 'none';
-  goStep('prep');
+  paintSession();
 });
 
 $('disconnect').addEventListener('click', () => link?.disconnect());
@@ -989,47 +958,17 @@ function solve() {
 }
 
 /* =========================================================== the session */
-// Five steps, but not a wizard: every one is reachable from the stepper at any
-// time. Plenty of shots are pulled without weighing the beans, and a tool that
-// insists on the full ceremony before it will time anything gets closed.
+// Driven by the scale. See core/session.js for why a tare and a removal are
+// distinguishable at all — that one fact is what removes every click.
 
-let step = 'prep';
-const STEPS = ['prep', 'dose', 'grind', 'brew', 'rate'];
+const sess = new SessionMachine();
+let lastStep = null;
 
-function goStep(name) {
-  step = name;
-  for (const s of STEPS) $(`s-${s}`).style.display = s === name ? '' : 'none';
-  for (const b of $('stepper').querySelectorAll('button')) {
-    const s = b.dataset.step;
-    if (s === name) b.setAttribute('aria-current', 'step'); else b.removeAttribute('aria-current');
-    b.classList.toggle('done', STEPS.indexOf(s) < STEPS.indexOf(name));
-  }
-  // The one big number should say what it is currently being used for.
-  $('w-label').textContent = name === 'dose' ? 'Beans' : name === 'grind' ? 'Grounds' : 'Weight';
-  if (name === 'prep') refreshPrep();
-  if (name === 'grind') refreshRetention();
-  if (name === 'brew') refreshTarget();
-  if (name === 'rate') refreshRate();
-}
-
-$('stepper').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-step]');
-  if (b) goStep(b.dataset.step);
-});
-document.addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-goto]');
-  if (b) goStep(b.dataset.goto);
-});
-
-/* ------------------------------------------------------------------- prep */
-let defaultsApplied = false;
 function fillKitSelects() {
-  const s = kit.session();
+  const st = kit.session();
   const bagSel = $('p-bag'), gSel = $('p-grinder');
-  const bags = kit.activeBags();
-  const grinders = kit.grinders();
-  const keepBag = bagSel.value || s.bag_id;
-  const keepG = gSel.value || s.grinder_id;
+  const bags = kit.activeBags(), grinders = kit.grinders();
+  const keepBag = bagSel.value || st.bag_id, keepG = gSel.value || st.grinder_id;
   bagSel.replaceChildren(
     el('option', { value: '' }, bags.length ? 'Not recorded' : 'No bags yet — add one on Kit'),
     ...bags.map((b) => el('option', { value: String(b.id) },
@@ -1038,137 +977,120 @@ function fillKitSelects() {
     el('option', { value: '' }, grinders.length ? 'Not recorded' : 'No grinders yet — add one on Kit'),
     ...grinders.map((g) => el('option', { value: String(g.id) }, g.name || g.id)));
   bagSel.value = keepBag ?? ''; gSel.value = keepG ?? '';
-  // Carry the last session's settings across once. Re-applying them on every
-  // keystroke would overwrite what is being typed, which is how "sticky
-  // defaults" turn into a field you cannot edit.
   if (defaultsApplied) return;
   defaultsApplied = true;
-  if (Number.isFinite(Number(s.grind_setting))) $('p-grind').value = s.grind_setting;
-  $('p-basket').value = s.basket ?? '';
-  $('p-machine').value = s.machine_id ?? '';
-  if (s.temp_c !== null) $('p-temp').value = s.temp_c;
-  if (s.pressure_bar !== null) $('p-pressure').value = s.pressure_bar;
-  if (Number.isFinite(Number(s.target_dose_g))) $('p-dose').value = s.target_dose_g;
-  if (Number.isFinite(Number(s.target_ratio))) $('p-ratio').value = s.target_ratio;
+  if (Number.isFinite(Number(st.grind_setting))) $('p-grind').value = st.grind_setting;
+  $('p-basket').value = st.basket ?? '';
+  $('p-machine').value = st.machine_id ?? '';
+  if (st.temp_c !== null) $('p-temp').value = st.temp_c;
+  if (st.pressure_bar !== null) $('p-pressure').value = st.pressure_bar;
+  if (Number.isFinite(Number(st.target_dose_g))) $('p-dose').value = st.target_dose_g;
+  if (Number.isFinite(Number(st.target_ratio))) $('p-ratio').value = st.target_ratio;
 }
+let defaultsApplied = false;
 
-const targetDose = () => num('p-dose') ?? 18;
+const targetDose = () => (Number.isFinite(sess.dose) ? sess.dose : num('p-dose') ?? 18);
 const targetRatio = () => num('p-ratio') ?? 2;
 const targetYield = () => {
-  const d = Number.isFinite(draft.dose_g) ? draft.dose_g : targetDose();
-  const r = targetRatio();
+  const d = targetDose(), r = targetRatio();
   return Number.isFinite(d) && Number.isFinite(r) ? d * r : NaN;
 };
 
-/** The advisor's answer, shown where the decision is actually made. */
-function refreshPrep() {
-  fillKitSelects();
-  const bagId = $('p-bag').value || null;
-  const grinderId = $('p-grinder').value || null;
-  const g = grinderId ? kit.grinder(grinderId) : null;
-  $('p-target').textContent = `Target: ${fmt(targetDose(), 1)} g in, `
-    + `${fmt(targetDose() * targetRatio(), 1)} g out at 1:${fmt(targetRatio(), 1)}.`;
+/** Everything the session knows, redrawn from one place. */
+function paintSession() {
+  const s = sess.snapshot();
+  $('step-hint').textContent = s.hint;
 
+  const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
+  $('sv-dose').textContent = show(s.dose, s.auto.dose);
+  $('sv-grind').textContent = show(s.grounds, s.auto.grounds);
+  $('sv-brew').textContent = Number.isFinite(draft.yield_g)
+    ? `${draft.yield_g.toFixed(1)} g` : (s.candidate !== null && s.step === 'brew' ? '…' : '—');
+  $('sv-rate').textContent = draft.rating ? `${draft.rating}/10` : '—';
+
+  for (const b of $('stepper').querySelectorAll('button')) {
+    if (b.dataset.step === s.step) b.setAttribute('aria-current', 'step');
+    else b.removeAttribute('aria-current');
+    b.classList.toggle('done', STEP_ORDER.indexOf(b.dataset.step) < STEP_ORDER.indexOf(s.step));
+  }
+  $('w-label').textContent = s.step === 'dose' ? 'Beans'
+    : s.step === 'grind' ? 'Grounds' : 'Weight';
+
+  if (document.activeElement !== $('d-manual') && Number.isFinite(s.dose)) $('d-manual').value = s.dose;
+  if (document.activeElement !== $('g-manual') && Number.isFinite(s.grounds)) $('g-manual').value = s.grounds;
+
+  $('g-retention').textContent = Number.isFinite(s.retention)
+    ? `${fmt(s.dose, 1)} g in, ${fmt(s.grounds, 1)} g out — retention ${fmt(s.retention, 2)} g `
+      + `(${fmt((s.retention / s.dose) * 100, 1)}%).`
+    : 'Retention appears once both the dose and the grounds are known.';
+
+  $('s-events').replaceChildren(...(s.events.length
+    ? s.events.map((e) => el('p', { class: 'msg', style: 'margin:4px 0' }, e.text))
+    : [el('p', { class: 'msg', style: 'margin:0' }, 'Nothing captured yet.')]));
+
+  $('s-rate').style.display = s.step === 'rate' ? '' : 'none';
+  if (s.step !== lastStep) {
+    lastStep = s.step;
+    // Entering brew arms the machine so the cup landing tares and times itself.
+    if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
+  }
+  $('p-target').textContent = `Target: ${fmt(targetDose(), 1)} g in, `
+    + `${fmt(targetYield(), 1)} g out at 1:${fmt(targetRatio(), 1)}.`;
+}
+
+$('stepper').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-step]');
+  if (!b) return;
+  sess.goto(b.dataset.step);
+  if (b.dataset.step === 'brew') { est.reset(lastRaw); brew.arm(); }
+  paintSession();
+});
+
+$('d-manual').addEventListener('input', () => { sess.set('dose', num('d-manual')); paintSession(); });
+$('g-manual').addEventListener('input', () => { sess.set('grounds', num('g-manual')); paintSession(); });
+for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
+  $(id).addEventListener('change', refreshAdvice);
+  $(id).addEventListener('input', () => { $('p-target').textContent =
+    `Target: ${fmt(targetDose(), 1)} g in, ${fmt(targetYield(), 1)} g out at 1:${fmt(targetRatio(), 1)}.`; });
+}
+
+/** The advisor's answer, shown where the decision is made. */
+function refreshAdvice() {
+  fillKitSelects();
+  const bagId = $('p-bag').value || null, grinderId = $('p-grinder').value || null;
   const note = $('p-advice');
-  if (!grinderId) { note.textContent = ''; return; }
+  note.replaceChildren();
+  if (!grinderId) return;
   const r = recommendGrind(store.all(), {
-    grinderId, bagId, grinder: g, targetTimeS: 28,
+    grinderId, bagId, grinder: kit.grinder(grinderId), targetTimeS: 28,
     targetDoseG: targetDose(), targetRatio: targetRatio(),
     days: kit.daysOffRoast(kit.bag(bagId)?.roast_date) ?? 0,
     currentSetting: num('p-grind'),
   });
-  note.replaceChildren();
-  if (!r.ok) {
-    note.textContent = `No grind recommendation yet — ${r.reason}.`;
-    return;
-  }
+  if (!r.ok) { note.textContent = `No grind recommendation yet — ${r.reason}.`; return; }
   note.appendChild(document.createTextNode(
     `Advisor suggests ${r.setting} for a 28 s shot (${r.confidence} fit, range ${r.lo}–${r.hi}). `));
   note.appendChild(el('button', { type: 'button', style: 'padding:4px 9px;box-shadow:none;font-size:12px',
-    onclick: () => { $('p-grind').value = r.setting; refreshPrep(); } }, 'Use it'));
-}
-
-for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
-  $(id).addEventListener('input', () => { if (step === 'prep') refreshPrep(); });
-  $(id).addEventListener('change', () => { if (step === 'prep') refreshPrep(); });
-}
-
-/* ------------------------------------------------------- dose and grounds */
-function takeWeight(kind) {
-  const net = brew.snapshot(performance.now() / 1000, lastRaw, 0).net;
-  if (!decoder) {
-    $(`${kind === 'dose' ? 'd' : 'g'}-msg`).textContent =
-      'No scale is streaming, so type the weight in instead.';
-    return;
-  }
-  if (!(net > 0.05)) {
-    $(`${kind === 'dose' ? 'd' : 'g'}-msg`).textContent =
-      'The scale reads about zero. Tare with the empty vessel, then add the coffee.';
-    return;
-  }
-  if (kind === 'dose') { draft.dose_g = +net.toFixed(2); $('d-manual').value = draft.dose_g; }
-  else { draft.grounds_out_g = +net.toFixed(2); $('g-manual').value = draft.grounds_out_g; }
-  $(`${kind === 'dose' ? 'd' : 'g'}-msg`).textContent = `Recorded ${fmt(net, 1)} g.`
-    + (lastSettled ? '' : ' The reading was still moving, so take it again once it settles.');
-  refreshRetention();
-}
-
-$('d-take').addEventListener('click', () => takeWeight('dose'));
-$('g-take').addEventListener('click', () => takeWeight('grounds'));
-$('d-manual').addEventListener('input', () => {
-  draft.dose_g = num('d-manual');
-  $('d-msg').textContent = '';
-  refreshRetention();
-});
-$('g-manual').addEventListener('input', () => {
-  draft.grounds_out_g = num('g-manual');
-  $('g-msg').textContent = '';
-  refreshRetention();
-});
-
-function refreshRetention() {
-  const holder = $('g-retention');
-  if (!Number.isFinite(draft.dose_g)) {
-    holder.textContent = 'Weigh or type the dose first and this becomes a retention figure.';
-    return;
-  }
-  if (!Number.isFinite(draft.grounds_out_g)) {
-    holder.textContent = `Dose recorded at ${fmt(draft.dose_g, 1)} g.`;
-    return;
-  }
-  const ret = draft.dose_g - draft.grounds_out_g;
-  const pct = (ret / draft.dose_g) * 100;
-  holder.textContent = `${fmt(draft.dose_g, 1)} g in, ${fmt(draft.grounds_out_g, 1)} g out — `
-    + `retention ${fmt(ret, 2)} g (${fmt(pct, 1)}%). `
-    + (Math.abs(ret) < 0.15 ? 'Essentially nothing held back.'
-      : ret < 0 ? 'More came out than went in, which means the grinder was still holding grounds '
-        + 'from the last dose. Purge before the next one if you want the numbers to line up.'
-      : pct > 5 ? 'That is a lot to leave behind; a bellows or a knock usually recovers most of it.'
-      : 'Normal for a single-dosed grinder.');
+    onclick: () => { $('p-grind').value = r.setting; refreshAdvice(); } }, 'Use it'));
 }
 
 /* ------------------------------------------------------------------- brew */
-function refreshTarget() {
-  const y = targetYield();
-  const lag = Number(kit.session().stop_lag_s) || 1.0;
-  $('b-target').textContent = Number.isFinite(y)
-    ? `Aiming for ${fmt(y, 1)} g out of ${fmt(Number.isFinite(draft.dose_g) ? draft.dose_g : targetDose(), 1)} g in. `
-      + `The strip will call the stop about ${fmt(lag, 1)} s of flow early, because the puck keeps `
-      + 'dripping after the pump does.'
-    : 'Set a dose and ratio on the Prep step to get a target.';
-}
-
+$('tare').addEventListener('click', () => {
+  brew.tare = lastRaw;
+  $('scale-msg').textContent = `Tared at ${fmt(lastRaw, 1)} g.`;
+});
 $('arm').addEventListener('click', () => {
-  est.reset(lastRaw); brew.arm();
+  est.reset(lastRaw); brew.arm(); sess.goto('brew');
   draft.time_s = null; draft.yield_g = null; draft.curve = []; draft.metrics = {};
   stopArmed = false; stopSeen = null;
-  $('live-msg').textContent = '';
-  $('b-summary').replaceChildren();
-  render(brew.snapshot(0, lastRaw, 0));
+  $('live-msg').textContent = ''; $('b-summary').replaceChildren();
+  paintSession();
 });
 $('start').addEventListener('click', () => {
   stopArmed = false; stopSeen = null;
+  sess.goto('brew');
   brew.startNow(performance.now() / 1000, lastRaw);
+  paintSession();
 });
 $('stop').addEventListener('click', () => { brew.stopNow(); finishShot(); });
 
@@ -1182,7 +1104,6 @@ function finishShot() {
   draft.time_s = Number.isFinite(draft.metrics.duration_s)
     ? draft.metrics.duration_s : +brew.curve.at(-1)[0].toFixed(1);
 
-  // The stop lag only learns from a shot where the signal actually fired.
   if (stopSeen && Number.isFinite(draft.yield_g)) {
     const lag = updateStopLag(Number(kit.session().stop_lag_s) || 1.0,
       stopSeen.weight, draft.yield_g, stopSeen.flow);
@@ -1191,19 +1112,13 @@ function finishShot() {
 
   const m = draft.metrics;
   $('live-msg').textContent = `${fmt(draft.yield_g, 1)} g in ${fmt(draft.time_s, 1)} s.`;
-  $('b-summary').replaceChildren(
-    el('div', { class: 'grid g3' },
-      stat('First drip', m.t_first_drip_s, 's', 1),
-      stat('Peak flow', m.peak_flow_gs, 'g/s', 2),
-      stat('Steady flow', m.steady_flow_gs, 'g/s', 2)),
-    el('p', { class: 'msg' },
-      `Late-shot flow slope ${fmt(m.flow_slope_late, 3)} g/s². `
-      + (Number.isFinite(m.flow_slope_late) && m.flow_slope_late > 0.05
-        ? 'Rising, which is what a channel looks like.'
-        : 'Falling or flat, which is what an intact puck looks like.')),
-    el('div', { class: 'btn-row' },
-      el('button', { class: 'primary', type: 'button', onclick: () => goStep('rate') }, 'Rate this shot')));
-  refreshRate();
+  $('b-summary').replaceChildren(el('div', { class: 'grid g3' },
+    stat('First drip', m.t_first_drip_s, 's', 1),
+    stat('Peak flow', m.peak_flow_gs, 'g/s', 2),
+    stat('Steady flow', m.steady_flow_gs, 'g/s', 2)));
+  if (!$('r-yield').value) $('r-yield').value = draft.yield_g;
+  sess.goto('rate');
+  paintSession();
 }
 
 const stat = (k, v, u, dp) => el('div', { class: 'st bx' },
@@ -1219,9 +1134,9 @@ function buildRateControls() {
       for (const b of r.querySelectorAll('button')) {
         b.setAttribute('aria-pressed', String(Number(b.textContent) === draft.rating));
       }
+      paintSession();
     },
   }, String(i + 1))));
-
   const tg = $('r-tags');
   tg.replaceChildren(...TASTE_TAGS.map((tag) => el('button', {
     type: 'button', 'aria-pressed': 'false', onclick: (e) => {
@@ -1232,39 +1147,31 @@ function buildRateControls() {
 }
 buildRateControls();
 
-function refreshRate() {
-  if (Number.isFinite(draft.yield_g) && !$('r-yield').value) $('r-yield').value = draft.yield_g;
-}
-
 $('discard').addEventListener('click', () => {
   draft = blankDraft();
-  brew.reset(); est.reset(lastRaw);
+  brew.reset(); est.reset(lastRaw); sess.reset();
   stopArmed = false; stopSeen = null;
   buildRateControls();
   for (const id of ['r-brix', 'r-yield', 'r-notes', 'd-manual', 'g-manual']) $(id).value = '';
-  $('r-diag').replaceChildren();
-  $('b-summary').replaceChildren();
-  $('save-msg').textContent = 'Discarded.';
-  goStep('prep');
+  $('r-diag').replaceChildren(); $('b-summary').replaceChildren();
+  $('save-msg').textContent = ''; $('live-msg').textContent = 'Session reset.';
+  paintSession();
 });
 
 $('save').addEventListener('click', () => {
   const yieldG = num('r-yield') ?? draft.yield_g;
-  const dose = Number.isFinite(draft.dose_g) ? draft.dose_g : targetDose();
+  const dose = Number.isFinite(sess.dose) ? sess.dose : num('p-dose');
   if (!Number.isFinite(yieldG)) {
     $('save-msg').textContent = 'A shot needs a yield. Pull one, or type the weight out.';
     return;
   }
   const m = draft.metrics ?? {};
-  const bagId = $('p-bag').value || '';
-  const grinderId = $('p-grinder').value || '';
-
   const record = kit.attachKit({
-    bag_id: bagId, grinder_id: grinderId,
+    bag_id: $('p-bag').value || '', grinder_id: $('p-grinder').value || '',
     grind_setting: num('p-grind'), basket: $('p-basket').value.trim(),
     machine_id: $('p-machine').value.trim(), temp_c: num('p-temp'),
     pressure_bar: num('p-pressure'), preinfusion_s: num('p-preinf'),
-    dose_g: dose, grounds_out_g: draft.grounds_out_g,
+    dose_g: dose, grounds_out_g: sess.grounds,
     yield_g: +Number(yieldG).toFixed(2),
     time_s: Number.isFinite(draft.time_s) ? +draft.time_s.toFixed(1) : null,
     t_first_drip_s: m.t_first_drip_s ?? null,
@@ -1277,21 +1184,18 @@ $('save').addEventListener('click', () => {
     notes: $('r-notes').value.trim()
       || (decoder ? `captured live from ${displayName()}` : 'entered on the Live page'),
   });
-
   const saved = store.add(record);
   kit.saveSession({
-    bag_id: bagId, grinder_id: grinderId, grind_setting: num('p-grind'),
+    bag_id: record.bag_id, grinder_id: record.grinder_id, grind_setting: num('p-grind'),
     basket: record.basket, machine_id: record.machine_id,
     temp_c: record.temp_c ?? null, pressure_bar: record.pressure_bar ?? null,
-    target_dose_g: targetDose(), target_ratio: targetRatio(),
+    target_dose_g: num('p-dose') ?? 18, target_ratio: targetRatio(),
   });
-
   $('save-msg').textContent = `Saved ${saved.shot_id}`
     + (Number.isFinite(saved.ey_pct) ? ` — ${fmt(saved.ey_pct, 2)}% yield.` : '.');
   showDiagnosis(saved);
 });
 
-/** The diagnosis is the point of recording the curve; show it where the shot ends. */
 function showDiagnosis(shot) {
   const holder = $('r-diag');
   holder.replaceChildren();
@@ -1308,32 +1212,35 @@ function showDiagnosis(shot) {
       el('h4', {}, f.title), el('p', {}, f.detail), el('p', { class: 'do' }, f.action)));
   }
   holder.appendChild(el('div', { class: 'btn-row' },
-    el('button', { class: 'primary', type: 'button', onclick: () => $('discard').click() },
-      'Start another'),
-    el('a', { class: 'ghost', href: './advisor.html',
-      style: 'display:inline-block;padding:11px 15px;text-decoration:none' }, 'Open the advisor')));
+    el('a', { class: 'primary', href: `./shots.html#${shot.shot_id}`,
+      style: 'display:inline-block;padding:11px 15px;text-decoration:none' }, 'See this shot'),
+    el('button', { type: 'button', onclick: () => $('discard').click() }, 'Next shot')));
 }
 
-kit.subscribe(() => { if (step === 'prep') refreshPrep(); });
+kit.subscribe(refreshAdvice);
+refreshAdvice();
+paintSession();
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so
 // the pipeline stays testable without hardware.
 if (mock && !manualMock) {
   const m = makeLink();
+  // Exposed so the suite can drive real weights through the session machine.
+  window.__mock = m;
   const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
   attach(m);
   m.connect()
     .then(() => afterConnect(label, 'mock:' + mock))
     .then(() => {
-      goStep('brew');
+      if (noShot) return;
+      sess.goto('brew');
       brew.arm();
       m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
     });
 }
 
 setPhase('connect');
-goStep('prep');
 </script>
 </body>
 </html>

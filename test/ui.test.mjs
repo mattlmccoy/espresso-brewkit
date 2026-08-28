@@ -144,7 +144,8 @@ try {
   // 10. Nav marking
   const current = await page.locator('.nav a[aria-current="page"]').innerText();
   // innerText reflects CSS text-transform, which the design language applies.
-  t('nav: marks current page', current.trim().toLowerCase() === 'explore', current);
+  // Explore lives under Lab now, so Lab is what the nav marks.
+  t('nav: marks the current section', current.trim().toLowerCase() === 'lab', current);
 
   // ---- design-language assertions ----
   const FAMILIES = ['Archivo', 'Archivo Black', 'Space Mono'];
@@ -989,76 +990,94 @@ try {
     bagOptionValues.includes(kitIds.bag), bagOptionValues.join(' | '));
   await page.goto(B + '/kit.html');
 
-  // ---- the session flow, end to end, against the recognised mock scale ----
-  await page.goto(B + '/live.html?mock=lefu');
+  // ---- the session steps itself, driven by the scale ----
+  // The whole point: weighing beans, grinding and pulling should advance the
+  // session on their own. No clicks below except the rating at the end.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
   await page.waitForFunction(
     () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
-  await page.click('#stepper button[data-step="prep"]');
-  t('session: the stepper marks the current step',
-    (await page.getAttribute('#stepper button[data-step="prep"]', 'aria-current')) === 'step');
   await page.selectOption('#p-bag', kitIds.bag);
   await page.selectOption('#p-grinder', kitIds.grinder);
   await page.fill('#p-grind', '12.5');
-  await page.fill('#p-dose', '18.2');
-  await page.fill('#p-ratio', '2');
-  t('session: the target is stated in the units you set it in',
-    /18\.2 g in, 36\.4 g out/.test(await page.textContent('#p-target')),
-    await page.textContent('#p-target'));
 
-  await page.click('#stepper button[data-step="dose"]');
-  await page.fill('#d-manual', '18.2');
-  await page.click('#stepper button[data-step="grind"]');
-  await page.fill('#g-manual', '17.9');
-  t('session: retention is derived from dose and grounds out',
-    /retention 0\.30 g \(1\.6%\)/.test(await page.textContent('#g-retention')),
-    await page.textContent('#g-retention'));
+  // Drive the mock through the real sequence: cup on, tare, beans, lift off,
+  // portafilter on, tare, grind in, carry away. `grams` is what the scale
+  // reports, which is all brewkit ever sees.
+  const drive = async (grams, holdMs) => {
+    await page.evaluate((g) => { window.__mock.grams = g; }, grams);
+    await page.waitForTimeout(holdMs);
+  };
+  await drive(52, 900);     // dosing cup
+  await drive(0, 900);      // scale-side tare
+  await drive(18.2, 1600);  // beans
+  await drive(-52, 900);    // cup lifted off -> commits the dose
+  const afterDose = await page.evaluate(() => ({
+    dose: document.getElementById('sv-dose').textContent,
+    step: document.querySelector('#stepper button[aria-current="step"]')?.dataset.step,
+  }));
+  t('hands-free: the dose captures itself when the cup comes off',
+    /18\.2 g/.test(afterDose.dose) && /auto/.test(afterDose.dose) && afterDose.step === 'grind',
+    `${afterDose.dose}, now on ${afterDose.step}`);
 
-  await page.click('#stepper button[data-step="brew"]');
-  await page.click('#arm');
+  await drive(469, 900);    // portafilter
+  await drive(0, 900);      // scale-side tare
+  await drive(17.9, 1600);  // grounds
+  await drive(-521, 900);   // carried to the machine -> commits grounds
+  const afterGrind = await page.evaluate(() => ({
+    grounds: document.getElementById('sv-grind').textContent,
+    step: document.querySelector('#stepper button[aria-current="step"]')?.dataset.step,
+    retention: document.getElementById('g-retention').textContent,
+  }));
+  t('hands-free: grounds capture themselves, and retention follows',
+    /17\.9 g/.test(afterGrind.grounds) && afterGrind.step === 'brew'
+    && /retention 0\.30 g/.test(afterGrind.retention),
+    `${afterGrind.grounds}; ${afterGrind.retention.slice(0, 60)}`);
+  t('hands-free: neither the dosing cup nor the portafilter was mistaken for coffee',
+    !/52|469|521/.test(afterDose.dose + afterGrind.grounds),
+    `${afterDose.dose} / ${afterGrind.grounds}`);
+
+  // Entering brew arms the machine by itself, so the cup landing tares and times.
+  const armed = await page.evaluate(() => document.getElementById('state').dataset.state);
+  t('hands-free: reaching the brew step arms the scale with no click',
+    armed === 'awaiting_vessel', armed);
+
+  await page.evaluate(() => { window.__mock.grams = 0; });
+  await page.waitForTimeout(400);
+  await page.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
   await page.waitForFunction(
     () => document.getElementById('state').dataset.state === 'extracting', { timeout: 20000 });
-  await page.waitForTimeout(4000);
+  await page.waitForTimeout(3500);
   await page.click('#stop');
-  await page.waitForFunction(() => /g in/.test(document.getElementById('live-msg').textContent),
-    { timeout: 5000 });
-  t('session: the shot summary reports the curve scalars',
-    /First drip/i.test(await page.innerText('#b-summary'))
-    && /Steady flow/i.test(await page.innerText('#b-summary')),
-    (await page.innerText('#b-summary')).replace(/\s+/g, ' ').slice(0, 70));
+  await page.waitForFunction(
+    () => document.getElementById('s-rate').style.display !== 'none', { timeout: 6000 });
+  t('hands-free: finishing the shot opens the rating step by itself',
+    (await page.evaluate(() => document.querySelector('#stepper button[aria-current="step"]')?.dataset.step))
+      === 'rate', 'rate panel shown');
 
-  await page.click('#stepper button[data-step="rate"]');
   await page.click('#r-rate button:nth-child(8)');
   await page.click('#save');
   await page.waitForFunction(() => /Saved/.test(document.getElementById('save-msg').textContent),
     { timeout: 5000 });
   const rec = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1')).at(-1));
-  t('session: the row links to the bag and the grinder',
-    rec.bag_id && rec.grinder_id && rec.grind_setting === 12.5,
-    `${rec.bag_id} / ${rec.grinder_id} @ ${rec.grind_setting}`);
-  t('session: the bag is copied onto the row so the CSV stands alone',
-    rec.bean_name === 'Test Guji' && rec.roaster === 'Test Roasters',
-    `${rec.roaster} — ${rec.bean_name}`);
-  t('session: days off roast is frozen at the time of the shot', rec.days_off_roast === 9,
-    String(rec.days_off_roast));
-  t('session: dose, grounds out and retention are all on the row',
-    rec.dose_g === 18.2 && rec.grounds_out_g === 17.9 && Math.abs(rec.retention_g - 0.3) < 0.001,
+  t('hands-free: the saved row carries the weights nobody typed',
+    rec.dose_g === 18.2 && rec.grounds_out_g === 17.9
+    && Math.abs(rec.retention_g - 0.3) < 0.001,
     `${rec.dose_g} / ${rec.grounds_out_g} / ${rec.retention_g}`);
-  t('session: the rating is recorded', rec.rating === 8, String(rec.rating));
+  t('hands-free: it still links to the bag and the grinder',
+    rec.bag_id === kitIds.bag && rec.grinder_id === kitIds.grinder
+    && rec.bean_name === 'Test Guji' && rec.rating === 8,
+    `${rec.bean_name} @ ${rec.grind_setting}, ${rec.rating}/10`);
 
-  // Reopening should not make you re-pick the bag you were already using.
-  await page.goto(B + '/live.html?mock=lefu');
-  await page.waitForFunction(
-    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
-  await page.click('#stepper button[data-step="prep"]');
-  t('session: the last coffee, grinder and grind come back',
-    (await page.inputValue('#p-grind')) === '12.5'
-    && (await page.$eval('#p-bag', (e) => e.value)) === kitIds.bag,
-    `${await page.$eval('#p-bag', (e) => e.value)} @ ${await page.inputValue('#p-grind')}`);
-  // A sticky default that overwrites what you are typing is worse than no default.
-  await page.fill('#p-dose', '20');
-  await page.waitForTimeout(150);
-  t('session: sticky defaults do not fight the keyboard',
-    (await page.inputValue('#p-dose')) === '20', await page.inputValue('#p-dose'));
+  // ---- Lab holds the analysis tools ----
+  await page.goto(B + '/lab.html');
+  const labLinks = await page.$$eval('.tool-card', (as) => as.map((a) => a.getAttribute('href')));
+  t('lab: the analysis tools moved behind one page',
+    ['./calculator.html', './explore.html', './quality.html', './uncertainty.html']
+      .every((h) => labLinks.includes(h)), labLinks.join(' '));
+  const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
+  t('lab: the daily loop is what the nav shows',
+    navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html',
+    navLinks.join(' '));
 
   // ---- the advisor page renders what the models produce ----
   await page.evaluate((ids) => {
@@ -1101,6 +1120,28 @@ try {
     (await page.locator('#taste-chart svg path.band').count()) === 1
     && (await page.locator('#taste-chart svg circle.pt').count()) >= 7,
     (await page.locator('#taste-chart svg circle.pt').count()) + ' rated points');
+
+  // ---- the shots page: going back in ----
+  await page.goto(B + '/shots.html');
+  await page.waitForSelector('.shot-row', { timeout: 5000 });
+  const shotRows = await page.locator('.shot-row').count();
+  t('shots: every shot is listed', shotRows >= 2, shotRows + ' rows');
+  t('shots: pours are sparklined so the list is scannable by shape',
+    (await page.locator('.shot-row .spark path').count()) >= 1,
+    (await page.locator('.shot-row .spark').count()) + ' sparklines');
+
+  await page.click(`.shot-row:has-text("${rec.bean_name}")`);
+  await page.waitForTimeout(400);
+  const detail = await page.innerText('#detail');
+  t('shots: the detail view replays the curve it poured',
+    (await page.locator('#detail .chart svg, #detail svg.chart').count()) >= 2
+    || (await page.locator('#detail svg').count()) >= 2,
+    (await page.locator('#detail svg').count()) + ' charts (weight and flow)');
+  t('shots: the detail view carries the diagnosis',
+    /what the curve says/i.test(detail), detail.replace(/\s+/g, ' ').slice(0, 60));
+  t('shots: a shot is compared against the rest, not judged alone',
+    /vs median of/i.test(detail) || /Against your other/i.test(detail),
+    /vs median of/i.test(detail) ? 'median comparison shown' : 'no peers yet');
 
   // ---- the logger writes the same shape the session does ----
   await page.goto(B + '/logger.html');
