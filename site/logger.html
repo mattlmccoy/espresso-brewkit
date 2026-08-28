@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shot log · espresso·brewkit</title>
+<meta name="description" content="Record espresso shots and export them as a single CSV.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html" aria-current="page">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Shot log</h1>
+    <p class="desc">One table, one CSV. Stored in this browser only.</p>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="bx panel">
+        <div class="tag">New shot</div>
+        <div class="row">
+          <div class="field"><label for="dose">Dose in (g)</label><input id="dose" type="number" step="0.1" value="18"></div>
+          <div class="field"><label for="yield">Yield out (g)</label><input id="yield" type="number" step="0.1" value="36"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="time">Shot time (s)</label><input id="time" type="number" step="0.1" value="28"></div>
+          <div class="field"><label for="brix">Brix (°Bx)</label><input id="brix" type="number" step="0.01"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="grind_setting">Grind setting</label><input id="grind_setting" type="number" step="0.1"></div>
+          <div class="field"><label for="grind_label">Grind label</label><input id="grind_label" type="text" placeholder="medium"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="temp_c">Water temp (°C)</label><input id="temp_c" type="number" step="0.5" value="93"></div>
+          <div class="field"><label for="pressure_bar">Pressure (bar)</label><input id="pressure_bar" type="number" step="0.1" value="9"></div>
+        </div>
+        <div class="field"><label for="notes">Notes</label><input id="notes" type="text" placeholder="tasting note, prep change"></div>
+        <div class="btn-row">
+          <button class="primary" id="add" type="button">Add shot</button>
+          <button class="ghost" id="reset" type="button">Reset</button>
+        </div>
+        <p class="msg" id="add-msg"></p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Data</div>
+        <div class="btn-row">
+          <button id="export" type="button">Export CSV</button>
+          <button id="import-btn" type="button">Import CSV</button>
+          <button id="sample" type="button">Load samples</button>
+          <button class="danger ghost" id="clear" type="button">Clear all</button>
+        </div>
+        <input id="import" type="file" accept=".csv,text/csv" class="sr">
+        <p class="msg" id="data-msg"></p>
+        <p class="note" style="margin-top:14px">Import accepts this project's CSV and the legacy
+        one-file-per-shot format. Legacy rows are converted on the way in: TDS is rescaled from a
+        fraction to a percentage, grind labels map to their nominal micron value, and the old
+        <code>Used</code> booleans collapse into an <code>assumed fields</code> column.</p>
+      </div>
+    </div>
+
+    <div class="bx panel">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <div class="tag" style="margin:0">Shots</div>
+        <span class="badge" id="count">0</span>
+      </div>
+      <div class="table-scroll"><table id="tbl">
+        <thead><tr>
+          <th>ID</th><th>When</th><th>Dose</th><th>Yield</th><th>Ratio</th><th>Grind</th>
+          <th>Temp</th><th>Time</th><th>TDS %</th><th>EY %</th><th>Flow</th><th>Notes</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="empty" id="empty">No shots yet. Add one, or load the samples.</p>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt, el } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+import { download } from "./assets/js/core/csv.js";
+boot();
+
+const $ = (id) => document.getElementById(id);
+const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
+
+function render() {
+  const rows = store.all();
+  const tbody = $("tbl").querySelector("tbody");
+  tbody.replaceChildren();
+  $("count").textContent = rows.length + (rows.length === 1 ? " shot" : " shots");
+  $("empty").style.display = rows.length ? "none" : "";
+  $("tbl").style.display = rows.length ? "" : "none";
+
+  for (const r of rows) {
+    tbody.appendChild(el("tr", {},
+      el("td", {}, r.shot_id ?? "—"),
+      el("td", {}, (r.timestamp ?? "").slice(0, 16)),
+      el("td", { class: "n" }, fmt(r.dose_g, 1)),
+      el("td", { class: "n" }, fmt(r.yield_g, 1)),
+      el("td", { class: "n" }, fmt(r.ratio, 2)),
+      el("td", { class: "n" }, String(r.grind_setting ?? r.grind_label ?? "—")),
+      el("td", { class: "n" }, fmt(r.temp_c, 1)),
+      el("td", { class: "n" }, fmt(r.time_s, 1)),
+      el("td", { class: "n" }, fmt(r.tds_pct, 2)),
+      el("td", { class: "n" }, fmt(r.ey_pct, 2)),
+      el("td", { class: "n" }, fmt(r.flow_gs, 2)),
+      el("td", {}, r.notes ?? ""),
+      el("td", {}, el("button", {
+        class: "ghost", style: "padding:2px 8px;font-size:.78rem",
+        onclick: () => { if (confirm("Delete " + r.shot_id + "?")) store.remove(r.shot_id); },
+      }, "×")),
+    ));
+  }
+}
+
+store.subscribe(render);
+render();
+
+$("add").addEventListener("click", () => {
+  const dose = num("dose"), yld = num("yield");
+  if (dose === null || yld === null || dose <= 0) {
+    $("add-msg").textContent = "Dose and yield are required, and dose must be positive.";
+    return;
+  }
+  const s = store.add({
+    dose_g: dose, yield_g: yld, time_s: num("time"), brix: num("brix"),
+    grind_setting: num("grind_setting"), grind_label: $("grind_label").value.trim().toLowerCase(),
+    temp_c: num("temp_c"), pressure_bar: num("pressure_bar"), notes: $("notes").value.trim(),
+  });
+  $("add-msg").textContent = "Added " + s.shot_id
+    + (Number.isFinite(s.ey_pct) ? " — " + fmt(s.ey_pct, 2) + "% yield." : " (no Brix, so no yield).");
+  $("brix").value = ""; $("notes").value = "";
+});
+
+$("reset").addEventListener("click", () => {
+  for (const id of ["brix","grind_setting","grind_label","notes"]) $(id).value = "";
+  $("add-msg").textContent = "";
+});
+
+$("export").addEventListener("click", () => {
+  if (!store.all().length) { $("data-msg").textContent = "Nothing to export."; return; }
+  download("shots.csv", store.exportCsv());
+  $("data-msg").textContent = "Exported " + store.all().length + " shots.";
+});
+
+$("import-btn").addEventListener("click", () => $("import").click());
+$("import").addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const r = store.importCsv(await file.text());
+  $("data-msg").textContent = "Imported " + r.added + " shots"
+    + (r.legacy ? " (legacy format converted)" : "")
+    + (r.skipped ? ", skipped " + r.skipped + " with duplicate IDs" : "") + ".";
+  e.target.value = "";
+});
+
+$("sample").addEventListener("click", async () => {
+  try {
+    const res = await fetch("./data/shots.csv");
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    const r = store.importCsv(await res.text());
+    $("data-msg").textContent = r.added + " sample shots loaded (" + r.skipped + " already present).";
+  } catch (err) { $("data-msg").textContent = "Could not load samples: " + err.message; }
+});
+
+$("clear").addEventListener("click", () => {
+  if (confirm("Delete all " + store.all().length + " shots? This cannot be undone.")) {
+    store.clear();
+    $("data-msg").textContent = "Cleared.";
+  }
+});
+</script>
+</body>
+</html>

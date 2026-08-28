@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quality · espresso·brewkit</title>
+<meta name="description" content="Outlier detection and repeatability statistics for your shot log.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html" aria-current="page">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Quality</h1>
+    <p class="desc">Repeatability statistics and outlier detection.</p>
+  </div>
+
+  <div class="bx panel" style="padding:15px;max-width:360px">
+    <label for="field">Variable</label><select id="field"></select>
+  </div>
+
+  <div id="nodata" class="bx panel empty" style="display:none;margin-top:22px">
+    Need at least 4 shots with a value for this variable.
+    <a href="./logger.html">Add some</a> or load the sample data.
+  </div>
+
+  <div id="content">
+    <p class="note" id="verdict" style="margin-top:22px"></p>
+
+    <div class="grid g3" style="margin-top:22px">
+      <div class="st bx hero"><div class="k">n</div><div class="v" id="s-n">—</div></div>
+      <div class="st bx"><div class="k">Mean</div><div class="v" id="s-mean">—</div></div>
+      <div class="st bx"><div class="k">Std. deviation</div><div class="v" id="s-sd">—</div></div>
+      <div class="st bx"><div class="k">Coeff. of variation</div><div class="v"><span id="s-cv">—</span><span class="u">%</span></div></div>
+      <div class="st bx"><div class="k">Median</div><div class="v" id="s-med">—</div></div>
+      <div class="st bx"><div class="k">IQR</div><div class="v" id="s-iqr">—</div></div>
+      <div class="st bx"><div class="k">Range</div><div class="v" id="s-range" style="font-size:26px">—</div></div>
+      <div class="st bx"><div class="k">Robust σ (MAD)</div><div class="v" id="s-mad">—</div></div>
+    </div>
+
+    <div class="split" style="margin-top:22px">
+      <div class="bx panel">
+        <div class="tag">Distribution</div>
+        <div class="chart-wrap"><div id="box"></div></div>
+      </div>
+      <div class="bx panel">
+        <div class="tag">Per-shot scores</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+          Three methods, because they fail differently. The plain <strong>z-score</strong> is computed
+          from a mean and standard deviation that the outlier itself inflates — with a small sample,
+          one extreme point can push the threshold out past itself and escape detection. The
+          <strong>modified z-score</strong> uses the median and MAD, which an outlier cannot drag.
+          Where they disagree, believe the modified score.</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Shot</th><th>Value</th><th>z</th><th>mod z</th><th>IQR</th><th>z&gt;2.5</th><th>mod z&gt;3.5</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table></div>
+        <p class="msg" id="fences"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt, el } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+import * as stats from "./assets/js/core/stats.js";
+import * as chart from "./assets/js/core/chart.js";
+import { NUMERIC, label } from "./assets/js/core/schema.js";
+boot();
+const $ = (id) => document.getElementById(id);
+
+const sel = $("field");
+for (const k of NUMERIC) {
+  const o = document.createElement("option");
+  o.value = k; o.textContent = label(k);
+  if (k === "ey_pct") o.selected = true;
+  sel.appendChild(o);
+}
+
+const yesNo = (b) => el("span", { class: "badge " + (b ? "flag" : "") }, b ? "yes" : "—");
+
+function render() {
+  const rows = store.all();
+  const key = sel.value;
+  const values = store.column(rows, key);
+  const res = stats.outliers(values);
+
+  $("nodata").style.display = res.ok ? "none" : "";
+  $("content").style.display = res.ok ? "" : "none";
+  if (!res.ok) return;
+
+  const d = stats.describe(values);
+  $("s-n").textContent = d.n;
+  $("s-mean").textContent = fmt(d.mean, 3);
+  $("s-sd").textContent = fmt(d.sd, 3);
+  $("s-cv").textContent = fmt(d.cv, 1);
+  $("s-med").textContent = fmt(d.median, 3);
+  $("s-iqr").textContent = fmt(d.q3 - d.q1, 3);
+  $("s-range").textContent = fmt(d.min, 2) + " – " + fmt(d.max, 2);
+  $("s-mad").textContent = fmt(res.stats.mad, 3);
+
+  // A repeatability read. The CV thresholds are conventions, not laws, but the
+  // logic behind the message is the important part: if shot-to-shot scatter at a
+  // fixed setting is larger than the effect you are trying to detect, no amount
+  // of modelling will find it.
+  const v = $("verdict");
+  v.className = "note";
+  if (d.cv < 5) {
+    v.innerHTML = "<strong>Tight.</strong> A coefficient of variation of "
+      + fmt(d.cv, 1) + "% means your prep is repeatable enough that differences between "
+      + "settings should be visible above the noise.";
+  } else if (d.cv < 12) {
+    v.innerHTML = "<strong>Workable, with care.</strong> CV of " + fmt(d.cv, 1)
+      + "%. You can detect large effects, but small grind changes will be hard to separate "
+      + "from run-to-run scatter. Pull replicates at the same setting before concluding anything.";
+  } else {
+    v.className = "note warn";
+    v.innerHTML = "<strong>Too scattered to model.</strong> CV of " + fmt(d.cv, 1)
+      + "% means variation between nominally identical shots rivals the effects you are "
+      + "looking for. Fix prep consistency — distribution, tamp, dose accuracy — before "
+      + "trusting any fit on this data.";
+  }
+
+  chart.boxplot($("box"), { values: stats.clean(values), label: label(key) });
+
+  const tbody = $("rows");
+  tbody.replaceChildren();
+  for (const r of res.rows) {
+    const flagged = r.byIqr || r.byZ || r.byModZ;
+    tbody.appendChild(el("tr", { class: flagged ? "flagged" : "" },
+      el("td", {}, rows[r.index]?.shot_id ?? String(r.index + 1)),
+      el("td", { class: "n" }, fmt(r.value, 3)),
+      el("td", { class: "n" }, fmt(r.z, 2)),
+      el("td", { class: "n" }, fmt(r.modZ, 2)),
+      el("td", {}, yesNo(r.byIqr)),
+      el("td", {}, yesNo(r.byZ)),
+      el("td", {}, yesNo(r.byModZ)),
+    ));
+  }
+
+  const s = res.stats;
+  $("fences").textContent =
+    "IQR fence: [" + fmt(s.lower, 2) + ", " + fmt(s.upper, 2) + "]"
+    + "  ·  Q1 " + fmt(s.q1, 2) + ", Q3 " + fmt(s.q3, 2)
+    + "  ·  flagged — IQR " + res.counts.iqr + ", z " + res.counts.z + ", mod z " + res.counts.modZ + ".";
+}
+
+sel.addEventListener("change", render);
+store.subscribe(render);
+render();
+</script>
+</body>
+</html>

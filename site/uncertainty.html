@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Uncertainty · espresso·brewkit</title>
+<meta name="description" content="GUM uncertainty propagation through the extraction yield equation, with a variance budget.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html" aria-current="page">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Uncertainty</h1>
+    <p class="desc">GUM propagation through the extraction yield equation.</p>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="bx panel">
+        <div class="tag">Input uncertainties</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+        Standard uncertainties (k=1), in the units of each input.</p>
+        <div class="field"><label for="uMass">Mass, u(m) — g</label><input id="uMass" type="number" step="0.001" value="0.01"></div>
+        <div class="field"><label for="uBrix">Brix, u(B) — °Bx</label><input id="uBrix" type="number" step="0.01" value="0.5"></div>
+        <div class="field"><label for="uFactor">Brix→TDS factor, u(k)</label><input id="uFactor" type="number" step="0.005" value="0.02"></div>
+        <div class="field"><label for="factor">Factor value, k</label><input id="factor" type="number" step="0.01" value="0.85"></div>
+        <p class="note warn"><strong>Set u(k) to 0</strong> to reproduce the original Python results,
+        which treated the Brix→TDS factor as exact. It is not exact, and leaving it out understates
+        the reported uncertainty.</p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Shot</div>
+        <div class="field"><label for="pick">From the log</label><select id="pick"></select></div>
+        <div class="row">
+          <div class="field"><label for="dose">Dose (g)</label><input id="dose" type="number" step="0.01" value="18"></div>
+          <div class="field"><label for="yield">Yield (g)</label><input id="yield" type="number" step="0.01" value="36"></div>
+        </div>
+        <div class="field" style="margin-bottom:0"><label for="brix">Brix (°Bx)</label><input id="brix" type="number" step="0.01" value="10.7"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="grid g3">
+        <div class="st bx hero"><div class="k">Extraction yield</div>
+          <div class="v"><span id="o-ey">—</span><span class="u"> ± <span id="o-exp">—</span>%</span></div>
+          <div class="k" style="margin-top:10px" id="o-cov"></div></div>
+        <div class="st bx"><div class="k">Combined std. unc.</div><div class="v">±<span id="o-uc">—</span></div></div>
+        <div class="st bx"><div class="k">Relative</div><div class="v">±<span id="o-rel">—</span><span class="u">%</span></div></div>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Uncertainty budget</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+          Each input's contribution is |∂EY/∂x| · u(x). Shares are of <em>variance</em>, because
+          variances add — which is why one term usually dominates and the rest round to nothing.
+          This table tells you which measurement is worth improving, and which is already irrelevant.</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Input</th><th>u(x)</th><th>∂EY/∂x</th><th>Contribution</th><th>Share of variance</th></tr></thead>
+          <tbody id="budget"></tbody>
+        </table></div>
+        <p class="note" id="interp" style="margin-top:16px"></p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Whole log</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+        Every logged shot with a Brix reading, at the coverage factor above.</p>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Shot</th><th>EY %</th><th>± U</th><th>Relative %</th></tr></thead>
+          <tbody id="alltbl"></tbody>
+        </table></div>
+        <p class="msg" id="allsummary"></p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt, el } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+import * as unc from "./assets/js/core/uncertainty.js";
+import * as stats from "./assets/js/core/stats.js";
+boot();
+const $ = (id) => document.getElementById(id);
+const val = (id) => parseFloat($(id).value);
+
+const opts = () => ({ uMass: val("uMass"), uBrix: val("uBrix"), uFactor: val("uFactor") });
+
+function fillPicker() {
+  const sel = $("pick");
+  const prev = sel.value;
+  sel.replaceChildren();
+  const none = document.createElement("option");
+  none.value = ""; none.textContent = "— enter manually —";
+  sel.appendChild(none);
+  for (const r of store.all()) {
+    if (!Number.isFinite(r.brix)) continue;
+    const o = document.createElement("option");
+    o.value = r.shot_id;
+    o.textContent = r.shot_id + " — " + fmt(r.ey_pct, 2) + "%";
+    sel.appendChild(o);
+  }
+  if (prev) sel.value = prev;
+}
+
+function render() {
+  const factor = val("factor");
+  const r = unc.propagate(
+    { brix: val("brix"), factor, doseG: val("dose"), yieldG: val("yield") },
+    opts(),
+  );
+
+  $("o-ey").textContent = fmt(r.ey, 2);
+  $("o-exp").textContent = fmt(r.expanded, 2);
+  $("o-uc").textContent = fmt(r.combined, 3);
+  $("o-rel").textContent = fmt(r.relative, 2);
+  $("o-cov").textContent = "k = " + r.coverage + " (≈95%)";
+
+  const tb = $("budget");
+  tb.replaceChildren();
+  for (const b of r.budget) {
+    tb.appendChild(el("tr", {},
+      el("td", {}, unc.termLabel(b.key)),
+      el("td", { class: "n" }, fmt(b.u, 4)),
+      el("td", { class: "n" }, fmt(b.sensitivity, 4)),
+      el("td", { class: "n" }, fmt(b.contribution, 4)),
+      el("td", { class: "n" }, fmt(b.share, 1) + "%"),
+    ));
+  }
+  $("interp").textContent = unc.interpret(r);
+
+  const at = $("alltbl");
+  at.replaceChildren();
+  const rels = [];
+  for (const s of store.all()) {
+    if (!Number.isFinite(s.brix) || !Number.isFinite(s.dose_g) || !Number.isFinite(s.yield_g)) continue;
+    const u = unc.propagate({ brix: s.brix, factor, doseG: s.dose_g, yieldG: s.yield_g }, opts());
+    rels.push(u.relative);
+    at.appendChild(el("tr", {},
+      el("td", {}, s.shot_id ?? "—"),
+      el("td", { class: "n" }, fmt(u.ey, 2)),
+      el("td", { class: "n" }, fmt(u.expanded, 2)),
+      el("td", { class: "n" }, fmt(u.relative, 2)),
+    ));
+  }
+  $("allsummary").textContent = rels.length
+    ? rels.length + " shots · mean relative uncertainty ±" + fmt(stats.mean(rels), 2)
+      + "% · range " + fmt(Math.min(...rels), 2) + "–" + fmt(Math.max(...rels), 2) + "%."
+    : "No logged shots with a Brix reading yet.";
+}
+
+$("pick").addEventListener("change", (e) => {
+  const s = store.all().find((r) => r.shot_id === e.target.value);
+  if (!s) return;
+  $("dose").value = s.dose_g;
+  $("yield").value = s.yield_g;
+  $("brix").value = s.brix;
+  render();
+});
+
+for (const id of ["uMass","uBrix","uFactor","factor","dose","yield","brix"]) {
+  $(id).addEventListener("input", render);
+}
+store.subscribe(() => { fillPicker(); render(); });
+fillPicker();
+render();
+</script>
+</body>
+</html>

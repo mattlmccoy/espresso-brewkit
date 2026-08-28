@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>espresso·brewkit</title>
+<meta name="description" content="Browser-based measurement tools for espresso: extraction calculator, shot log, regression explorer, and uncertainty analysis.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Brewkit</h1>
+    <p class="desc">Measurement tools for espresso. Log shots, propagate uncertainty,
+    and find which variables move extraction yield.</p>
+  </div>
+
+  <div class="grid tools">
+    <a class="tool-card" href="./calculator.html"><span class="ico">01</span>
+      <h3>Calculator</h3>
+      <p>Brix to TDS to extraction yield, brew ratio, solids in the cup, average flow.</p></a>
+    <a class="tool-card" href="./logger.html"><span class="ico">02</span>
+      <h3>Shot log</h3>
+      <p>Record shots and export one CSV. Reads the old one-file-per-shot format too.</p></a>
+    <a class="tool-card" href="./explore.html"><span class="ico">03</span>
+      <h3>Explore</h3>
+      <p>Regression against one variable or two, with confidence bands and a rotatable plane fit.</p></a>
+    <a class="tool-card" href="./quality.html"><span class="ico">04</span>
+      <h3>Quality</h3>
+      <p>Outlier detection by three methods, plus the repeatability statistics behind them.</p></a>
+    <a class="tool-card" href="./uncertainty.html"><span class="ico">05</span>
+      <h3>Uncertainty</h3>
+      <p>GUM propagation through the yield equation, with a variance budget.</p></a>
+    <a class="tool-card" href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design"><span class="ico">06</span>
+      <h3>Scale design</h3>
+      <p>Hardware and firmware spec for a scale that logs shots on-device.</p></a>
+  </div>
+
+  <div class="grid g2" style="margin-top:22px">
+    <div class="bx panel">
+      <div class="tag">Sample data</div>
+      <p style="margin-top:0;color:var(--ink-dim);font-size:13.5px;font-weight:500">
+      Load 15 real extractions to see every tool populated. Clear them whenever you want
+      to start your own log.</p>
+      <div class="btn-row"><button class="primary" id="load-sample" type="button">Load sample data</button></div>
+      <p class="msg" id="sample-msg"></p>
+    </div>
+    <div class="bx panel">
+      <div class="tag">Storage</div>
+      <p style="margin-top:0;color:var(--ink-dim);font-size:13.5px;font-weight:500">
+      Shots live in this browser's local storage. Nothing is uploaded, there is no account,
+      and the export is a plain CSV you own.</p>
+      <p style="color:var(--ink-dim);font-size:13.5px;font-weight:500;margin-bottom:0">
+      The same schema is what the
+      <a href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">scale</a>
+      writes to its own flash.</p>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+boot();
+const msg = document.getElementById("sample-msg");
+document.getElementById("load-sample").addEventListener("click", async () => {
+  try {
+    const res = await fetch("./data/shots.csv");
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    const r = store.importCsv(await res.text());
+    msg.textContent = r.added + " shots loaded (" + r.skipped + " already present). Total: " + r.total + ".";
+  } catch (e) {
+    msg.textContent = "Could not load sample data: " + e.message;
+  }
+});
+</script>
+</body>
+</html>
