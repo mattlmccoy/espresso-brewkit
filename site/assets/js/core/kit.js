@@ -17,6 +17,7 @@ const MACHINE_KEY = 'brewkit.machines.v1';
 const SESSION_KEY = 'brewkit.session.v1';
 
 import { tombstone } from './sync.js';
+import { beanAge } from './beans.js';
 
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());
@@ -53,7 +54,8 @@ export function saveBag(patch) {
   const list = bags();
   const i = list.findIndex((b) => b.id === patch.id);
   const rec = {
-    roaster: '', bean_name: '', roast_date: '', process: '',
+    roaster: '', bean_name: '', roast_date: '', process: '', roast_level: 'Medium',
+    frozen_at: '', thawed_at: '', vacuum_sealed: false,
     weight_g: null, notes: '', archived: false,
     added_at: new Date().toISOString().slice(0, 10),
     ...(i >= 0 ? list[i] : {}),
@@ -200,8 +202,16 @@ export function attachKit(shot, at = new Date()) {
     out.bean_name = out.bean_name || b.bean_name || '';
     out.roast_date = out.roast_date || b.roast_date || '';
     out.process = out.process || b.process || '';
-    const d = daysOffRoast(b.roast_date, at);
-    if (d !== null && !Number.isFinite(out.days_off_roast)) out.days_off_roast = d;
+    out.roast_level = out.roast_level || b.roast_level || '';
+    // The age that matters is the one the coffee actually accrued. A bag frozen
+    // on day 5 and opened in June is a five-day-old coffee that was paused, not
+    // a five-month-old one, and modelling it as five months would be simply
+    // wrong. The calendar age stays recoverable from days_frozen.
+    const age = beanAge(b, at);
+    if (age.known && !Number.isFinite(out.days_off_roast)) {
+      out.days_off_roast = age.effective;
+      out.days_frozen = age.frozenDays;
+    }
   }
   // Names are copied alongside the ids for the same reason the bag's are: the
   // exported CSV has to mean something on its own, months later, on a machine

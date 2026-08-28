@@ -97,6 +97,7 @@
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
+import { beanAge } from './assets/js/core/beans.js';
 import * as chart from './assets/js/core/chart.js';
 import { diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind, suggestByTaste, resistanceRows, fitResistance } from './assets/js/core/advisor.js';
@@ -146,7 +147,7 @@ function renderRec(shots, bagId, grinderId, g) {
     grinderId, bagId, grinder: g,
     targetTimeS: num('t-time') ?? 28, targetDoseG: num('t-dose') ?? 18,
     targetRatio: num('t-ratio') ?? 2, currentSetting: num('cur'),
-    days: kit.daysOffRoast(kit.bag(bagId)?.roast_date) ?? 0,
+    days: (kit.bag(bagId) ? beanAge(kit.bag(bagId)).effective : null) ?? 0,
   });
   if (!r.ok) {
     holder.appendChild(el('p', { class: 'note warn' }, `Not enough to fit yet — ${r.reason}.`));

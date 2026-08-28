@@ -327,6 +327,7 @@ import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
+import * as beans from './assets/js/core/beans.js';
 import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
@@ -1158,7 +1159,7 @@ function refreshAdvice() {
   const r = recommendGrind(store.all(), {
     grinderId, bagId, grinder: kit.grinder(grinderId), targetTimeS: 28,
     targetDoseG: targetDose(), targetRatio: targetRatio(),
-    days: kit.daysOffRoast(kit.bag(bagId)?.roast_date) ?? 0,
+    days: (kit.bag(bagId) ? beans.beanAge(kit.bag(bagId)).effective : null) ?? 0,
     currentSetting: num('p-grind'),
   });
   if (!r.ok) { note.textContent = `No grind recommendation yet — ${r.reason}.`; return; }
@@ -1411,15 +1412,18 @@ function paintCoffee() {
   const shots = store.all().filter((r) => bagId && r.bag_id === bagId);
   $('cc-name').textContent = bag ? (bag.bean_name || bag.id) : 'No coffee selected';
 
-  const days = bag ? kit.daysOffRoast(bag.roast_date) : null;
+  const fresh = bag ? beans.freshness(bag) : null;
   const age = $('cc-age');
-  age.textContent = days === null ? '—' : `${days} d`;
-  age.className = `badge ${days === null ? '' : days < 4 || days > 35 ? 'warn'
-    : days > 21 ? 'flag' : 'ok'}`;
+  // "8 d" told you nothing. The phase is the part worth a badge.
+  age.textContent = fresh ? fresh.label : '—';
+  age.className = `badge ${fresh?.tone ?? ''}`;
+  age.title = fresh ? fresh.detail + (fresh.action ? ' ' + fresh.action : '') : '';
 
   const st = bag ? supply.bagStatus(bag, store.all()) : null;
   const facts = [];
   if (bag?.roaster) facts.push(bag.roaster);
+  if (bag?.roast_level) facts.push(bag.roast_level.toLowerCase());
+  if (fresh?.age?.inFreezer) facts.push('in the freezer');
   facts.push(`${shots.length} shot${shots.length === 1 ? '' : 's'}`);
   if (st?.known) facts.push(`${fmt(st.remaining, 0)} g left`);
   if (st?.known && st.shotsLeft !== null) facts.push(`~${st.shotsLeft} to go`);

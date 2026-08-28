@@ -15,6 +15,8 @@ export const FIELDS = [
   { key: 'bean_name',     label: 'Coffee',         type: 'text', group: 'coffee' },
   { key: 'roast_date',    label: 'Roast date',     type: 'date', group: 'coffee' },
   { key: 'days_off_roast', label: 'Days off roast', unit: 'd', type: 'number', group: 'coffee' },
+  { key: 'days_frozen',   label: 'Days frozen',     unit: 'd', type: 'number', group: 'coffee' },
+  { key: 'roast_level',   label: 'Roast level',     type: 'text', group: 'coffee' },
   { key: 'process',       label: 'Process',        type: 'text', group: 'coffee' },
 
   // prep
