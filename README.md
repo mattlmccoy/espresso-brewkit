@@ -21,6 +21,7 @@ plain CSV you own.
 | **[Shot log](https://mattlmccoy.github.io/espresso-brewkit/logger.html)** | Record shots, derive everything downstream, import and export one CSV. Reads the old one-file-per-shot format too. |
 | **[Explore](https://mattlmccoy.github.io/espresso-brewkit/explore.html)** | Regress any response against one variable or two. Confidence bands, residual plots, a rotatable 3D plane fit, and a correlation matrix. |
 | **[Quality](https://mattlmccoy.github.io/espresso-brewkit/quality.html)** | Outlier detection by three methods, and the repeatability statistics that tell you whether your data can support a conclusion at all. |
+| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | Stream weight from a Bluetooth scale, watch the shot pour, and save the curve straight to the log. Includes a demo that needs no hardware. |
 | **[Uncertainty](https://mattlmccoy.github.io/espresso-brewkit/uncertainty.html)** | GUM propagation through the yield equation, with a variance budget showing which measurement is actually limiting you. |
 
 ## Three things this does that a spreadsheet won't
@@ -42,13 +43,43 @@ standard deviation that the outlier itself inflates, so at n=15 one extreme poin
 can push the threshold out past itself and vanish. Outliers are scored three ways,
 including a median/MAD-based modified z-score that an outlier cannot drag.
 
+## Live capture over Bluetooth
+
+The Live page talks to a scale directly from the browser over Web Bluetooth —
+no app, no phone, no server. It computes its own flow rate from the weight
+stream with a constant-velocity Kalman filter (`site/assets/js/core/filter.js`),
+because most scales report weight only, and differencing a smoothed weight signal
+costs filter delay twice and amplifies the noise you just removed.
+
+**Browser support is the real constraint.** Chrome, Edge and Opera have Web
+Bluetooth; Firefox and Safari do not, and on iOS no browser does. It also needs a
+secure context, which GitHub Pages provides but a plain-http LAN address does not.
+
+**Undocumented scales.** Most cheap BLE scales send an unlabelled fixed-layout
+frame, and there are only a few hundred plausible encodings. Rather than needing a
+datasheet, the Live page searches: put known masses on, tell it what the scale
+reads, and it solves for offset, width, byte order, sign and scale factor, then
+remembers the answer for that device. There is a byte-level frame view alongside it
+for the cases that need a human.
+
+**A limitation worth knowing before you start.** Web Bluetooth will not enumerate a
+GATT service the page did not declare in advance — there is no "list everything"
+call. `transport.js` asks for a list of service UUIDs that cheap scales commonly
+use, but a scale outside that list will appear to have no services at all. That is
+the API behaving as designed, not a broken device.
+
+The same driver interface is what the [scale in `design/`](design/03-wireless.md)
+will connect through, so building this is not throwaway work.
+
 ## Repository layout
 
 ```
 site/       the GitHub Pages app — plain HTML + ES modules, no build step
-  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, SVG charts
+  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters
+  assets/js/ble/     Web Bluetooth transport, protocol auto-decoder, mock scale
 data/       shots.csv (canonical dataset) + the original per-shot files
 design/     specification for the scale hardware and firmware
+test/       Playwright UI suite and its static server
 ```
 
 ### `site/`

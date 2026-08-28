@@ -220,6 +220,73 @@ try {
   t('mobile: no horizontal page overflow', mobileOverflow <= 1, mobileOverflow + 'px');
   await page.setViewportSize({ width: 1400, height: 1000 });
 
+  // ---- live capture, driven by the mock scale (no hardware) ----
+  await page.goto(B + '/live.html');
+  await page.waitForSelector('#demo');
+  t('live: page renders without a scale', await page.locator('#state').isVisible());
+
+  await page.click('#demo');
+  await page.waitForFunction(
+    () => document.getElementById('conn-msg').textContent.includes('Mock Scale'), { timeout: 5000 });
+  t('live: mock device connects', true, await page.textContent('#conn-msg'));
+
+  // Frames must arrive and be decodable without any per-device setup, since the
+  // mock advertises a layout the auto-decoder is expected to solve.
+  await page.waitForFunction(
+    () => document.querySelectorAll('#frames div').length > 3, { timeout: 5000 });
+  t('live: frames stream in', true,
+    (await page.locator('#frames div').count()) + ' frames');
+
+  // Teach it the mock's layout the same way a user would: two known masses.
+  await page.fill('#ref', '0');
+  await page.click('#capture');
+  await page.waitForTimeout(1200);
+  const grew = await page.evaluate(() => {
+    // The mock places a 120 g cup shortly after the shot starts.
+    return document.querySelectorAll('#frames div').length;
+  });
+  await page.fill('#ref', '120');
+  await page.click('#capture');
+  await page.waitForTimeout(400);
+  const candCount = await page.locator('#cands .cand').count();
+  t('live: auto-decoder proposes an encoding', candCount > 0, candCount + ' candidates');
+
+  if (candCount > 0) {
+    await page.locator('#cands .cand button').first().click();
+    await page.waitForTimeout(2500);
+    const w = parseFloat(await page.textContent('#o-w'));
+    t('live: decoded weight tracks the mock', Number.isFinite(w), w + ' g');
+
+    // Let the synthetic shot run far enough to enter EXTRACTING and build a curve.
+    await page.waitForFunction(() => {
+      const s = document.getElementById('state').textContent.toLowerCase();
+      return s.includes('extract') || s.includes('drip') || s.includes('complete');
+    }, { timeout: 30000 }).catch(() => {});
+    const stateText = await page.textContent('#state');
+    t('live: brew state machine advances', /extract|drip|complete/i.test(stateText), stateText);
+
+    // The curve builds at the mock's sample rate; wait for it rather than
+    // sampling the instant the state flips.
+    await page.waitForFunction(
+      () => document.querySelectorAll('#curve svg circle.pt').length > 5,
+      { timeout: 25000 }).catch(() => {});
+    const pts = await page.locator('#curve svg circle.pt').count();
+    t('live: shot curve renders', pts > 5, pts + ' points');
+
+    // Assert the claim itself — that weight rises — rather than picking an
+    // arbitrary threshold that depends on when the sample happens to land.
+    const w1 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+    await page.waitForTimeout(4000);
+    const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
+    t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0,
+      `${w1} g -> ${w2} g`);
+
+    const before = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
+    await page.click('#save');
+    const after = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
+    t('live: captured shot saves to the log', after === before + 1, before + ' -> ' + after);
+  }
+
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
   for (const scheme of ['light', 'dark']) {

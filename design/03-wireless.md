@@ -105,6 +105,44 @@ The Felicita Arc protocol is the pragmatic target: a periodic notification of a 
 
 This is a **compatibility shim, not the data path.** It sits alongside the native service. The authoritative record is always the one on flash — see [04](04-data-model.md).
 
+### The brewkit GATT service
+
+The scale exposes a native service alongside the compatibility shim. It is
+defined here rather than later because the browser tools already speak it: the
+[Live page](../site/live.html) drives any scale through a driver interface, so
+pinning this service down now means the DIY scale arrives as one more driver
+rather than a separate integration.
+
+```
+service  b2e7a000-6f4a-4d6f-9b1e-2f0a5c7d1000
+
+  b2e7a001  weight        notify   int32 LE, centigrams, signed
+  b2e7a002  state         notify   uint8 brew state + uint8 flags + uint16 elapsed_ms
+  b2e7a003  flow          notify   int16 LE, centigrams/second
+  b2e7a004  command       write    uint8 opcode + int32 LE argument
+  b2e7a005  info          read     firmware version, capabilities bitfield
+```
+
+Weight, state and flow are separate characteristics rather than one packed frame
+so a client can subscribe to only what it renders — a phone showing a number does
+not need the 40 Hz flow estimate.
+
+Commands mirror the display link in the section above: `TARE`, `START`, `STOP`,
+`MODE`, `SET_TARGET`, `SET_GRIND`, `RATE_SHOT`.
+
+**Why a custom 128-bit UUID rather than the SIG Weight Scale service (0x181D).**
+That profile models a bathroom scale: it carries a measurement plus optional user
+and body-composition fields, is designed around occasional readings, and has no
+concept of a shot timer, a flow rate, or a brew state. Espresso needs a 40 Hz
+stream with associated state, which the standard profile cannot express. Emitting
+0x181D as well would let generic apps read a weight, and costs almost nothing —
+worth doing if a real use for it appears.
+
+**Discovery note.** Web Bluetooth will not enumerate a service the page did not
+declare in `optionalServices`, so this UUID is a compile-time constant in the web
+client. That is also why an unknown third-party scale may appear to have no
+services at all — see `site/assets/js/ble/transport.js`.
+
 ### Coexistence
 
 The ESP32-S3 has **one radio** shared between Wi-Fi (and therefore ESP-NOW) and BLE, time-multiplexed by the controller. Running both concurrently costs airtime and adds jitter to whichever is lower priority.
