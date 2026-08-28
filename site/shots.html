@@ -175,6 +175,12 @@ function renderDetail() {
   holder.appendChild(el('div', { style: 'display:flex;align-items:baseline;gap:12px;flex-wrap:wrap' },
     el('div', { class: 'tag', style: 'margin:0' }, shot.shot_id),
     el('strong', { style: 'font-size:16px' }, shot.bean_name || 'Unnamed coffee'),
+    // Worth a badge rather than a footnote: this shot ran on a finer grind than
+    // the dial says, so comparing it with the rest of the portion is a mistake.
+    shot.from_frozen ? el('span', { class: 'badge flag',
+      title: 'Ground straight from the freezer — cold beans fracture finer, so this one runs '
+        + 'slower than the same setting gives once the portion is at room temperature. It is '
+        + 'left out of the resistance model for that reason.' }, 'from frozen') : null,
     el('span', { class: 'msg', style: 'margin:0' },
       [shot.roaster, (shot.timestamp ?? '').slice(0, 16),
        Number.isFinite(F(shot.days_off_roast))

@@ -65,7 +65,9 @@
         staling rather than stopping it, so age accrues before the freezer and after it, and barely
         during. A bag frozen on day 5 and opened in June is a five-day-old coffee, not a
         five-month-old one — and dating it that way is the difference between a useful roast-age
-        column and a misleading one.</p>
+        column and a misleading one. Freeze <em>portions</em>, not the bag: a portion goes in once
+        and comes out once, because opening frozen beans condenses water onto them and putting them
+        back locks it in. Split a purchase from its card below.</p>
         <div class="field"><label for="b-notes">Notes</label><input id="b-notes" type="text"></div>
         <div class="btn-row">
           <button class="primary" id="b-save" type="button">Save bag</button>
@@ -243,6 +245,86 @@ function editBag(b) {
   $('b-name').scrollIntoView({ block: 'center' });
 }
 
+/**
+ * The freezer, as a one-way door.
+ *
+ * There is deliberately no way back. A portion that has been out has had the
+ * room condense onto it, and putting it back locks that water in — so the
+ * button that used to say "Re-froze today" was offering a mistake, and the age
+ * model behind it could not have represented the result anyway.
+ */
+function freezerControls(b) {
+  const fz = beans.freezeState(b);
+  const today = () => new Date().toISOString().slice(0, 10);
+  const row = el('div', { class: 'btn-row', style: 'margin-top:8px' });
+  if (fz.canFreeze) {
+    row.appendChild(el('button', { type: 'button',
+      style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
+      onclick: () => kit.saveBag({ id: b.id, frozen_at: today(), thawed_at: '' }) },
+      'Froze it today'));
+    row.appendChild(el('button', { class: 'ghost', type: 'button',
+      style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
+      onclick: () => openSplit(b) }, 'Split into portions'));
+  }
+  if (fz.canThaw) {
+    row.appendChild(el('button', { type: 'button',
+      style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
+      onclick: () => kit.saveBag({ id: b.id, thawed_at: today() }) }, 'Took it out today'));
+  }
+  // The generic "freeze it fresh" advice already sits at the top of the page;
+  // repeating it under every bag that has never been near a freezer is noise.
+  return el('div', {}, row, fz.state === 'never' ? null
+    : el('p', { class: 'note', style: 'margin-top:8px' }, fz.note));
+}
+
+/** Splitting a purchase into portions, asked for in the units people buy in. */
+function openSplit(b) {
+  const count = el('input', { type: 'number', step: '1', min: '2', value: '6',
+    style: 'max-width:80px', 'aria-label': 'How many portions' });
+  // Default to six portions of whatever this bag actually holds, rounded to
+  // something you would weigh out, rather than to a number from another bag.
+  const each = Math.round((Number(b.weight_g) || 900) / 6 / 5) * 5;
+  const grams = el('input', { type: 'number', step: '1', min: '1',
+    value: String(Math.max(5, each)),
+    style: 'max-width:90px', 'aria-label': 'Grams per portion' });
+  const msg = el('p', { class: 'msg', style: 'margin:8px 0 0' });
+  const sum = () => {
+    const n = parseInt(count.value, 10), g = parseFloat(grams.value);
+    const had = Number(b.weight_g);
+    if (!Number.isFinite(n) || !Number.isFinite(g)) return;
+    msg.textContent = Number.isFinite(had)
+      ? `${n} × ${g} g = ${(n * g).toFixed(0)} g of ${had.toFixed(0)} g, `
+        + `leaving ${(had - n * g).toFixed(0)} g.`
+      : `${n} × ${g} g = ${(n * g).toFixed(0)} g.`;
+  };
+  count.addEventListener('input', sum);
+  grams.addEventListener('input', sum);
+  sum();
+
+  const box = el('div', { class: 'bx', style: 'padding:13px 15px;margin-top:10px' },
+    el('div', { class: 'tag' }, 'Split and freeze'),
+    el('p', { class: 'note', style: 'margin:10px 0 0' },
+      'Each portion becomes its own bag, frozen from today and vacuum-sealed, carrying this '
+      + "coffee's roast date. Bring out one at a time; none of them goes back."),
+    el('div', { style: 'display:flex;margin-top:10px;gap:8px;align-items:center;flex-wrap:wrap' },
+      count, el('span', { class: 'msg', style: 'margin:0' }, '×'), grams,
+      el('span', { class: 'msg', style: 'margin:0' }, 'g'),
+      el('button', { class: 'primary', type: 'button', style: 'padding:7px 12px', onclick: () => {
+        try {
+          const r = kit.splitBag(b.id, { count: parseInt(count.value, 10),
+            grams: parseFloat(grams.value) });
+          $('b-msg').textContent = `Split into ${r.portions.length} portions`
+            + (r.leftover !== null && r.leftover >= 15
+              ? `, ${r.leftover.toFixed(0)} g left in the parent bag.` : '.');
+        } catch (err) { msg.textContent = err.message; }
+      } }, 'Split')),
+    msg);
+  const holder = document.getElementById(`split-${b.id}`);
+  if (!holder) return;
+  if (holder.childElementCount) holder.replaceChildren();   // a second click closes it
+  else holder.replaceChildren(box);
+}
+
 function renderBags() {
   const shots = store.all();
   const showArchived = $('show-archived').checked;
@@ -258,6 +340,9 @@ function renderBags() {
 
     const head = el('div', { style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap' },
       el('strong', { style: 'font-size:15px' }, b.bean_name || '(unnamed)'),
+      b.portion_of ? el('span', { class: 'badge' },
+        `portion ${b.portion_index}/${b.portion_of}`) : null,
+      b.split_into ? el('span', { class: 'badge' }, `split into ${b.split_into}`) : null,
       b.roaster ? el('span', { class: 'msg', style: 'margin:0' }, b.roaster) : null,
       el('span', { class: `badge ${f.tone}`, style: 'margin-left:auto' }, f.label));
 
@@ -320,19 +405,17 @@ function renderBags() {
         el('span', { style: `width:${(st.pct * 100).toFixed(1)}%` })),
       el('p', { class: `note ${f.tone === 'warn' ? 'warn' : ''}`, style: 'margin-top:10px' },
         f.detail + (f.action ? ' ' + f.action : '')),
-      el('div', { class: 'btn-row', style: 'margin-top:8px' },
-        el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
-          onclick: () => kit.saveBag({ id: b.id,
-            frozen_at: new Date().toISOString().slice(0, 10), thawed_at: '' }) },
-          b.frozen_at && !b.thawed_at ? 'Re-froze today' : 'Froze it today'),
-        b.frozen_at ? el('button', { type: 'button',
-          style: 'padding:5px 10px;box-shadow:none;font-size:11.5px',
-          onclick: () => kit.saveBag({ id: b.id,
-            thawed_at: new Date().toISOString().slice(0, 10) }) }, 'Took it out today') : null),
+      freezerControls(b),
+      el('div', { id: `split-${b.id}` }),
       st.known && st.low ? el('p', { class: 'note warn', style: 'margin-top:10px' },
         st.empty ? 'This bag is used up by the log. Mark it finished, or log a correction if there '
           + 'is still coffee in it.'
-          : `Down to about ${st.shotsLeft} shot${st.shotsLeft === 1 ? '' : 's'}.`) : null,
+          : st.shotsLeft !== null
+            ? `Down to about ${st.shotsLeft} shot${st.shotsLeft === 1 ? '' : 's'}.`
+            // No dose has been logged against this bag yet, so there is no
+            // "shots left" to quote — grams is what is actually known.
+            : `Down to ${fmt(st.remaining, 0)} g. Log a shot from it and this becomes a `
+              + 'shot count.') : null,
       deduct, ledgerView, row));
   }
 }

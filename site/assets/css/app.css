@@ -92,6 +92,21 @@ a { color: var(--accent); }
 .nav a:hover { background: var(--flag); color: #100f0d; }
 .nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
 
+/* The signed-in account, on every page. Signed out it is an ordinary nav item
+   and the only way in to Sync; signed in it grows a face, because "which
+   Google account is this log going to" is a question worth answering without
+   having to navigate to find out. */
+.nav a.acct { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px 5px 6px; }
+.nav a.acct.out { padding: 9px 13px; }
+.acct-face {
+  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
+  border: 1px solid var(--ink); background: var(--panel-2) center/cover no-repeat;
+  font: 700 9.5px/1 var(--sans); letter-spacing: 0; color: var(--ink);
+}
+.nav a.acct:hover .acct-face, .nav a.acct[aria-current="page"] .acct-face { color: #100f0d; }
+.acct-name { max-width: 11ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .acct-name { display: none; } }
+
 .page-head { display: flex; align-items: flex-end; gap: 20px; margin: 6px 0 26px; flex-wrap: wrap; }
 h1 {
   font-family: var(--disp); font-size: clamp(38px, 6vw, 64px); line-height: .9;
