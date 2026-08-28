@@ -227,6 +227,30 @@ export class BrewMachine {
     this._since = null;
     this._recent = [];
     this._lastRaw = 0;
+    this._flowHist = [];
+  }
+
+  /**
+   * Which way flow is heading right now, g/s per second, over the last few
+   * seconds — the same quantity the post-shot diagnosis calls `flow_slope_late`,
+   * but available while there is still something you can do about it.
+   *
+   * NaN until there is enough shot to judge: an opinion formed during the
+   * opening ramp would say "rising" on every shot ever pulled.
+   */
+  flowTrend(window = 6, minElapsed = 9) {
+    const h = this._flowHist;
+    if (this.t0 === null || h.length < 8) return NaN;
+    if (h.at(-1)[0] - this.t0 < minElapsed) return NaN;
+    const from = h.at(-1)[0] - window;
+    const pts = h.filter((p) => p[0] >= from);
+    if (pts.length < 6) return NaN;
+    const n = pts.length;
+    const mx = pts.reduce((a, p) => a + p[0], 0) / n;
+    const my = pts.reduce((a, p) => a + p[1], 0) / n;
+    let sxy = 0, sxx = 0;
+    for (const [x, y] of pts) { const dx = x - mx; sxy += dx * (y - my); sxx += dx * dx; }
+    return sxx > 1e-9 ? sxy / sxx : NaN;
   }
 
   arm() { this.reset(); this.state = BREW.AWAITING_VESSEL; }
@@ -267,17 +291,34 @@ export class BrewMachine {
   step(t, raw, flow) {
     const prevRaw = this._lastRaw;
     this._lastRaw = raw;
-    const net = raw - this.tare;
+
+    // The scale has its own tare button and people use it — it is right there
+    // under their thumb. Pressing it drops the reading to zero, and carrying a
+    // software tare on top of that would show a large negative number. So when
+    // the reading jumps to zero, follow it.
+    if (Math.abs(raw) < 0.5 && Math.abs(prevRaw - raw) > 5) this.tare = 0;
+
+    // Idle means idle. Weighing beans, taring, swapping a dosing cup for a
+    // portafilter — none of that is a shot, and the machine has no business
+    // reacting to it. Only arm() and startNow() leave this state.
+    //
+    // Getting this wrong was not subtle: a scale-side tare reads as a large
+    // decrease, which used to trip the vessel-removed branch below and silently
+    // arm vessel detection. The next heavy thing set down — a portafilter —
+    // auto-tared, so the display read 0 g with 521 g sitting on the platform.
+    if (this.state === BREW.IDLE) return this.snapshot(t, raw, flow);
 
     // A rapid decrease is the vessel being removed — never the shot ending.
     // Confusing the two truncates or duplicates a record, so it is checked
-    // before anything else and from any state.
+    // before anything else and from any live state.
     if (prevRaw - raw > this.o.removalDrop) {
       const done = this.state === BREW.COMPLETE || this.state === BREW.DRIPPING;
       this.reset();
       if (!done) this.state = BREW.AWAITING_VESSEL;
       return this.snapshot(t, raw, flow);
     }
+
+    const net = raw - this.tare;
 
     switch (this.state) {
       case BREW.AWAITING_VESSEL:
@@ -300,6 +341,8 @@ export class BrewMachine {
 
       case BREW.EXTRACTING:
         this.curve.push([+(t - this.t0).toFixed(3), +net.toFixed(2)]);
+        this._flowHist.push([t, flow]);
+        while (this._flowHist.length && t - this._flowHist[0][0] > 12) this._flowHist.shift();
         if (flow > this.peakFlow) this.peakFlow = flow;
         if (this._held(flow < this.o.flowEnd, t, this.o.flowEndFor)) {
           this.state = BREW.DRIPPING;
@@ -326,6 +369,7 @@ export class BrewMachine {
         ? (this.curve.length ? this.curve.at(-1)[0] : 0) : t - this.t0),
       running,
       flow,
+      trend: this.flowTrend(),
       peakFlow: this.peakFlow,
       firstDrip: this.tFirstDrip === null || this.t0 === null ? null : this.tFirstDrip - this.t0,
     };

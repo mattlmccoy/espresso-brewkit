@@ -520,6 +520,102 @@ try {
 
 
 
+
+  // ---- weighing beans is not a shot, and the machine must not think it is ----
+  // Reported from real use: a scale-side tare reads as a large decrease, which
+  // used to trip the vessel-removed branch and silently arm vessel detection.
+  // The next heavy thing set down - a portafilter - auto-tared, so the display
+  // read 0 g with 521 g on the platform. Idle is inert now.
+  const tare = await page.evaluate(async () => {
+    const { BrewMachine } = await import('./assets/js/core/filter.js');
+    const run = (steps) => {
+      const b = new BrewMachine();
+      let t = 0;
+      const seen = [];
+      for (const [raw, hold] of steps) {
+        for (let i = 0; i < (hold ?? 1); i++) {
+          t += 0.2;
+          const s = b.step(t, raw, 0);
+          seen.push({ raw, state: s.state, net: +s.net.toFixed(1), tare: b.tare });
+        }
+      }
+      return seen;
+    };
+    // Dosing cup on, scale-tared, beans in, cup off, portafilter on,
+    // scale-tared again, grounds in. Arm is never pressed.
+    const dosing = run([[0, 2], [52, 6], [0, 3], [9, 1], [18.2, 6], [0, 2],
+                        [521, 8], [0, 3], [17.9, 4]]);
+    // A software tare, then the scale tared underneath it.
+    const b2 = new BrewMachine();
+    let u = 0;
+    b2.step(u += 0.2, 0, 0); b2.step(u += 0.2, 52, 0);
+    b2.tare = 52;
+    const afterSoft = b2.step(u += 0.2, 52, 0).net;
+    const afterHard = b2.step(u += 0.2, 0, 0).net;
+    // Arming must still auto-tare the cup on the drip tray.
+    const b3 = new BrewMachine();
+    b3.arm();
+    let v = 0, armed = null;
+    b3.step(v += 0.2, 0, 0);
+    for (let i = 0; i < 6; i++) armed = b3.step(v += 0.2, 96, 0);
+    return {
+      everLeftIdle: dosing.some((r) => r.state !== 'idle'),
+      everTared: dosing.some((r) => r.tare !== 0),
+      // The display must equal what the scale itself reads, at every instant.
+      mismatches: dosing.filter((r) => Math.abs(r.net - r.raw) > 0.001).length,
+      afterSoft, afterHard,
+      armedState: armed.state, armedNet: +armed.net.toFixed(1),
+    };
+  });
+  t('idle: weighing and taring never leave the idle state',
+    tare.everLeftIdle === false && tare.everTared === false,
+    `left idle: ${tare.everLeftIdle}, auto-tared: ${tare.everTared}`);
+  t('idle: the display equals what the scale reads, throughout',
+    tare.mismatches === 0, tare.mismatches + ' frames disagreed');
+  t('tare: a scale-side tare is followed, not fought',
+    tare.afterSoft === 0 && tare.afterHard === 0,
+    `software tare ${tare.afterSoft} g, then scale tare ${tare.afterHard} g (neither may go negative)`);
+  t('tare: arming still auto-tares the cup on the drip tray',
+    tare.armedState === 'awaiting_flow' && tare.armedNet === 0,
+    `${tare.armedState} at ${tare.armedNet} g`);
+
+  // ---- what you can watch while it pours ----
+  const live = await page.evaluate(async () => {
+    const { FlowEstimator, BrewMachine } = await import('./assets/js/core/filter.js');
+    const pour = (fn) => {
+      const est = new FlowEstimator(), b = new BrewMachine();
+      b.arm();
+      let seed = 5;
+      const n = () => { seed = (seed * 1103515245 + 12345) % 2147483648;
+        return (seed / 2147483648 - 0.5) * 0.06; };
+      let w = 96, firstWarn = null, ramp = [];
+      for (let i = 0; i < 1000; i++) {
+        const t = i * 0.05;
+        w += Math.max(0, fn(t)) * 0.05;
+        const r = est.step(t, w + n());
+        const s = b.step(t, r.weight, r.flow);
+        if (s.running && s.elapsed < 9) ramp.push(s.trend);
+        if (s.running && Number.isFinite(s.trend) && s.trend > 0.05 && firstWarn === null) {
+          firstWarn = s.elapsed;
+        }
+      }
+      return { firstWarn, rampAllNaN: ramp.every((v) => !Number.isFinite(v)) };
+    };
+    return {
+      healthy: pour((t) => (t < 2 ? 0 : t < 5 ? (t - 2) * 0.6 : 1.8 - (t - 5) * 0.012)),
+      channel: pour((t) => (t < 2 ? 0 : t < 5 ? (t - 2) * 0.5 : 1.4 + Math.max(0, t - 16) * 0.09)),
+    };
+  });
+  t('live: a channel is flagged during the shot, not only afterwards',
+    live.channel.firstWarn !== null && live.channel.firstWarn < 26,
+    live.channel.firstWarn === null ? 'never warned'
+      : `warned at ${live.channel.firstWarn.toFixed(1)} s (channel opens at 16 s)`);
+  t('live: a healthy shot is never flagged',
+    live.healthy.firstWarn === null, String(live.healthy.firstWarn));
+  t('live: the opening ramp cannot set the warning off',
+    live.channel.rampAllNaN && live.healthy.rampAllNaN,
+    'no trend is reported before there is enough shot to judge');
+
   // ---- the standard SIG Weight Scale profile ----
   // Not reverse-engineered: a published GATT profile, so it can be checked
   // against the spec's own arithmetic rather than against captures.
