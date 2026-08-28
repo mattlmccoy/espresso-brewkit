@@ -53,13 +53,34 @@ design/     specification for the scale hardware and firmware
 
 ### `site/`
 
-Static. No bundler, no framework, no npm. Open `site/index.html` over a local
-server and it runs — ES modules need HTTP, so `file://` won't work:
+Static. No bundler, no framework, and nothing to build — the site has no runtime
+dependencies at all. ES modules need HTTP, so `file://` won't work; serve it:
 
 ```bash
-cp -r data site/data          # the sample loader fetches ./data/shots.csv
-python3 -m http.server -d site 8000
+npm run serve                 # prints a local URL, serves site/ with data/ mounted
 ```
+
+## Tests
+
+`npm test` drives the site in a real browser and asserts on what actually renders.
+57 assertions across all five tools in both themes: the analysis results, the legacy
+CSV import path, the 3D drag interaction, theme persistence, font loading, WCAG
+contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing, and the
+absence of rhetorical-question headings.
+
+```bash
+npm install
+npx playwright install chromium
+npm test
+```
+
+Playwright is the only dependency and it is dev-only — nothing ships to the browser.
+The suite runs on every pull request via `.github/workflows/test.yml`.
+
+It exists because it keeps finding real defects that reading the source did not: a
+grid adjacency margin staircasing a row of controls, a `min-width:auto` track forcing
+29px of horizontal page overflow, an illegible colour pairing that only appears in
+dark mode, and a chart size cap applying to the wrong charts.
 
 Charts are hand-rolled SVG rather than a charting library. Three reasons: the chart
 types here are few and specific, colours come from CSS custom properties so
