@@ -14,6 +14,8 @@
     <a class="brand" href="./index.html">Brewkit</a>
     <nav class="nav">
       <a href="./live.html">Live</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./advisor.html">Advisor</a>
       <a href="./calculator.html">Calculator</a>
       <a href="./logger.html" aria-current="page">Log</a>
       <a href="./explore.html">Explore</a>
@@ -41,8 +43,16 @@
           <div class="field"><label for="brix">Brix (°Bx)</label><input id="brix" type="number" step="0.01"></div>
         </div>
         <div class="row">
+          <div class="field"><label for="bag">Coffee</label><select id="bag"></select></div>
+          <div class="field"><label for="grinder">Grinder</label><select id="grinder"></select></div>
+        </div>
+        <div class="row">
           <div class="field"><label for="grind_setting">Grind setting</label><input id="grind_setting" type="number" step="0.1"></div>
           <div class="field"><label for="grind_label">Grind label</label><input id="grind_label" type="text" placeholder="medium"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="rating">Rating (/10)</label><input id="rating" type="number" step="1" min="1" max="10"></div>
+          <div class="field"><label for="tags">Tags</label><input id="tags" type="text" placeholder="sour thin"></div>
         </div>
         <div class="row">
           <div class="field"><label for="temp_c">Water temp (°C)</label><input id="temp_c" type="number" step="0.5" value="93"></div>
@@ -80,8 +90,8 @@
       </div>
       <div class="table-scroll"><table id="tbl">
         <thead><tr>
-          <th>ID</th><th>When</th><th>Dose</th><th>Yield</th><th>Ratio</th><th>Grind</th>
-          <th>Temp</th><th>Time</th><th>TDS %</th><th>EY %</th><th>Flow</th><th>Notes</th><th></th>
+          <th>ID</th><th>When</th><th>Coffee</th><th>Dose</th><th>Yield</th><th>Ratio</th><th>Grind</th>
+          <th>Temp</th><th>Time</th><th>TDS %</th><th>EY %</th><th>Flow</th><th>Rating</th><th>Notes</th><th></th>
         </tr></thead>
         <tbody></tbody>
       </table></div>
@@ -98,13 +108,28 @@
 <script type="module">
 import { boot, fmt, el } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";
+import * as kit from "./assets/js/core/kit.js";
 import { download } from "./assets/js/core/csv.js";
 boot();
 
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
 
+// The selects are the join to Kit. Typing a roaster name into a free-text field
+// on every shot is how a log ends up with four spellings of the same coffee.
+function fillKit() {
+  const bagSel = $("bag"), gSel = $("grinder");
+  const keepBag = bagSel.value, keepG = gSel.value;
+  bagSel.replaceChildren(el("option", { value: "" }, "Not recorded"),
+    ...kit.activeBags().map((b) => el("option", { value: b.id },
+      (b.bean_name || b.id) + (b.roaster ? " · " + b.roaster : ""))));
+  gSel.replaceChildren(el("option", { value: "" }, "Not recorded"),
+    ...kit.grinders().map((g) => el("option", { value: g.id }, g.name || g.id)));
+  bagSel.value = keepBag; gSel.value = keepG;
+}
+
 function render() {
+  fillKit();
   const rows = store.all();
   const tbody = $("tbl").querySelector("tbody");
   tbody.replaceChildren();
@@ -116,6 +141,7 @@ function render() {
     tbody.appendChild(el("tr", {},
       el("td", {}, r.shot_id ?? "—"),
       el("td", {}, (r.timestamp ?? "").slice(0, 16)),
+      el("td", {}, r.bean_name || r.roaster || "—"),
       el("td", { class: "n" }, fmt(r.dose_g, 1)),
       el("td", { class: "n" }, fmt(r.yield_g, 1)),
       el("td", { class: "n" }, fmt(r.ratio, 2)),
@@ -124,8 +150,9 @@ function render() {
       el("td", { class: "n" }, fmt(r.time_s, 1)),
       el("td", { class: "n" }, fmt(r.tds_pct, 2)),
       el("td", { class: "n" }, fmt(r.ey_pct, 2)),
-      el("td", { class: "n" }, fmt(r.flow_gs, 2)),
-      el("td", {}, r.notes ?? ""),
+      el("td", { class: "n" }, Number.isFinite(Number(r.rating)) && r.rating !== "" && r.rating !== null
+        ? String(r.rating) : "—"),
+      el("td", {}, [r.tags, r.notes].filter(Boolean).join(" · ")),
       el("td", {}, el("button", {
         class: "ghost", style: "padding:2px 8px;font-size:.78rem",
         onclick: () => { if (confirm("Delete " + r.shot_id + "?")) store.remove(r.shot_id); },
@@ -135,6 +162,7 @@ function render() {
 }
 
 store.subscribe(render);
+kit.subscribe(render);
 render();
 
 $("add").addEventListener("click", () => {
@@ -143,18 +171,21 @@ $("add").addEventListener("click", () => {
     $("add-msg").textContent = "Dose and yield are required, and dose must be positive.";
     return;
   }
-  const s = store.add({
+  const s = store.add(kit.attachKit({
+    bag_id: $("bag").value, grinder_id: $("grinder").value,
     dose_g: dose, yield_g: yld, time_s: num("time"), brix: num("brix"),
     grind_setting: num("grind_setting"), grind_label: $("grind_label").value.trim().toLowerCase(),
-    temp_c: num("temp_c"), pressure_bar: num("pressure_bar"), notes: $("notes").value.trim(),
-  });
+    temp_c: num("temp_c"), pressure_bar: num("pressure_bar"),
+    rating: num("rating"), tags: $("tags").value.trim().toLowerCase(),
+    notes: $("notes").value.trim(),
+  }));
   $("add-msg").textContent = "Added " + s.shot_id
     + (Number.isFinite(s.ey_pct) ? " — " + fmt(s.ey_pct, 2) + "% yield." : " (no Brix, so no yield).");
   $("brix").value = ""; $("notes").value = "";
 });
 
 $("reset").addEventListener("click", () => {
-  for (const id of ["brix","grind_setting","grind_label","notes"]) $(id).value = "";
+  for (const id of ["brix","grind_setting","grind_label","rating","tags","notes"]) $(id).value = "";
   $("add-msg").textContent = "";
 });
 

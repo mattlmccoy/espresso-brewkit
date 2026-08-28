@@ -79,24 +79,86 @@ export class ScaleLink extends EventTarget {
 
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
+  _bind(device) {
+    this.device = device;
+    device.addEventListener('gattserverdisconnected', () => {
+      this.server = null;
+      this.chars = [];
+      this.emit('disconnected', { name: this.device?.name ?? null });
+    });
+    return { name: device.name ?? '(unnamed)', id: device.id };
+  }
+
   /** Must be called from a user gesture. */
   async choose({ services = COMMON_SERVICES, namePrefix = null, wide = false, extra = [] } = {}) {
     const list = [...new Set([...(wide ? sweepServices() : services), ...extra])];
     const opts = namePrefix
       ? { filters: [{ namePrefix }], optionalServices: list }
       : { acceptAllDevices: true, optionalServices: list };
-    this.device = await navigator.bluetooth.requestDevice(opts);
-    this.device.addEventListener('gattserverdisconnected', () => {
-      this.server = null;
-      this.chars = [];
-      this.emit('disconnected', { name: this.device?.name ?? null });
-    });
-    return { name: this.device.name ?? '(unnamed)', id: this.device.id };
+    return this._bind(await navigator.bluetooth.requestDevice(opts));
   }
 
-  async connect() {
+  /**
+   * A device this origin already holds a persisted permission for.
+   *
+   * `getDevices()` is the only way to skip the chooser — `requestDevice()`
+   * always shows it, by design, because it is the permission prompt. Without
+   * this, "my scale" can never be one click; it is always a menu dive through a
+   * list of everything in the room.
+   *
+   * It is not universally available and the permission can be revoked in
+   * browser settings, so this returns null rather than throwing and the caller
+   * falls back to asking.
+   */
+  static async knownDevices() {
+    if (!navigator.bluetooth?.getDevices) return null;
+    try { return await navigator.bluetooth.getDevices(); } catch { return null; }
+  }
+
+  /**
+   * Reopen a saved scale with as little ceremony as the browser allows.
+   *
+   * Best case, the permission is still held and this connects silently. Failing
+   * that it still asks — but filtered to this one device, so the chooser is a
+   * confirmation rather than a search. `viaPermission` says which happened, so
+   * the UI can tell the truth about it.
+   */
+  async reopen(id, { name = null, services = COMMON_SERVICES, extra = [], wide = false } = {}) {
+    const known = await ScaleLink.knownDevices();
+    const match = known?.find((d) => d.id === id)
+      ?? (name ? known?.find((d) => d.name === name) : null);
+    if (match) return { ...this._bind(match), viaPermission: true };
+
+    const list = [...new Set([...(wide ? sweepServices() : services), ...extra])];
+    // An exact name filter, not a prefix: the point is to surface one scale.
+    const opts = name
+      ? { filters: [{ name }], optionalServices: list }
+      : { acceptAllDevices: true, optionalServices: list };
+    return { ...this._bind(await navigator.bluetooth.requestDevice(opts)), viaPermission: false };
+  }
+
+  /**
+   * @param timeoutMs  A scale that is asleep or out of range does not refuse the
+   *                   connection, it simply never answers. Without a deadline the
+   *                   UI sits on "connecting" forever with nothing to act on.
+   */
+  async connect({ timeoutMs = 15000 } = {}) {
     if (!this.device) throw new Error('No device chosen.');
-    this.server = await this.device.gatt.connect();
+    let timer;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(
+        `${this.device?.name ?? 'The scale'} did not answer within ${Math.round(timeoutMs / 1000)} s. `
+        + 'BLE scales sleep after a minute or two idle and stop advertising while another app holds '
+        + 'them — wake it with a tap, close any other app connected to it, and try again.')), timeoutMs);
+    });
+    try {
+      this.server = await Promise.race([this.device.gatt.connect(), deadline]);
+    } catch (err) {
+      try { this.device?.gatt?.disconnect(); } catch { /* nothing to close */ }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
     this.chars = [];
     let services = [];
     try {

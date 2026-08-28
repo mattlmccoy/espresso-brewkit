@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Advisor · espresso·brewkit</title>
+<meta name="description" content="What grind to dial next, from a resistance model of your own shots and a search over your ratings.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  .huge { font-family:var(--disp); font-size:clamp(52px,10vw,96px); line-height:.92; letter-spacing:-.045em; }
+  .finding { border-left:var(--bw) solid var(--ink); padding:2px 0 2px 14px; margin:14px 0; }
+  .finding.high { border-left-color:var(--fit); }
+  .finding.medium { border-left-color:var(--accent); }
+  .finding h4 { margin:0 0 5px; font-size:14.5px; }
+  .finding p { margin:0 0 5px; font-size:13.5px; color:var(--ink-dim); font-weight:500; }
+  .finding .do { color:var(--ink); font-weight:700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html">Live</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./advisor.html">Advisor</a>
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Advisor</h1>
+    <p class="desc">Two models. One inverts the flow physics to hit a shot time; the other
+    searches your own ratings for a grind that tastes better.</p>
+  </div>
+
+  <div class="bx panel">
+    <div class="tag">Scope</div>
+    <div class="grid g3">
+      <div class="field" style="margin:0"><label for="bag">Coffee</label><select id="bag"></select></div>
+      <div class="field" style="margin:0"><label for="grinder">Grinder</label><select id="grinder"></select></div>
+      <div class="field" style="margin:0"><label for="cur">Current grind setting</label>
+        <input id="cur" type="number" step="0.1"></div>
+    </div>
+    <div class="grid g3" style="margin-top:6px">
+      <div class="field" style="margin:0"><label for="t-time">Target shot time (s)</label>
+        <input id="t-time" type="number" step="1" value="28"></div>
+      <div class="field" style="margin:0"><label for="t-dose">Dose (g)</label>
+        <input id="t-dose" type="number" step="0.1" value="18"></div>
+      <div class="field" style="margin:0"><label for="t-ratio">Ratio (1:x)</label>
+        <input id="t-ratio" type="number" step="0.1" value="2"></div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:22px">
+    <div class="bx panel">
+      <div class="tag">Dial in — flow model</div>
+      <div id="rec"></div>
+    </div>
+    <div class="bx panel">
+      <div class="tag">Taste search</div>
+      <div id="taste"></div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:22px">
+    <div class="bx panel">
+      <div class="tag">Resistance</div>
+      <p class="msg" id="res-note"></p>
+      <div class="chart-wrap"><div id="res-chart"></div></div>
+    </div>
+    <div class="bx panel">
+      <div class="tag">Rating vs grind</div>
+      <p class="msg" id="taste-note"></p>
+      <div class="chart-wrap"><div id="taste-chart"></div></div>
+    </div>
+  </div>
+
+  <div class="bx panel" style="margin-top:22px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <div class="tag" style="margin:0">Last shot</div>
+      <span class="badge" id="last-id">—</span>
+    </div>
+    <div id="diag"></div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, fmt, el } from './assets/js/ui.js';
+import * as store from './assets/js/core/store.js';
+import * as kit from './assets/js/core/kit.js';
+import * as chart from './assets/js/core/chart.js';
+import { diagnose } from './assets/js/core/diagnose.js';
+import { recommendGrind, suggestByTaste, resistanceRows, fitResistance } from './assets/js/core/advisor.js';
+boot();
+
+const $ = (id) => document.getElementById(id);
+const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
+
+function fillSelects() {
+  const s = kit.session();
+  const bagSel = $('bag'), gSel = $('grinder');
+  const keepBag = bagSel.value || s.bag_id;
+  const keepG = gSel.value || s.grinder_id;
+  bagSel.replaceChildren(el('option', { value: '' }, 'Any coffee'),
+    ...kit.bags().map((b) => el('option', { value: b.id },
+      `${b.bean_name || b.id}${b.roaster ? ' · ' + b.roaster : ''}${b.archived ? ' (finished)' : ''}`)));
+  gSel.replaceChildren(el('option', { value: '' }, 'Any grinder'),
+    ...kit.grinders().map((g) => el('option', { value: g.id }, g.name || g.id)));
+  bagSel.value = keepBag ?? ''; gSel.value = keepG ?? '';
+  if (!$('cur').value && Number.isFinite(Number(s.grind_setting))) $('cur').value = s.grind_setting;
+}
+
+/** Explain what the model is doing, in the terms the user set it up in. */
+function why(fit, grinderName) {
+  const bits = [];
+  bits.push(`Fitted on ${fit.n} shot${fit.n === 1 ? '' : 's'}${grinderName ? ' from ' + grinderName : ''}.`);
+  if (fit.lambda > 0) {
+    bits.push(`Grind sensitivity is ${(fit.lambda * 100).toFixed(0)}% this coffee's own `
+      + `(${fit.bBag.toFixed(3)}) and ${((1 - fit.lambda) * 100).toFixed(0)}% the grinder-wide `
+      + `estimate (${fit.bPool.toFixed(3)}) — a fresh bag does not have enough shots to re-learn `
+      + 'what the dial does.');
+  } else {
+    bits.push(`Grind sensitivity ${fit.b.toFixed(3)} in log flow per dial step, borrowed entirely `
+      + 'from this grinder’s other shots; this coffee has too few to fit its own.');
+  }
+  bits.push(fit.usesDays
+    ? `Staleness is in the model at ${fit.c.toFixed(4)} log-flow per day.`
+    : 'Days off roast is not in the model — too few distinct ages to separate it from grind.');
+  bits.push(`Residual scatter ${(fit.sigma * 100).toFixed(1)}% in flow.`);
+  return bits.join(' ');
+}
+
+function renderRec(shots, bagId, grinderId, g) {
+  const holder = $('rec');
+  holder.replaceChildren();
+  const r = recommendGrind(shots, {
+    grinderId, bagId, grinder: g,
+    targetTimeS: num('t-time') ?? 28, targetDoseG: num('t-dose') ?? 18,
+    targetRatio: num('t-ratio') ?? 2, currentSetting: num('cur'),
+    days: kit.daysOffRoast(kit.bag(bagId)?.roast_date) ?? 0,
+  });
+  if (!r.ok) {
+    holder.appendChild(el('p', { class: 'note warn' }, `Not enough to fit yet — ${r.reason}.`));
+    holder.appendChild(el('p', { class: 'msg' },
+      'Pull shots at two or three different settings and the model has something to invert. '
+      + 'Varying the grind on purpose is the fastest way to get a useful answer.'));
+    return;
+  }
+  holder.appendChild(el('div', { class: 'huge', style: 'margin:6px 0 4px' }, String(r.setting)));
+  holder.appendChild(el('p', { class: 'msg', style: 'margin-top:0' },
+    (r.delta === null ? 'No current setting entered. '
+      : r.delta === 0 ? 'That is where you already are. '
+      : `${Math.abs(r.delta)} step${Math.abs(r.delta) === 1 ? '' : 's'} `
+        + `${r.delta > 0 ? 'up' : 'down'} from ${num('cur')}. `)
+    + `Plausible range ${r.lo}–${r.hi}. Target steady flow ${fmt(r.targetFlow, 2)} g/s.`));
+  holder.appendChild(el('span', { class: `badge ${r.confidence === 'good' ? 'ok' : r.confidence === 'rough' ? 'flag' : 'warn'}` },
+    `${r.confidence} fit`));
+  if (r.extrapolating) {
+    holder.appendChild(el('p', { class: 'note warn', style: 'margin-top:12px' },
+      'That is a long way outside the settings you have actually used, so it is the model '
+      + 'extrapolating rather than reporting. Move a couple of steps, log the shot, and ask again.'));
+  }
+  holder.appendChild(el('p', { class: 'note', style: 'margin-top:12px' }, why(r.fit, g?.name)));
+}
+
+function renderTaste(shots, bagId, grinderId, g) {
+  const holder = $('taste');
+  holder.replaceChildren();
+  const t = suggestByTaste(shots, { grinderId, bagId, grinder: g, currentSetting: num('cur') });
+  if (!t.ok) {
+    holder.appendChild(el('p', { class: 'note warn' }, `Nothing to search yet — ${t.reason}.`));
+    holder.appendChild(el('p', { class: 'msg' },
+      'Rate shots out of 10 as you pull them. Taste has no physical model to borrow from, so this '
+      + 'one only knows what you have told it.'));
+    $('taste-chart').replaceChildren();
+    $('taste-note').textContent = '';
+    return;
+  }
+  holder.appendChild(el('div', { class: 'huge', style: 'margin:6px 0 4px' }, String(t.setting)));
+  holder.appendChild(el('p', { class: 'msg', style: 'margin-top:0' },
+    `Predicted ${fmt(t.predicted, 1)} ± ${fmt(t.predictedSd, 1)} out of 10, against your best so `
+    + `far of ${t.bestSeen}. From ${t.n} rated shots.`));
+  holder.appendChild(el('span', { class: `badge ${t.exploring ? 'flag' : 'ok'}` },
+    t.exploring ? 'exploring' : 'refining'));
+  holder.appendChild(el('p', { class: 'note', style: 'margin-top:12px' },
+    (t.exploring
+      ? 'This is a setting the model is uncertain about rather than one it expects to be best — '
+        + 'worth a shot precisely because it would tell you something. '
+      : 'The model is fairly confident here and is fine-tuning rather than exploring. ')
+    + `Its estimated peak is ${t.modelPeak.setting} at ${fmt(t.modelPeak.rating, 1)}/10.`
+    + (t.alternatives.length
+      ? ` Next best: ${t.alternatives.map((a) => `${a.setting} (${fmt(a.predicted, 1)})`).join(', ')}.`
+      : '')));
+  holder.appendChild(el('p', { class: 'note', style: 'margin-top:10px' },
+    'A 1–10 rating is ordinal — the step from 6 to 7 is not necessarily the step from 8 to 9 — '
+    + 'and this treats it as a number with generous noise. That approximation is why the '
+    + 'suggestion is a place to look, not an answer.'));
+
+  // Posterior mean with a ±1σ band, drawn through the scatter helper.
+  const xs = t.curve.map((p) => p.x);
+  const at = (x, key) => {
+    let best = t.curve[0];
+    for (const p of t.curve) if (Math.abs(p.x - x) < Math.abs(best.x - x)) best = p;
+    return best[key];
+  };
+  chart.scatter($('taste-chart'), {
+    points: t.observations.map((o) => ({ x: o.x, y: o.y, label: `${o.shot_id}: ${o.y}/10 at ${o.x}` })),
+    fit: { ok: true, predict: (x) => at(x, 'mean'), tCrit: 1, seMean: (x) => at(x, 'sd') },
+    xLabel: 'Grind setting', yLabel: 'Rating (/10)',
+  });
+  $('taste-note').textContent = `Posterior mean and ±1σ from a Matérn 5/2 GP over ${t.n} rated `
+    + `shots (length scale ${fmt(t.hp.ell, 2)}, noise ${fmt(t.hp.sigmaN, 2)} rating points). `
+    + `The band is wide where you have not been; that width is what the suggestion is chasing.`;
+  if (xs.length < 2) $('taste-chart').replaceChildren();
+}
+
+function renderResistance(shots, bagId, grinderId) {
+  const rows = resistanceRows(shots, { grinderId, bagId });
+  const holder = $('res-chart');
+  holder.replaceChildren();
+  if (rows.length < 2) {
+    $('res-note').textContent = 'Two shots at different grind settings and this plot has something to show.';
+    return;
+  }
+  const fit = fitResistance(shots, { grinderId, bagId });
+  chart.scatter(holder, {
+    points: rows.map((r) => ({ x: r.grind, y: Math.exp(r.logQ),
+      label: `${r.shot_id}: ${Math.exp(r.logQ).toFixed(2)} g/s at ${r.grind}` })),
+    fit: fit.ok ? { ok: true, tCrit: 1,
+      predict: (x) => fit.predictFlow(x, 0), seMean: (x) => fit.predictFlow(x, 0) * fit.sigma } : null,
+    xLabel: 'Grind setting', yLabel: 'Steady flow (g/s)',
+  });
+  $('res-note').textContent = fit.ok
+    ? `Flow rises by a factor of ${Math.exp(Math.abs(fit.b)).toFixed(2)} per dial step. `
+      + 'Darcy’s law puts permeability proportional to the square of particle size, and a dial '
+      + 'is roughly linear in burr gap, which is why this is a straight line in log flow rather '
+      + 'than in flow.'
+    : `Cannot fit yet — ${fit.reason}.`;
+}
+
+function renderDiag(shots) {
+  const holder = $('diag');
+  holder.replaceChildren();
+  const last = shots.at(-1);
+  $('last-id').textContent = last?.shot_id ?? '—';
+  if (!last) {
+    holder.appendChild(el('p', { class: 'empty' }, 'No shots logged yet.'));
+    return;
+  }
+  const findings = diagnose(last);
+  if (!findings.length) {
+    holder.appendChild(el('p', { class: 'msg' },
+      'Nothing stood out in that curve. Either it was clean, or there was not enough of a curve '
+      + 'recorded to say — a shot logged by hand has no flow trace to read.'));
+    return;
+  }
+  for (const f of findings) {
+    holder.appendChild(el('div', { class: `finding ${f.severity}` },
+      el('h4', {}, f.title),
+      el('p', {}, f.detail),
+      el('p', { class: 'do' }, f.action)));
+  }
+}
+
+function render() {
+  fillSelects();
+  const shots = store.all();
+  const bagId = $('bag').value || null;
+  const grinderId = $('grinder').value || null;
+  const g = grinderId ? kit.grinder(grinderId) : null;
+  renderRec(shots, bagId, grinderId, g);
+  renderTaste(shots, bagId, grinderId, g);
+  renderResistance(shots, bagId, grinderId);
+  renderDiag(shots);
+}
+
+for (const id of ['bag','grinder','cur','t-time','t-dose','t-ratio']) {
+  $(id).addEventListener('input', render);
+  $(id).addEventListener('change', render);
+}
+store.subscribe(render);
+kit.subscribe(render);
+render();
+</script>
+</body>
+</html>
