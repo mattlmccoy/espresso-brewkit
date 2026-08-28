@@ -37,6 +37,12 @@ jobs:
         run: |
           set -e
           for f in site/*.html; do
+            # Not everything with an .html extension is a page. Search-engine
+            # verification files are a single line of text and must be served
+            # byte for byte, so check the closing tag only where there is an
+            # opening one — otherwise adding a verification stub fails the
+            # deploy of the entire site.
+            grep -q '<html' "$f" || continue
             grep -q '</html>' "$f" || { echo "::error file=$f::truncated HTML"; exit 1; }
           done
           test -f site/assets/css/app.css

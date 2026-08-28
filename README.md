@@ -417,7 +417,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-271 assertions across the site in both themes: the analysis results, the
+274 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
@@ -518,6 +518,12 @@ to 0 in the [uncertainty tool](https://mattlmccoy.github.io/espresso-brewkit/unc
 to reproduce the old numbers and see the difference.
 
 ## Deploying
+
+`site/google5caa7feb8604ab88.html` is a Google Search Console verification file.
+It is a single line of text that must be served byte for byte at its exact path,
+which is why the deploy's sanity check tests for a closing `</html>` only in
+files that have an opening one — a verification stub is not a truncated page,
+and treating it as one would fail the deploy of the whole site.
 
 `.github/workflows/pages.yml` builds and deploys `site/` on every push to `main`.
 It needs **Settings → Pages → Source: GitHub Actions** enabled once.
