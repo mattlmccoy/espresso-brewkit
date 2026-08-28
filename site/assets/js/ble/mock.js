@@ -1,0 +1,60 @@
+// A synthetic scale, so the whole pipeline — framing, decode, filter, state
+// machine, UI, shot capture — is testable with no hardware present. It emits
+// the same 'frame' events as ScaleLink, in a plausible unknown-vendor layout.
+
+export class MockScale extends EventTarget {
+  constructor({ hz = 10, noise = 0.03 } = {}) {
+    super();
+    this.hz = hz;
+    this.noise = noise;
+    this.grams = 0;
+    this.seq = 0;
+    this.timer = null;
+    this.chars = [{ service: '0000fff0-…', uuid: '0000fff1-…', notify: true, read: false, write: false }];
+  }
+
+  emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
+
+  frame() {
+    // Header, u16BE centigrams, sequence, XOR check — a common shape.
+    const v = Math.max(0, Math.round((this.grams + (Math.random() - 0.5) * this.noise * 2) * 100));
+    const b = [0xaa, 0x05, 0x01, (v >> 8) & 255, v & 255, this.seq & 255, 0];
+    b[6] = b.slice(0, 6).reduce((x, y) => x ^ y, 0);
+    this.seq++;
+    return Uint8Array.from(b);
+  }
+
+  async choose() { return { name: 'Mock Scale', id: 'mock' }; }
+  async connect() { this.emit('connected', { name: 'Mock Scale', services: 1, characteristics: 1 }); return this.chars; }
+
+  async subscribeAll() {
+    this.timer = setInterval(() => {
+      this.emit('frame', { uuid: this.chars[0].uuid, service: this.chars[0].service,
+        bytes: this.frame(), at: performance.now() / 1000 });
+    }, 1000 / this.hz);
+    this.emit('subscribed', { uuids: [this.chars[0].uuid] });
+    return [this.chars[0].uuid];
+  }
+
+  /** Drive a realistic espresso shot: cup on, pre-infusion, ramp, taper, cup off. */
+  runShot({ cup = 120, target = 36, onDone } = {}) {
+    const t0 = performance.now() / 1000;
+    this.grams = 0;
+    setTimeout(() => { this.grams = cup; }, 400);
+    const tick = setInterval(() => {
+      const t = performance.now() / 1000 - t0;
+      if (t < 1.2) return;
+      const shot = t - 1.2;
+      if (shot > 6 && this.grams - cup < target) {
+        const q = Math.min(2.1, (shot - 6) * 0.9) * (shot > 26 ? 0.45 : 1);
+        this.grams += q / this.hz;
+      } else if (this.grams - cup >= target) {
+        clearInterval(tick);
+        setTimeout(() => { onDone?.(); }, 4500);
+      }
+    }, 1000 / this.hz);
+    return () => clearInterval(tick);
+  }
+
+  disconnect() { clearInterval(this.timer); this.timer = null; this.emit('disconnected', {}); }
+}

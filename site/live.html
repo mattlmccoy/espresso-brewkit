@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live · espresso·brewkit</title>
+<meta name="description" content="Stream weight from a Bluetooth scale and capture shots in real time.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  .readout { display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:14px; }
+  @media (max-width:820px){ .readout{ grid-template-columns:1fr 1fr; } }
+  .big .v { font-size: clamp(46px, 9vw, 92px); }
+  .state-strip { padding:14px 18px; font:700 13px/1 var(--sans); letter-spacing:.16em;
+    text-transform:uppercase; background:var(--ink); color:var(--tag-fg); }
+  .state-strip.on { background:var(--accent); color:var(--accent-ink); }
+  .frames { font-family:var(--mono); font-size:12px; max-height:190px; overflow:auto;
+    background:var(--bg); border:2px solid var(--ink); padding:10px; }
+  .frames div { white-space:pre; }
+  .cand { display:flex; justify-content:space-between; gap:12px; padding:9px 0;
+    border-bottom:1px solid var(--hair); font-family:var(--mono); font-size:13px; }
+  .step { opacity:.45; pointer-events:none; }
+  .step.active { opacity:1; pointer-events:auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html" aria-current="page">Live</a>
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Live</h1>
+    <p class="desc">Stream weight from a Bluetooth scale and capture the shot as it pours.</p>
+  </div>
+
+  <div id="unsupported" class="note warn" style="display:none;margin-bottom:22px"></div>
+
+  <div class="bx panel" id="step-connect">
+    <div class="tag">01 — Connect</div>
+    <div class="btn-row">
+      <button class="primary" id="connect" type="button">Choose a scale</button>
+      <button id="demo" type="button">Run a demo shot</button>
+      <button class="ghost" id="disconnect" type="button" style="display:none">Disconnect</button>
+      <span class="msg" id="conn-msg" style="margin:0"></span>
+    </div>
+    <p class="note" style="margin-top:14px">Chrome, Edge and Opera only — Firefox and Safari have no
+    Web Bluetooth, and on iOS no browser does. The demo needs no hardware and exercises the whole
+    pipeline, so you can see what a shot looks like before you own a supported scale.</p>
+  </div>
+
+  <div class="bx panel step" id="step-decode" style="margin-top:22px">
+    <div class="tag">02 — Teach it your scale</div>
+    <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+    Undocumented scales send an unlabelled frame. Put known masses on and brewkit works out where
+    the weight lives — put something on, type what your scale reads, capture. Three captures at
+    different masses is enough; include zero.</p>
+    <div class="row" style="max-width:520px;align-items:end">
+      <div class="field" style="margin:0"><label for="ref">Scale currently reads (g)</label>
+        <input id="ref" type="number" step="0.1" value="0"></div>
+      <div class="btn-row"><button id="capture" type="button">Capture</button>
+        <button class="ghost" id="clear-caps" type="button">Clear</button></div>
+    </div>
+    <p class="msg" id="cap-msg"></p>
+    <div id="cands" style="margin-top:12px"></div>
+    <div style="margin-top:16px">
+      <div class="tag" style="margin-bottom:10px">Incoming frames</div>
+      <div class="frames" id="frames"></div>
+    </div>
+  </div>
+
+  <div class="bx panel step" id="step-live" style="margin-top:22px">
+    <div class="tag">03 — Live</div>
+    <div class="state-strip" id="state">Idle</div>
+    <div class="readout" style="margin-top:14px">
+      <div class="st bx hero big"><div class="k">Weight</div>
+        <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
+      <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
+      <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
+    </div>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="primary" id="arm" type="button">Arm for a shot</button>
+      <button id="start" type="button">Start now</button>
+      <button id="stop" type="button">Stop</button>
+      <button class="ghost" id="save" type="button">Save shot to log</button>
+      <span class="msg" id="live-msg" style="margin:0"></span>
+    </div>
+    <div class="chart-wrap" style="margin-top:18px"><div id="curve"></div></div>
+  </div>
+</div>
+
+<footer class="site-foot">
+  espresso·brewkit — measurement tools for espresso ·
+  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+  Runs entirely in your browser; no data leaves this device.
+</footer>
+
+<script type="module">
+import { boot, fmt, el } from './assets/js/ui.js';
+import * as store from './assets/js/core/store.js';
+import * as chart from './assets/js/core/chart.js';
+import { FlowEstimator, BrewMachine, BREW } from './assets/js/core/filter.js';
+import { ScaleLink, MockScale, isSupported, unsupportedReason } from './assets/js/ble/index.js';
+import { findCandidates, applyCandidate, describeCandidate, hex } from './assets/js/ble/decode.js';
+boot();
+
+const $ = (id) => document.getElementById(id);
+const DEC_KEY = 'brewkit.decoders.v1';
+const loadDecoders = () => { try { return JSON.parse(localStorage.getItem(DEC_KEY)) || {}; } catch { return {}; } };
+const saveDecoder = (name, c) => {
+  try { const all = loadDecoders(); all[name] = c; localStorage.setItem(DEC_KEY, JSON.stringify(all)); }
+  catch { /* storage blocked */ }
+};
+
+let link = null, deviceName = null, decoder = null, activeUuid = null;
+let caps = [], recent = [], lastRaw = 0, lastDraw = 0;
+const est = new FlowEstimator();
+const brew = new BrewMachine();
+
+const reason = unsupportedReason();
+if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
+$('connect').disabled = !isSupported();
+
+function setStep(id, on) { $(id).classList.toggle('active', on); }
+setStep('step-connect', true);
+
+function onFrame({ uuid, bytes, at }) {
+  if (recent.length > 40) recent.shift();
+  recent.push({ uuid, bytes, at });
+
+  const box = $('frames');
+  if (box.childElementCount > 60) box.removeChild(box.firstChild);
+  box.appendChild(el('div', {}, `${uuid.slice(4, 8)}  ${hex(bytes)}`));
+  box.scrollTop = box.scrollHeight;
+
+  if (!decoder || uuid !== activeUuid) return;
+  const grams = applyCandidate(decoder, bytes);
+  if (!Number.isFinite(grams)) return;
+  lastRaw = grams;
+  const { weight, flow } = est.step(at, grams);
+  const s = brew.step(at, weight, flow);
+  render(s);
+}
+
+function render(s) {
+  $('o-w').textContent = fmt(s.net, 1);
+  $('o-t').textContent = fmt(s.elapsed, 1);
+  $('o-f').textContent = fmt(s.flow, 2);
+  const strip = $('state');
+  strip.textContent = s.label;
+  strip.classList.toggle('on', s.state === BREW.EXTRACTING);
+  const drawable = brew.curve.length > 2 && (s.state === BREW.EXTRACTING
+    || s.state === BREW.COMPLETE || s.state === BREW.DRIPPING);
+  const now = performance.now();
+  if (drawable && (now - lastDraw > 250 || s.state === BREW.COMPLETE)) {
+    lastDraw = now;
+    chart.scatter($('curve'), {
+      points: brew.curve.map(([t, w]) => ({ x: t, y: w, label: `${t}s → ${w}g` })),
+      xLabel: 'Time (s)', yLabel: 'Weight (g)',
+    });
+  }
+}
+
+function attach(l) {
+  link = l;
+  l.addEventListener('frame', (e) => onFrame(e.detail));
+  l.addEventListener('disconnected', () => {
+    $('conn-msg').textContent = 'Disconnected.';
+    $('disconnect').style.display = 'none';
+    $('connect').style.display = '';
+  });
+}
+
+async function afterConnect(name) {
+  deviceName = name;
+  $('conn-msg').textContent = `Connected to ${name}.`;
+  $('disconnect').style.display = '';
+  $('connect').style.display = 'none';
+  await link.subscribeAll();
+  const known = loadDecoders()[name];
+  if (known) {
+    decoder = known;
+    activeUuid = known.uuid;
+    $('cap-msg').textContent = `Using the saved decoder for ${name}: ${describeCandidate(known)}.`;
+    setStep('step-live', true);
+    setStep('step-decode', true);
+  } else {
+    setStep('step-decode', true);
+  }
+}
+
+$('connect').addEventListener('click', async () => {
+  try {
+    const l = new ScaleLink();
+    attach(l);
+    const { name } = await l.choose();
+    await l.connect();
+    const chars = l.chars.filter((c) => c.notify);
+    if (!chars.length) {
+      $('conn-msg').textContent = `Connected to ${name}, but no notifying characteristic was `
+        + 'reachable. Web Bluetooth only exposes services declared up front — see the README.';
+      return;
+    }
+    await afterConnect(name);
+  } catch (err) {
+    $('conn-msg').textContent = err.message;
+  }
+});
+
+$('demo').addEventListener('click', async () => {
+  const m = new MockScale();
+  attach(m);
+  await m.connect();
+  await afterConnect('Mock Scale');
+  brew.arm();
+  m.runShot({ onDone: () => { $('live-msg').textContent = 'Demo shot finished.'; } });
+});
+
+$('disconnect').addEventListener('click', () => link?.disconnect());
+
+$('capture').addEventListener('click', () => {
+  const grams = parseFloat($('ref').value);
+  if (!Number.isFinite(grams)) { $('cap-msg').textContent = 'Enter what the scale reads.'; return; }
+  const byUuid = new Map();
+  for (const f of recent.slice(-12)) byUuid.set(f.uuid, f.bytes);
+  if (!byUuid.size) { $('cap-msg').textContent = 'No frames received yet.'; return; }
+  caps.push({ grams, byUuid });
+  $('cap-msg').textContent = `${caps.length} capture(s). ${caps.length < 2 ? 'Change the mass and capture again.' : ''}`;
+  solve();
+});
+
+$('clear-caps').addEventListener('click', () => {
+  caps = []; $('cands').replaceChildren(); $('cap-msg').textContent = 'Cleared.';
+});
+
+function solve() {
+  if (caps.length < 2) return;
+  const uuids = [...caps[0].byUuid.keys()].filter((u) => caps.every((c) => c.byUuid.has(u)));
+  const found = [];
+  for (const uuid of uuids) {
+    const samples = caps.map((c) => ({ bytes: c.byUuid.get(uuid), grams: c.grams }));
+    for (const c of findCandidates(samples)) found.push({ ...c, uuid });
+  }
+  found.sort((a, b) => a.error - b.error);
+
+  const holder = $('cands');
+  holder.replaceChildren();
+  if (!found.length) {
+    holder.appendChild(el('p', { class: 'note warn' },
+      'No encoding fits those captures. Try three well-separated masses including zero — and check '
+      + 'the frames below are actually changing when the weight does.'));
+    return;
+  }
+  holder.appendChild(el('div', { class: 'tag' }, 'Candidates'));
+  for (const c of found.slice(0, 6)) {
+    holder.appendChild(el('div', { class: 'cand' },
+      el('span', {}, `${describeCandidate(c)}  ·  ${c.uuid.slice(4, 8)}  ·  max err ${c.error.toFixed(3)} g`),
+      el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none',
+        onclick: () => {
+          decoder = c; activeUuid = c.uuid;
+          saveDecoder(deviceName, { ...c });
+          $('cap-msg').textContent = `Using ${describeCandidate(c)}. Saved for ${deviceName}.`;
+          setStep('step-live', true);
+        } }, 'Use this')));
+  }
+}
+
+$('arm').addEventListener('click', () => { est.reset(lastRaw); brew.arm(); $('live-msg').textContent = ''; render(brew.snapshot(0, lastRaw, 0)); });
+$('start').addEventListener('click', () => { brew.startNow(performance.now() / 1000, lastRaw); });
+$('stop').addEventListener('click', () => { brew.stopNow(); });
+
+$('save').addEventListener('click', () => {
+  if (brew.curve.length < 3) { $('live-msg').textContent = 'No shot captured yet.'; return; }
+  const yieldG = brew.curve.at(-1)[1];
+  const timeS = brew.curve.at(-1)[0];
+  const s = store.add({
+    yield_g: +yieldG.toFixed(2), time_s: +timeS.toFixed(1), dose_g: 18,
+    notes: `captured live from ${deviceName ?? 'scale'}`,
+  });
+  $('live-msg').textContent = `Saved ${s.shot_id} — ${fmt(yieldG, 1)} g in ${fmt(timeS, 1)} s. `
+    + 'Set the dose and Brix on the Log page.';
+});
+</script>
+</body>
+</html>

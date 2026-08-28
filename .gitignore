@@ -9,4 +9,4 @@ Thumbs.db
 .vscode/
 
 # Node, if tooling is ever added
-node_modules/
+node_modules

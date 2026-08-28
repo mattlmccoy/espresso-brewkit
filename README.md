@@ -21,6 +21,7 @@ plain CSV you own.
 | **[Shot log](https://mattlmccoy.github.io/espresso-brewkit/logger.html)** | Record shots, derive everything downstream, import and export one CSV. Reads the old one-file-per-shot format too. |
 | **[Explore](https://mattlmccoy.github.io/espresso-brewkit/explore.html)** | Regress any response against one variable or two. Confidence bands, residual plots, a rotatable 3D plane fit, and a correlation matrix. |
 | **[Quality](https://mattlmccoy.github.io/espresso-brewkit/quality.html)** | Outlier detection by three methods, and the repeatability statistics that tell you whether your data can support a conclusion at all. |
+| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | Stream weight from a Bluetooth scale, watch the shot pour, and save the curve straight to the log. Includes a demo that needs no hardware. |
 | **[Uncertainty](https://mattlmccoy.github.io/espresso-brewkit/uncertainty.html)** | GUM propagation through the yield equation, with a variance budget showing which measurement is actually limiting you. |
 
 ## Three things this does that a spreadsheet won't
@@ -42,24 +43,75 @@ standard deviation that the outlier itself inflates, so at n=15 one extreme poin
 can push the threshold out past itself and vanish. Outliers are scored three ways,
 including a median/MAD-based modified z-score that an outlier cannot drag.
 
+## Live capture over Bluetooth
+
+The Live page talks to a scale directly from the browser over Web Bluetooth —
+no app, no phone, no server. It computes its own flow rate from the weight
+stream with a constant-velocity Kalman filter (`site/assets/js/core/filter.js`),
+because most scales report weight only, and differencing a smoothed weight signal
+costs filter delay twice and amplifies the noise you just removed.
+
+**Browser support is the real constraint.** Chrome, Edge and Opera have Web
+Bluetooth; Firefox and Safari do not, and on iOS no browser does. It also needs a
+secure context, which GitHub Pages provides but a plain-http LAN address does not.
+
+**Undocumented scales.** Most cheap BLE scales send an unlabelled fixed-layout
+frame, and there are only a few hundred plausible encodings. Rather than needing a
+datasheet, the Live page searches: put known masses on, tell it what the scale
+reads, and it solves for offset, width, byte order, sign and scale factor, then
+remembers the answer for that device. There is a byte-level frame view alongside it
+for the cases that need a human.
+
+**A limitation worth knowing before you start.** Web Bluetooth will not enumerate a
+GATT service the page did not declare in advance — there is no "list everything"
+call. `transport.js` asks for a list of service UUIDs that cheap scales commonly
+use, but a scale outside that list will appear to have no services at all. That is
+the API behaving as designed, not a broken device.
+
+The same driver interface is what the [scale in `design/`](design/03-wireless.md)
+will connect through, so building this is not throwaway work.
+
 ## Repository layout
 
 ```
 site/       the GitHub Pages app — plain HTML + ES modules, no build step
-  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, SVG charts
+  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters
+  assets/js/ble/     Web Bluetooth transport, protocol auto-decoder, mock scale
 data/       shots.csv (canonical dataset) + the original per-shot files
 design/     specification for the scale hardware and firmware
+test/       Playwright UI suite and its static server
 ```
 
 ### `site/`
 
-Static. No bundler, no framework, no npm. Open `site/index.html` over a local
-server and it runs — ES modules need HTTP, so `file://` won't work:
+Static. No bundler, no framework, and nothing to build — the site has no runtime
+dependencies at all. ES modules need HTTP, so `file://` won't work; serve it:
 
 ```bash
-cp -r data site/data          # the sample loader fetches ./data/shots.csv
-python3 -m http.server -d site 8000
+npm run serve                 # prints a local URL, serves site/ with data/ mounted
 ```
+
+## Tests
+
+`npm test` drives the site in a real browser and asserts on what actually renders.
+57 assertions across all five tools in both themes: the analysis results, the legacy
+CSV import path, the 3D drag interaction, theme persistence, font loading, WCAG
+contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing, and the
+absence of rhetorical-question headings.
+
+```bash
+npm install
+npx playwright install chromium
+npm test
+```
+
+Playwright is the only dependency and it is dev-only — nothing ships to the browser.
+The suite runs on every pull request via `.github/workflows/test.yml`.
+
+It exists because it keeps finding real defects that reading the source did not: a
+grid adjacency margin staircasing a row of controls, a `min-width:auto` track forcing
+29px of horizontal page overflow, an illegible colour pairing that only appears in
+dark mode, and a chart size cap applying to the wrong charts.
 
 Charts are hand-rolled SVG rather than a charting library. Three reasons: the chart
 types here are few and specific, colours come from CSS custom properties so
