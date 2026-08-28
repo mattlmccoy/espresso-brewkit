@@ -17,6 +17,28 @@
   ol.steps-list strong { color: var(--ink); }
   ol.steps-list code { background: var(--panel-2); padding: 2px 5px; font-size: 12px;
     word-break: break-all; }
+  /* Google's own button, per their branding: white, Roboto, the four-colour G.
+     It is the one control on this site that should not look like this site —
+     people recognise it, and recognising it is the security property. */
+  .gbtn { display: inline-flex; align-items: center; gap: 12px; background: #fff; color: #1f1f1f;
+    border: 1px solid #747775; border-radius: 4px; box-shadow: none; padding: 0 14px 0 12px;
+    height: 40px; font: 500 14px/1 'Archivo', Roboto, system-ui, sans-serif; cursor: pointer; }
+  .gbtn:hover { background: #f7f8f8; box-shadow: 0 1px 2px rgba(60,64,67,.3); }
+  .gbtn:disabled { opacity: .55; cursor: not-allowed; }
+  .gicon { display: grid; place-items: center; }
+  ul.scopes { list-style: none; padding: 0; margin: 12px 0 16px; }
+  ul.scopes li { padding: 9px 0 9px 26px; position: relative; border-bottom: 1px solid var(--hair);
+    font: 600 13px/1.5 var(--sans); color: var(--ink-dim); }
+  ul.scopes li::before { content: '\2713'; position: absolute; left: 4px; top: 9px;
+    color: var(--accent); font-weight: 700; }
+  ul.scopes strong { color: var(--ink); display: block; font-size: 13.5px; }
+  .account { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .avatar { width: 44px; height: 44px; flex: none; border: var(--bw) solid var(--ink);
+    background: var(--panel-2) center/cover no-repeat; display: grid; place-items: center;
+    font: 700 15px/1 var(--sans); color: var(--ink); }
+  .account .who { display: grid; gap: 2px; min-width: 0; }
+  .account .who strong { font-size: 14.5px; }
+  .account .badge { margin-left: auto; }
 </style>
 </head>
 <body>
@@ -42,15 +64,45 @@
   <div class="split">
     <div>
       <div class="bx panel">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <div class="tag" style="margin:0">Status</div>
-          <span class="badge" id="status">Not set up</span>
+        <div class="tag">Account</div>
+
+        <!-- Signed out: Google's own button, and what it is about to ask for. -->
+        <div id="signed-out" style="display:none">
+          <p class="msg" style="margin-top:12px">Sign in on each device you want to keep in step.
+          Google will show its account chooser, then ask you to approve exactly this:</p>
+          <ul class="scopes" id="scopes"></ul>
+          <button class="gbtn" id="gsignin" type="button">
+            <span class="gicon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" width="18" height="18">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+            </span>
+            <span>Sign in with Google</span>
+          </button>
+          <p class="msg" id="no-client" style="display:none">Set your OAuth client ID below first —
+          without one there is nothing for Google to authorise.</p>
         </div>
+
+        <!-- Signed in: who, on which account, with a way out. -->
+        <div id="signed-in" style="display:none">
+          <div class="account">
+            <span class="avatar" id="avatar" aria-hidden="true"></span>
+            <span class="who">
+              <strong id="acct-name">—</strong>
+              <span class="msg" id="acct-email" style="margin:0"></span>
+            </span>
+            <span class="badge ok" id="status">Signed in</span>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button class="primary" id="sync" type="button">Sync now</button>
+            <button class="ghost" id="signout" type="button">Sign out</button>
+          </div>
+        </div>
+
         <p class="msg" id="last"></p>
-        <div class="btn-row" style="margin-top:14px">
-          <button class="primary" id="sync" type="button">Sign in and sync</button>
-          <button class="ghost" id="signout" type="button" style="display:none">Sign out</button>
-        </div>
         <p class="msg" id="sync-msg"></p>
         <div id="summary" style="margin-top:12px"></div>
       </div>
@@ -133,56 +185,71 @@ $('origin').textContent = location.origin;
 
 let client = null;
 
+const ensureClient = () => {
+  const cfg = sync.config();
+  if (!client || client.clientId !== cfg.clientId) {
+    client = cfg.clientId ? new sync.DriveClient({ clientId: cfg.clientId }) : null;
+  }
+  return client;
+};
+
+$('scopes').replaceChildren(...sync.SCOPE_EXPLAINED.map((s) => el('li', {},
+  el('strong', {}, s.label), document.createTextNode(s.detail))));
+
+/** An avatar that still says who you are when the image will not load. */
+function paintAvatar(account) {
+  const av = $('avatar');
+  av.style.backgroundImage = '';
+  av.textContent = '';
+  const initials = (account?.name ?? account?.email ?? '?')
+    .split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  av.textContent = initials;
+  if (!account?.picture) return;
+  const img = new Image();
+  img.onload = () => { av.style.backgroundImage = `url("${account.picture}")`; av.textContent = ''; };
+  img.src = account.picture;
+}
+
 function paint() {
   const cfg = sync.config();
   $('client').value = cfg.clientId ?? '';
-  const ready = !!cfg.clientId;
-  $('status').textContent = !ready ? 'Not set up' : client?.token ? 'Signed in' : 'Ready';
-  $('status').className = `badge ${!ready ? '' : client?.token ? 'ok' : 'flag'}`;
-  $('sync').disabled = !ready;
-  $('signout').style.display = client?.token ? '' : 'none';
+  const account = client?.account ?? cfg.account ?? null;
+  const live = !!client?.token;
+
+  $('signed-in').style.display = account ? '' : 'none';
+  $('signed-out').style.display = account ? 'none' : '';
+  $('gsignin').disabled = !cfg.clientId;
+  $('no-client').style.display = cfg.clientId ? 'none' : '';
+
+  if (account) {
+    $('acct-name').textContent = account.name ?? 'Signed in';
+    $('acct-email').textContent = account.email ?? '';
+    paintAvatar(account);
+    // An expired token is the normal state on a return visit: access tokens
+    // last about an hour and are deliberately never persisted.
+    $('status').textContent = live ? 'Signed in' : 'Session expired';
+    $('status').className = `badge ${live ? 'ok' : 'flag'}`;
+    $('sync').textContent = live ? 'Sync now' : 'Reconnect and sync';
+  }
+
   $('last').textContent = cfg.lastSync
     ? `Last synced ${new Date(cfg.lastSync).toLocaleString()}. `
       + `${store.all().length} shots on this device.`
     : `Never synced. ${store.all().length} shots on this device.`;
 }
 
-$('save-client').addEventListener('click', () => {
-  const id = $('client').value.trim();
-  if (id && !/\.apps\.googleusercontent\.com$/.test(id)) {
-    $('client-msg').textContent = 'That does not look like a Google client ID — they end in '
-      + '.apps.googleusercontent.com.';
-    return;
-  }
-  sync.saveConfig({ clientId: id });
-  client = null;
-  $('client-msg').textContent = id ? 'Saved. Sign in below.' : 'Cleared.';
-  paint();
-});
-
-$('clear-client').addEventListener('click', () => {
-  sync.saveConfig({ clientId: '', lastSync: null });
-  client = null;
-  $('client').value = '';
-  $('client-msg').textContent = 'Cleared.';
-  paint();
-});
-
-$('signout').addEventListener('click', () => {
-  client?.signOut();
-  $('sync-msg').textContent = 'Signed out on this device. Your Drive copy is untouched.';
-  paint();
-});
-
-$('sync').addEventListener('click', async () => {
-  const cfg = sync.config();
-  $('sync-msg').textContent = 'Signing in…';
+async function signInAndSync() {
+  const c = ensureClient();
+  if (!c) { $('sync-msg').textContent = 'Set your OAuth client ID first.'; return; }
   $('summary').replaceChildren();
   try {
-    client = client ?? new sync.DriveClient({ clientId: cfg.clientId });
-    if (!client.token) await client.signIn();
+    if (!c.token) {
+      $('sync-msg').textContent = 'Waiting for Google…';
+      await c.signIn();
+    }
+    paint();
     $('sync-msg').textContent = 'Syncing…';
-    const r = await sync.syncNow(client);
+    const r = await sync.syncNow(c);
     if (!r.ok) { $('sync-msg').textContent = r.error; return; }
     $('sync-msg').textContent = r.firstTime
       ? 'First sync done — this device is now the copy in Drive. Sign in on the other one next.'
@@ -198,7 +265,45 @@ $('sync').addEventListener('click', async () => {
     $('sync-msg').textContent = err.message;
   }
   paint();
+}
+
+$('gsignin').addEventListener('click', signInAndSync);
+$('sync').addEventListener('click', signInAndSync);
+
+$('signout').addEventListener('click', async () => {
+  await client?.signOut();
+  client = null;
+  $('sync-msg').textContent = 'Signed out, and the token handed back to Google. Your Drive copy is '
+    + 'untouched — sign in again to pick it up.';
+  paint();
 });
+
+$('save-client').addEventListener('click', () => {
+  const id = $('client').value.trim();
+  if (id && !/\.apps\.googleusercontent\.com$/.test(id)) {
+    $('client-msg').textContent = 'That does not look like a Google client ID — they end in '
+      + '.apps.googleusercontent.com.';
+    return;
+  }
+  sync.saveConfig({ clientId: id });
+  client = null;
+  $('client-msg').textContent = id ? 'Saved. Sign in above.' : 'Cleared.';
+  paint();
+});
+
+$('clear-client').addEventListener('click', () => {
+  sync.saveConfig({ clientId: '', lastSync: null, account: null });
+  client = null;
+  $('client').value = '';
+  $('client-msg').textContent = 'Cleared.';
+  paint();
+});
+
+// Lets the suite drive the real flow with a fake Google.
+window.__syncTest = { use: (gis, fetchImpl) => {
+  client = new sync.DriveClient({ clientId: sync.config().clientId, gis, fetchImpl });
+  return client;
+} };
 
 store.subscribe(paint);
 paint();

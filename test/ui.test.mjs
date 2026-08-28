@@ -1169,6 +1169,111 @@ try {
   t('dashboard: restoring brings them all back',
     (await shown.count()) === notesBefore, `${notesAfter} → ${await shown.count()}`);
 
+
+  // ---- signing in to Google, driven end to end against a fake ----
+  // The real popup needs a Google account CI cannot have, so the transport is
+  // injectable: everything except Google's own window is exercised here.
+  await page.goto(B + '/sync.html');
+  await page.evaluate(() => localStorage.removeItem('brewkit.sync.v1'));
+  await page.reload();
+  await page.waitForSelector('#gsignin', { timeout: 5000 });
+
+  t('signin: the button is disabled until there is a client ID to authorise',
+    await page.locator('#gsignin').isDisabled()
+    && await page.locator('#no-client').isVisible(), 'blocked with a reason');
+  t('signin: every permission is named before you are asked for it',
+    (await page.locator('#scopes li').count()) === 3
+    && /private folder/i.test(await page.innerText('#scopes')),
+    (await page.innerText('#scopes')).replace(/\s+/g, ' ').slice(0, 80));
+  t('signin: it is Google\u2019s button, not one of ours',
+    (await page.locator('#gsignin svg path').count()) === 4
+    && /Sign in with Google/.test(await page.textContent('#gsignin')),
+    'four-colour G, official wording');
+
+  await page.fill('#client', '123-abc.apps.googleusercontent.com');
+  await page.click('#save-client');
+  await page.waitForTimeout(200);
+  t('signin: a valid client ID enables the button',
+    !(await page.locator('#gsignin').isDisabled()), 'enabled');
+
+  // Stand a fake Google in, then click the real button.
+  const flow = await page.evaluate(async () => {
+    const calls = { scopes: null, revoked: null, prompts: [] };
+    const gis = {
+      initTokenClient: (o) => {
+        calls.scopes = o.scope;
+        calls.prompts.push(o.prompt);
+        return { requestAccessToken: () => o.callback({ access_token: 'tok-abc' }) };
+      },
+      revoke: (t) => { calls.revoked = t; },
+    };
+    const fetchImpl = async (url) => {
+      if (String(url).includes('userinfo')) {
+        return { ok: true, json: async () => ({
+          name: 'Ada Lovelace', email: 'ada@example.com',
+          picture: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        }) };
+      }
+      if (String(url).includes('files?')) return { ok: true, json: async () => ({ files: [] }) };
+      return { ok: true, json: async () => ({}) };
+    };
+    window.__syncTest.use(gis, fetchImpl);
+    return calls;
+  });
+  await page.click('#gsignin');
+  await page.waitForFunction(
+    () => document.getElementById('signed-in').style.display !== 'none', { timeout: 5000 });
+
+  const scopes = await page.evaluate(async () => (await import('./assets/js/core/sync.js')).SCOPE);
+  t('signin: it asks for identity and the narrowest Drive scope, nothing more',
+    scopes === 'openid email profile https://www.googleapis.com/auth/drive.appdata', scopes);
+
+  t('signin: the account is shown once signed in',
+    (await page.textContent('#acct-name')) === 'Ada Lovelace'
+    && (await page.textContent('#acct-email')) === 'ada@example.com',
+    `${await page.textContent('#acct-name')} · ${await page.textContent('#acct-email')}`);
+  await page.waitForFunction(
+    () => /url\(/.test(document.getElementById('avatar').style.backgroundImage), { timeout: 4000 })
+    .catch(() => {});
+  t('signin: with their avatar',
+    /url\(/.test(await page.getAttribute('#avatar', 'style') ?? ''),
+    (await page.getAttribute('#avatar', 'style') ?? '').slice(0, 40));
+  t('signin: and it synced in the same action',
+    /Synced|First sync/.test(await page.textContent('#sync-msg')),
+    await page.textContent('#sync-msg'));
+
+  // A return visit: the account is remembered, the token deliberately is not.
+  await page.reload();
+  await page.waitForSelector('#signed-in', { timeout: 5000 });
+  const syncStored = await page.evaluate(() => localStorage.getItem('brewkit.sync.v1'));
+  t('signin: the account survives a reload so the page knows who you are',
+    (await page.textContent('#acct-name')) === 'Ada Lovelace',
+    await page.textContent('#acct-name'));
+  t('signin: the access token is never persisted',
+    !/tok-abc/.test(syncStored), 'no token in storage');
+  t('signin: an expired session says so rather than pretending',
+    /expired/i.test(await page.textContent('#status'))
+    && /Reconnect/.test(await page.textContent('#sync')),
+    `${await page.textContent('#status')} · ${await page.textContent('#sync')}`);
+
+  // Signing out hands the token back rather than just forgetting it.
+  const out = await page.evaluate(async () => {
+    let revoked = null;
+    const gis = { initTokenClient: (o) => ({ requestAccessToken: () => o.callback({ access_token: 'tok-xyz' }) }),
+                  revoke: (t) => { revoked = t; } };
+    const fetchImpl = async (url) => String(url).includes('userinfo')
+      ? { ok: true, json: async () => ({ name: 'Ada Lovelace', email: 'ada@example.com' }) }
+      : { ok: true, json: async () => ({ files: [] }) };
+    const c = window.__syncTest.use(gis, fetchImpl);
+    await c.signIn();
+    await c.signOut();
+    return { revoked, token: c.token,
+             stored: JSON.parse(localStorage.getItem('brewkit.sync.v1')).account };
+  });
+  t('signin: signing out revokes the token with Google',
+    out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
+    `revoked ${out.revoked}, account cleared`);
+
   // ---- syncing two devices ----
   // The merge is pure and gets tested hard; the Drive half needs a real Google
   // account, so it is kept thin and exercised here through a fake transport.

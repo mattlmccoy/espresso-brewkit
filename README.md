@@ -98,6 +98,19 @@ readable only by this app. There is no backend, nothing hosted, and no account
 here. The OAuth client id is public by design: a browser cannot keep a secret,
 so Google secures it with an origin allowlist instead.
 
+Signing in is Google's own flow: their account chooser, their consent screen,
+their button. The page names each permission **before** you click, because a
+consent screen is easier to approve honestly when you already know what it will
+say. It asks for `drive.appdata` and, only so the page can show which account
+you are syncing to, `openid email profile` — an account chooser that then tells
+you nothing about which account you chose is worse than no chooser at all. Your
+name and picture appear on the page afterwards and are never sent anywhere.
+
+The access token is deliberately **not persisted**: it lasts about an hour, so a
+return visit shows your account with "session expired" and a one-click
+reconnect, rather than pretending to be signed in. Signing out revokes the token
+with Google rather than merely forgetting it.
+
 It **merges rather than overwrites**. Every sync pulls, merges and pushes. Shots
 are unioned by id, so using both devices without syncing in between loses
 nothing; where the same shot was edited in both places the later edit wins.
@@ -404,7 +417,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-259 assertions across the site in both themes: the analysis results, the
+271 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
