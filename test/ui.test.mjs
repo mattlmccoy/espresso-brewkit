@@ -1111,6 +1111,97 @@ try {
   t('hands-free: reaching the brew step arms the scale with no click',
     armed === 'awaiting_vessel', armed);
 
+  // ---- three ways past a step, and the screen says which ----
+  // Lifting the vessel is the cleanest signal there is and also the most
+  // invisible: dose 18 g, watch the number sit there, and nothing tells you the
+  // app is waiting for you to pick the cup up. So holding still commits too,
+  // and so does a button — on a visible countdown, because an automatic capture
+  // you cannot see coming is the auto-tare mistake again.
+  const ways = await page.evaluate(async () => {
+    const { SessionMachine, STEP_HINT, STEP_CATCH } =
+      await import('./assets/js/core/session.js');
+    const run = (m, from, to, at, step = 0.2) => {
+      let first = null;
+      for (let t = from; t <= to + 1e-9; t = +(t + step).toFixed(2)) {
+        const g = typeof at === 'function' ? at(t) : at;
+        const r = m.step_(t, g, g, true);
+        if (r.committed && first === null) first = { t, committed: r.committed, to: r.advancedTo };
+      }
+      return first;
+    };
+
+    // Holding still, with nothing lifted.
+    const held = new SessionMachine();
+    held.step_(0, 0, 0, true);
+    const heldAt = run(held, 0.2, 9, 18.2);
+
+    // A pour that never rests must not be captured half-way.
+    const pouring = new SessionMachine();
+    pouring.step_(0, 0, 0, true);
+    const pourAt = run(pouring, 0.2, 12, (t) => +(t * 2).toFixed(2));
+
+    // The button.
+    const asked = new SessionMachine();
+    asked.step_(0, 0, 0, true);
+    run(asked, 0.2, 1.2, 18.2);
+    const candidate = asked.candidate;
+    const byHand = asked.commit();
+
+    // The lift: raw falls away and net leaves the plausible band on the same
+    // frame. The candidate has to survive that frame to be committed by it.
+    const lifted = new SessionMachine();
+    lifted.step_(0, 52, 0, true);
+    lifted.step_(0.2, 70.2, 18.2, true);
+    lifted.step_(1.0, 70.2, 18.2, true);
+    const onLift = lifted.step_(1.2, 0, -52, true);
+
+    // A drop with nothing behind it is a tare, and still means nothing.
+    const tared = new SessionMachine();
+    tared.step_(0, 52, 52, true);
+    const onTare = tared.step_(0.2, 0, 0, true);
+
+    const quiet = new SessionMachine();
+    quiet.step_(0, 0, 0, true);
+    const before = quiet.snapshot();
+    run(quiet, 0.2, 1.0, 18.2);
+    const after = quiet.snapshot();
+
+    return {
+      heldAt, heldDose: held.dose, heldStep: held.step,
+      pourAt, pourDose: pouring.dose, pourStep: pouring.step,
+      candidate, byHand, handDose: asked.dose, handStep: asked.step,
+      handWhy: asked.events.at(-1)?.text ?? '',
+      onLift, liftDose: lifted.dose,
+      onTare, tareStep: tared.step,
+      hintQuiet: before.hint, hintCatch: after.hint,
+      holdQuiet: before.holdLeft, holdCatch: after.holdLeft,
+      catchText: STEP_CATCH.dose, plainText: STEP_HINT.dose,
+    };
+  });
+  t('hands-free: a reading that just sits there is captured on its own',
+    ways.heldDose === 18.2 && ways.heldStep === 'grind' && Math.abs(ways.heldAt.t - 5.2) < 0.3,
+    `committed at ${ways.heldAt?.t} s`);
+  t('hands-free: but a pour that never rests is left alone',
+    ways.pourAt === null && ways.pourDose === null && ways.pourStep === 'dose',
+    `dose ${ways.pourDose} after 12 s of climbing`);
+  t('hands-free: and you can just say so',
+    ways.candidate === 18.2 && ways.byHand.committed === 'dose' && ways.handDose === 18.2
+    && ways.handStep === 'grind', `${ways.handDose} g by hand`);
+  t('hands-free: the log says which of the three it was',
+    /because you said so/.test(ways.handWhy), ways.handWhy);
+  t('hands-free: lifting the cup still commits, on the frame that reads zero',
+    ways.onLift.committed === 'dose' && ways.liftDose === 18.2,
+    `${ways.liftDose} g as it came off`);
+  t('hands-free: a tare with nothing behind it still means nothing',
+    ways.onTare.committed === null && ways.tareStep === 'dose', ways.tareStep);
+  t('hands-free: the hint changes to what it is waiting for',
+    ways.hintQuiet === ways.plainText && ways.hintCatch === ways.catchText,
+    ways.hintCatch);
+  t('hands-free: with a countdown, rather than a silent one',
+    ways.holdQuiet === null && Math.abs(ways.holdCatch - 4.2) < 0.3,
+    `${ways.holdCatch} s left`);
+
+
   await page.evaluate(() => { window.__mock.grams = 0; });
   await page.waitForTimeout(400);
   await page.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
@@ -1137,6 +1228,28 @@ try {
     rec.bag_id === kitIds.bag && rec.grinder_id === kitIds.grinder
     && rec.bean_name === 'Test Guji' && rec.rating === 8,
     `${rec.bean_name} @ ${rec.grind_setting}, ${rec.rating}/10`);
+
+  // And it has to be on screen, not only in the machine.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  await page.evaluate(() => { window.__sess.goto('dose'); window.__mock.grams = 19.4; });
+  await page.waitForFunction(() => window.__sess.candidate !== null, null, { timeout: 5000 });
+  await page.waitForTimeout(150);
+  const caught = await page.evaluate(() => ({
+    hidden: document.getElementById('catch').hidden,
+    value: document.getElementById('catch-v').textContent,
+    hint: document.getElementById('step-hint').textContent,
+    width: document.getElementById('catch-fill').style.width,
+  }));
+  t('hands-free: the pending capture is on screen with its countdown',
+    caught.hidden === false && /19\.4 g/.test(caught.value) && /lock it in/i.test(caught.hint)
+    && caught.width !== '', `${caught.value} · ${caught.width}`);
+  await page.click('#catch-go');
+  await page.waitForTimeout(150);
+  t('hands-free: and the button on it takes the reading',
+    /19\.4 g/.test(await page.textContent('#sv-dose'))
+    && (await page.evaluate(() => window.__sess.step)) === 'grind',
+    await page.textContent('#sv-dose'));
 
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');
