@@ -189,6 +189,17 @@
       <p class="msg" id="scale-msg" style="margin-top:8px"></p>
     </div>
 
+    <!-- What is running out. Worst first, so the thing about to bite is on top. -->
+    <div class="bx panel" id="supply-panel" style="margin-top:22px;display:none">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <div class="tag" style="margin:0">Supplies</div>
+        <span class="msg" id="supply-msg" style="margin:0"></span>
+        <a href="./kit.html" class="ghost"
+           style="margin-left:auto;padding:7px 12px;text-decoration:none;font:700 12px/1 var(--sans)">Manage</a>
+      </div>
+      <div class="supply" id="supply"></div>
+    </div>
+
     <!-- What the session has captured so far. Auto-filled, always editable. -->
     <div class="bx panel" style="margin-top:22px">
       <div class="steps" id="stepper">
@@ -308,6 +319,7 @@
 import { boot, fmt, el } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
+import * as supply from './assets/js/core/supply.js';
 import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
@@ -1193,6 +1205,7 @@ $('save').addEventListener('click', () => {
   });
   $('save-msg').textContent = `Saved ${saved.shot_id}`
     + (Number.isFinite(saved.ey_pct) ? ` — ${fmt(saved.ey_pct, 2)}% yield.` : '.');
+  paintSupply();
   showDiagnosis(saved);
 });
 
@@ -1217,9 +1230,29 @@ function showDiagnosis(shot) {
     el('button', { type: 'button', onclick: () => $('discard').click() }, 'Next shot')));
 }
 
-kit.subscribe(refreshAdvice);
+/** Beans left, and anything else on its way out. */
+function paintSupply() {
+  const rows = supply.supplyBoard(kit.bags(), store.all());
+  const panel = $('supply-panel');
+  panel.style.display = rows.length ? '' : 'none';
+  if (!rows.length) return;
+  $('supply').replaceChildren(...rows.slice(0, 6).map((r) => el('div', { class: 'bx' },
+    el('div', { class: 'nm' }, r.name),
+    el('div', { class: 'dt' }, r.detail),
+    el('div', { class: `bar${r.low ? ' low' : ''}`, style: 'margin-top:8px' },
+      el('span', { style: `width:${(r.pct * 100).toFixed(1)}%` })))));
+  const low = rows.filter((r) => r.low);
+  $('supply-msg').textContent = low.length
+    ? `${low.map((r) => r.name).join(', ')} ${low.length === 1 ? 'is' : 'are'} nearly out.`
+    : '';
+}
+
+kit.subscribe(() => { refreshAdvice(); paintSupply(); });
+supply.subscribe(paintSupply);
+store.subscribe(paintSupply);
 refreshAdvice();
 paintSession();
+paintSupply();
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so

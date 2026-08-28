@@ -1079,6 +1079,103 @@ try {
     navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html',
     navLinks.join(' '));
 
+
+  // ---- what is running out ----
+  // Shots alone never account for a bag: beans get purged through the grinder,
+  // spilled, or used for a pour-over. A log that only subtracts logged doses
+  // always says you have more left than you do, and the error only grows.
+  await page.goto(B + '/kit.html');
+  const ledger = await page.evaluate(async () => {
+    const supply = await import('./assets/js/core/supply.js');
+    localStorage.removeItem('brewkit.adjustments.v1');
+    localStorage.removeItem('brewkit.consumables.v1');
+    const bag = { id: 'bag-ledger', bean_name: 'Ledger', weight_g: 250 };
+    const shots = Array.from({ length: 6 }, (_, i) => ({
+      shot_id: 'l' + i, bag_id: 'bag-ledger', dose_g: 18.2,
+      timestamp: `2026-08-2${i + 1} 09:00:00`,
+    }));
+    const plain = supply.bagStatus(bag, shots);
+    supply.addAdjustment({ target_id: 'bag-ledger', amount: 35, reason: 'purge' });
+    supply.addAdjustment({ target_id: 'bag-ledger', amount: 12.5, reason: 'other-brew' });
+    const deducted = supply.bagStatus(bag, shots);
+    supply.addAdjustment({ target_id: 'bag-ledger', amount: -5, reason: 'correction' });
+    const corrected = supply.bagStatus(bag, shots);
+    supply.saveConsumable({ name: 'Filter', kind: 'shots', capacity: 8, installed_at: '2026-08-20' });
+    const filter = supply.consumableStatus(supply.consumables()[0], shots);
+    // Days and grams are the same machinery counting something else.
+    supply.saveConsumable({ name: 'Burrs', kind: 'grams', capacity: 200, installed_at: '2026-08-20' });
+    const burrs = supply.consumableStatus(supply.consumables()[1], shots);
+    const board = supply.supplyBoard([bag], shots).map((r) => `${r.name}:${r.pct.toFixed(2)}`);
+    localStorage.removeItem('brewkit.adjustments.v1');
+    localStorage.removeItem('brewkit.consumables.v1');
+    return { plain, deducted, corrected, filter, burrs, board };
+  });
+  t('supply: shots deduct from the bag on their own',
+    ledger.plain.remaining === 140.8 && ledger.plain.shotsLeft === 7,
+    `250 − 6×18.2 = ${ledger.plain.remaining} g, about ${ledger.plain.shotsLeft} shots`);
+  t('supply: manual deductions come off too',
+    ledger.deducted.remaining === 93.3 && ledger.deducted.manual === 47.5,
+    `${ledger.deducted.byShots} g pulled + ${ledger.deducted.manual} g logged = `
+      + `${ledger.deducted.used} g, ${ledger.deducted.remaining} g left`);
+  t('supply: a negative adjustment corrects upward',
+    ledger.corrected.remaining === 98.3, ledger.corrected.remaining + ' g');
+  // Shots left comes from your own recent doses, not a nominal 18 g — pull
+  // triples and a nominal figure is wrong by a third.
+  t('supply: shots remaining uses your own dose, not a nominal one',
+    Math.abs(ledger.plain.typical - 18.2) < 0.001, ledger.plain.typical + ' g typical');
+  t('supply: a consumable counting shots tracks the shot log',
+    ledger.filter.used === 6 && ledger.filter.remaining === 2, JSON.stringify(ledger.filter.remaining));
+  t('supply: the same machinery counts grams for burr life',
+    ledger.burrs.used === 109.2 && ledger.burrs.unit === 'g',
+    `${ledger.burrs.used} g of ${ledger.burrs.capacity}`);
+  t('supply: the board puts whatever runs out first at the top',
+    ledger.board[0].startsWith('Filter'), ledger.board.join(' '));
+
+  // ---- deducting through the UI ----
+  await page.goto(B + '/kit.html');
+  await page.waitForSelector('#bags .bx', { timeout: 5000 });
+  const beforeText = await page.innerText('#bags');
+  await page.fill('#bags input[type="number"]', '30');
+  await page.selectOption('#bags select', 'purge');
+  await page.click('#bags .row button');
+  await page.waitForFunction(
+    () => /Logged/.test(document.getElementById('b-msg').textContent), { timeout: 4000 });
+  const afterText = await page.innerText('#bags');
+  const gLeft = (txt) => Number((txt.match(/([\d.]+) g left/) ?? [])[1]);
+  t('supply: a manual deduction moves the remaining figure',
+    Math.abs(gLeft(beforeText) - gLeft(afterText) - 30) < 0.05,
+    `${gLeft(beforeText)} g → ${gLeft(afterText)} g`);
+  t('supply: the deduction is listed, and reversible',
+    /1 manual entry/i.test(afterText), afterText.match(/\d+ manual entr\w+/i)?.[0] ?? 'not listed');
+
+  // ---- consumables through the UI ----
+  await page.fill('#c-name', 'Test Filter');
+  await page.selectOption('#c-kind', 'shots');
+  await page.fill('#c-capacity', '3');
+  await page.fill('#c-installed', '2026-01-01');
+  await page.click('#c-save');
+  await page.waitForFunction(
+    () => /tracking/i.test(document.getElementById('c-msg').textContent), { timeout: 4000 });
+  const consText = await page.innerText('#consumables');
+  t('supply: anything else that runs out can be tracked the same way',
+    /Test Filter/.test(consText), consText.replace(/\s+/g, ' ').slice(0, 70));
+  t('supply: one past its rated life says so rather than going quiet',
+    /past its rated life|nearly done/i.test(consText),
+    consText.replace(/\s+/g, ' ').match(/(past its rated life|nearly done)[^.]*/i)?.[0] ?? 'no warning');
+
+  // ---- and it shows up where you are actually standing ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.waitForSelector('#supply .bx', { timeout: 5000 });
+  const supplyText = await page.innerText('#supply-panel');
+  t('supply: the dashboard shows what is left without being asked',
+    /Test Filter/.test(supplyText) && /Test Guji/.test(supplyText),
+    supplyText.replace(/\s+/g, ' ').slice(0, 90));
+  t('supply: and names what is nearly out',
+    /nearly out/i.test(await page.textContent('#supply-msg')),
+    await page.textContent('#supply-msg'));
+
   // ---- the advisor page renders what the models produce ----
   await page.evaluate((ids) => {
     const shots = JSON.parse(localStorage.getItem('brewkit.shots.v1'));

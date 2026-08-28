@@ -20,7 +20,7 @@ plain CSV you own.
 | **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session, driven by the scale. Weigh, grind, pull, rate — it steps itself. |
 | **[Shots](https://mattlmccoy.github.io/espresso-brewkit/shots.html)** | Every shot you have pulled, with its flow curve, its diagnosis, and how it sits against the rest. |
 | **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
-| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags and grinders as real objects, so a shot records what it was made with and how stale the coffee was. |
+| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders and consumables. What a shot was made with, how stale it was, and what is running out. |
 | **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
 
 Pulling a shot and analysing one are different activities on different schedules.
@@ -75,6 +75,29 @@ caused by automation you could not see.
   any of it. Only arming starts vessel detection. Your scale's own tare button
   works too: when the reading jumps to zero brewkit follows it rather than
   stacking its own offset on top and showing a large negative number.
+
+## What is running out
+
+Shots alone never account for a bag. Beans get purged through the grinder to
+clear the last coffee, spilled, used for a pour-over, or thrown out when a bag
+goes stale — so a log that only subtracts logged doses will always say you have
+more left than you do, and **the error only grows**.
+
+The balance is a ledger rather than a subtraction: shots deduct automatically,
+and anything else you write down against the bag with a reason (purge, spill,
+other brew method, gave some away, threw away, correction). A negative entry
+corrects upward, which is what reconciling against what the bag actually weighs
+looks like.
+
+Remaining is reported in shots as well as grams, estimated from **your own recent
+doses** rather than a nominal 18 g — pull triples and a nominal figure is wrong
+by a third, and a wrong number there is worse than no number.
+
+The same machinery covers everything else that depletes, because those differ
+only in what they count: a **water filter** by shots pulled, **burrs** by kilos
+ground, a **descale** by days elapsed. All of it appears on the Live dashboard
+worst-first, so the thing about to bite is the thing you see while you are
+standing at the machine.
 
 ## What you can watch while it pours
 
@@ -256,7 +279,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-191 assertions across the site in both themes: the analysis results, the
+204 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
