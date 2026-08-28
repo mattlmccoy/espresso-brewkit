@@ -43,6 +43,15 @@
   .capture-line { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .capture-line .val { font-family:var(--disp); font-size:34px; letter-spacing:-.03em; }
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
+  /* What the app is about to capture, and how long you have to disagree. An
+     automatic capture you cannot see coming is the auto-tare mistake again. */
+  .catch { display:flex; align-items:center; gap:10px; margin:2px 0 8px;
+    padding:7px 10px; border:2px solid var(--ink); background:var(--panel-2); }
+  .catch-v { font:700 17px/1 var(--mono); color:var(--ink); white-space:nowrap; }
+  .catch-bar { flex:1; height:6px; background:var(--hair); overflow:hidden; }
+  .catch-bar span { display:block; height:100%; width:0; background:var(--accent);
+    transition:width .12s linear; }
+  .catch button { padding:5px 11px; box-shadow:none; font-size:11.5px; }
 </style>
 </head>
 <body class="dash-page">
@@ -158,6 +167,11 @@
         </div>
         <div class="state-strip" id="state">Idle</div>
         <p class="hint" id="step-hint"></p>
+        <div class="catch" id="catch" hidden>
+          <span class="catch-v" id="catch-v">—</span>
+          <span class="catch-bar"><span id="catch-fill"></span></span>
+          <button class="primary" id="catch-go" type="button">Use it</button>
+        </div>
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
         <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
@@ -598,6 +612,9 @@ function onFrame({ uuid, bytes, at }) {
   const snap = brew.step(at, weight, flow);
   const moved = sess.step_(at, weight, snap.net, settled);
   render(snap);
+  // The countdown moves every frame; the rest of the session panel only moves
+  // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
+  paintCatch(sess.snapshot());
   if (moved.advancedTo || moved.committed) paintSession();
 }
 
@@ -1073,10 +1090,25 @@ const targetYield = () => {
   return Number.isFinite(d) && Number.isFinite(r) ? d * r : NaN;
 };
 
+/**
+ * What the app is about to capture, and how long you have to disagree with it.
+ * Redrawn every frame, because a countdown that only moves when the step does
+ * is not a countdown.
+ */
+function paintCatch(s) {
+  $('step-hint').textContent = s.hint;
+  const catching = s.candidate !== null && (s.step === 'dose' || s.step === 'grind');
+  $('catch').hidden = !catching;
+  if (!catching) return;
+  $('catch-v').textContent = `${s.candidate.toFixed(1)} g`;
+  const left = Number.isFinite(s.holdLeft) ? s.holdLeft : sess.o.holdFor;
+  $('catch-fill').style.width = `${((1 - left / sess.o.holdFor) * 100).toFixed(1)}%`;
+}
+
 /** Everything the session knows, redrawn from one place. */
 function paintSession() {
   const s = sess.snapshot();
-  $('step-hint').textContent = s.hint;
+  paintCatch(s);
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
   $('sv-dose').textContent = show(s.dose, s.auto.dose);
@@ -1126,6 +1158,7 @@ $('stepper').addEventListener('click', (e) => {
   paintSession();
 });
 
+$('catch-go').addEventListener('click', () => { sess.commit(); paintSession(); });
 $('d-manual').addEventListener('input', () => { sess.set('dose', num('d-manual')); paintSession(); });
 $('g-manual').addEventListener('input', () => { sess.set('grounds', num('g-manual')); paintSession(); });
 // Picking a machine fills in the settings that machine usually runs at, so they
@@ -1512,6 +1545,9 @@ if (mock && !manualMock) {
   const m = makeLink();
   // Exposed so the suite can drive real weights through the session machine.
   window.__mock = m;
+  // The session machine, so the hands-free flow can be driven end to end in a
+  // test without reaching through the DOM for state the DOM only paints.
+  window.__sess = sess;
   const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
   attach(m);
   m.connect()

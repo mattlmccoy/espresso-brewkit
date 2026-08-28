@@ -1111,6 +1111,97 @@ try {
   t('hands-free: reaching the brew step arms the scale with no click',
     armed === 'awaiting_vessel', armed);
 
+  // ---- three ways past a step, and the screen says which ----
+  // Lifting the vessel is the cleanest signal there is and also the most
+  // invisible: dose 18 g, watch the number sit there, and nothing tells you the
+  // app is waiting for you to pick the cup up. So holding still commits too,
+  // and so does a button — on a visible countdown, because an automatic capture
+  // you cannot see coming is the auto-tare mistake again.
+  const ways = await page.evaluate(async () => {
+    const { SessionMachine, STEP_HINT, STEP_CATCH } =
+      await import('./assets/js/core/session.js');
+    const run = (m, from, to, at, step = 0.2) => {
+      let first = null;
+      for (let t = from; t <= to + 1e-9; t = +(t + step).toFixed(2)) {
+        const g = typeof at === 'function' ? at(t) : at;
+        const r = m.step_(t, g, g, true);
+        if (r.committed && first === null) first = { t, committed: r.committed, to: r.advancedTo };
+      }
+      return first;
+    };
+
+    // Holding still, with nothing lifted.
+    const held = new SessionMachine();
+    held.step_(0, 0, 0, true);
+    const heldAt = run(held, 0.2, 9, 18.2);
+
+    // A pour that never rests must not be captured half-way.
+    const pouring = new SessionMachine();
+    pouring.step_(0, 0, 0, true);
+    const pourAt = run(pouring, 0.2, 12, (t) => +(t * 2).toFixed(2));
+
+    // The button.
+    const asked = new SessionMachine();
+    asked.step_(0, 0, 0, true);
+    run(asked, 0.2, 1.2, 18.2);
+    const candidate = asked.candidate;
+    const byHand = asked.commit();
+
+    // The lift: raw falls away and net leaves the plausible band on the same
+    // frame. The candidate has to survive that frame to be committed by it.
+    const lifted = new SessionMachine();
+    lifted.step_(0, 52, 0, true);
+    lifted.step_(0.2, 70.2, 18.2, true);
+    lifted.step_(1.0, 70.2, 18.2, true);
+    const onLift = lifted.step_(1.2, 0, -52, true);
+
+    // A drop with nothing behind it is a tare, and still means nothing.
+    const tared = new SessionMachine();
+    tared.step_(0, 52, 52, true);
+    const onTare = tared.step_(0.2, 0, 0, true);
+
+    const quiet = new SessionMachine();
+    quiet.step_(0, 0, 0, true);
+    const before = quiet.snapshot();
+    run(quiet, 0.2, 1.0, 18.2);
+    const after = quiet.snapshot();
+
+    return {
+      heldAt, heldDose: held.dose, heldStep: held.step,
+      pourAt, pourDose: pouring.dose, pourStep: pouring.step,
+      candidate, byHand, handDose: asked.dose, handStep: asked.step,
+      handWhy: asked.events.at(-1)?.text ?? '',
+      onLift, liftDose: lifted.dose,
+      onTare, tareStep: tared.step,
+      hintQuiet: before.hint, hintCatch: after.hint,
+      holdQuiet: before.holdLeft, holdCatch: after.holdLeft,
+      catchText: STEP_CATCH.dose, plainText: STEP_HINT.dose,
+    };
+  });
+  t('hands-free: a reading that just sits there is captured on its own',
+    ways.heldDose === 18.2 && ways.heldStep === 'grind' && Math.abs(ways.heldAt.t - 5.2) < 0.3,
+    `committed at ${ways.heldAt?.t} s`);
+  t('hands-free: but a pour that never rests is left alone',
+    ways.pourAt === null && ways.pourDose === null && ways.pourStep === 'dose',
+    `dose ${ways.pourDose} after 12 s of climbing`);
+  t('hands-free: and you can just say so',
+    ways.candidate === 18.2 && ways.byHand.committed === 'dose' && ways.handDose === 18.2
+    && ways.handStep === 'grind', `${ways.handDose} g by hand`);
+  t('hands-free: the log says which of the three it was',
+    /because you said so/.test(ways.handWhy), ways.handWhy);
+  t('hands-free: lifting the cup still commits, on the frame that reads zero',
+    ways.onLift.committed === 'dose' && ways.liftDose === 18.2,
+    `${ways.liftDose} g as it came off`);
+  t('hands-free: a tare with nothing behind it still means nothing',
+    ways.onTare.committed === null && ways.tareStep === 'dose', ways.tareStep);
+  t('hands-free: the hint changes to what it is waiting for',
+    ways.hintQuiet === ways.plainText && ways.hintCatch === ways.catchText,
+    ways.hintCatch);
+  t('hands-free: with a countdown, rather than a silent one',
+    ways.holdQuiet === null && Math.abs(ways.holdCatch - 4.2) < 0.3,
+    `${ways.holdCatch} s left`);
+
+
   await page.evaluate(() => { window.__mock.grams = 0; });
   await page.waitForTimeout(400);
   await page.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
@@ -1137,6 +1228,28 @@ try {
     rec.bag_id === kitIds.bag && rec.grinder_id === kitIds.grinder
     && rec.bean_name === 'Test Guji' && rec.rating === 8,
     `${rec.bean_name} @ ${rec.grind_setting}, ${rec.rating}/10`);
+
+  // And it has to be on screen, not only in the machine.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  await page.evaluate(() => { window.__sess.goto('dose'); window.__mock.grams = 19.4; });
+  await page.waitForFunction(() => window.__sess.candidate !== null, null, { timeout: 5000 });
+  await page.waitForTimeout(150);
+  const caught = await page.evaluate(() => ({
+    hidden: document.getElementById('catch').hidden,
+    value: document.getElementById('catch-v').textContent,
+    hint: document.getElementById('step-hint').textContent,
+    width: document.getElementById('catch-fill').style.width,
+  }));
+  t('hands-free: the pending capture is on screen with its countdown',
+    caught.hidden === false && /19\.4 g/.test(caught.value) && /lock it in/i.test(caught.hint)
+    && caught.width !== '', `${caught.value} · ${caught.width}`);
+  await page.click('#catch-go');
+  await page.waitForTimeout(150);
+  t('hands-free: and the button on it takes the reading',
+    /19\.4 g/.test(await page.textContent('#sv-dose'))
+    && (await page.evaluate(() => window.__sess.step)) === 'grind',
+    await page.textContent('#sv-dose'));
 
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');
@@ -1354,6 +1467,104 @@ try {
   t('signin: signing out revokes the token with Google',
     out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
     `revoked ${out.revoked}, account cleared`);
+
+  // ---- a client id nobody has to type ----
+  // Asking each visitor for an OAuth client id meant asking them to make a
+  // Google Cloud project before they could use a coffee log. The id ships with
+  // the deployment instead — it can, because it is public by construction and
+  // secured by an origin allowlist rather than by secrecy.
+  await page.goto(B + '/sync.html');
+  const shipped = await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    const meta = document.createElement('meta');
+    meta.name = 'brewkit-client-id';
+    meta.content = 'shipped-999.apps.googleusercontent.com';
+    document.head.appendChild(meta);
+    localStorage.removeItem('brewkit.sync.v1');
+
+    const bare = sync.config();
+    // An override wins, and is the only thing written down.
+    sync.saveConfig({ clientId: 'mine-1.apps.googleusercontent.com' });
+    const overridden = sync.config();
+    const storedWith = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
+    // Clearing it returns to the shipped id rather than breaking sign-in.
+    sync.saveConfig({ clientId: '' });
+    const cleared = sync.config();
+    // Saving something else must not disturb the override, or the lack of one.
+    sync.saveConfig({ lastSync: '2026-08-28T00:00:00Z' });
+    const untouched = sync.config();
+    // Pasting the shipped id by hand is not an override, so it is not stored.
+    sync.saveConfig({ clientId: 'shipped-999.apps.googleusercontent.com' });
+    const same = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
+    sync.saveConfig({ clientId: '', lastSync: null, account: null });
+    meta.remove();
+    return {
+      bare: [bare.clientId, bare.ownClientId, bare.shippedClientId].join('|'),
+      overridden: [overridden.clientId, overridden.ownClientId].join('|'),
+      storedWith: storedWith.clientId,
+      cleared: [cleared.clientId, cleared.ownClientId].join('|'),
+      untouched: untouched.clientId,
+      sameStored: same.clientId,
+      afterMeta: sync.config().shippedClientId,
+    };
+  });
+  t('client id: a shipped id is what sign-in uses when you have not set one',
+    shipped.bare === 'shipped-999.apps.googleusercontent.com||'
+      + 'shipped-999.apps.googleusercontent.com', shipped.bare);
+  t('client id: your own overrides it',
+    shipped.overridden === 'mine-1.apps.googleusercontent.com|mine-1.apps.googleusercontent.com',
+    shipped.overridden);
+  t('client id: and the override is the only part written to storage',
+    shipped.storedWith === 'mine-1.apps.googleusercontent.com', shipped.storedWith);
+  t('client id: clearing it falls back rather than breaking sign-in',
+    shipped.cleared === 'shipped-999.apps.googleusercontent.com|', shipped.cleared);
+  t('client id: saving anything else leaves it alone',
+    shipped.untouched === 'shipped-999.apps.googleusercontent.com', shipped.untouched);
+  t('client id: pasting the shipped id by hand is not stored as an override',
+    shipped.sameStored === '', `[${shipped.sameStored}]`);
+  t('client id: with no meta and none in config.js, there is nothing shipped',
+    shipped.afterMeta === '', `[${shipped.afterMeta}]`);
+
+  // The page has to change shape too: with an id, sign-in is one click and the
+  // console instructions stop being something you must do.
+  // Serve the page with the meta in it, the way a real deployment would,
+  // rather than injecting it after the module has already read it.
+  await page.route('**/sync.html', async (route) => {
+    const res = await route.fetch();
+    const body = (await res.text()).replace('<head>',
+      '<head>\n<meta name="brewkit-client-id" content="shipped-999.apps.googleusercontent.com">');
+    await route.fulfill({ response: res, body, headers: { 'content-type': 'text/html' } });
+  });
+  await page.goto(B + '/sync.html');
+  await page.waitForSelector('#gsignin', { timeout: 4000 });
+  const shippedUi = await page.evaluate(() => ({
+    disabled: document.getElementById('gsignin').disabled,
+    noClient: document.getElementById('no-client').style.display,
+    summary: document.getElementById('client-summary').textContent.replace(/\s+/g, ' ').trim(),
+    open: document.getElementById('own-project').open,
+    setup: document.getElementById('setup-tag').textContent,
+    box: document.getElementById('client').value,
+  }));
+  t('client id: shipped, the Google button is live with nothing typed in',
+    shippedUi.disabled === false && shippedUi.noClient === 'none', 'enabled');
+  t('client id: and the console steps become "deploying your own copy"',
+    shippedUi.setup === 'Deploying your own copy'
+    && shippedUi.summary === 'Use a different Google project',
+    `${shippedUi.setup} · ${shippedUi.summary}`);
+  t('client id: the panel is folded away and the box stays empty',
+    shippedUi.open === false && shippedUi.box === '',
+    `open=${shippedUi.open} box="${shippedUi.box}"`);
+
+  await page.unroute('**/sync.html');
+  await page.goto(B + '/sync.html');
+  const bareUi = await page.evaluate(() => ({
+    disabled: document.getElementById('gsignin').disabled,
+    setup: document.getElementById('setup-tag').textContent,
+    open: document.getElementById('own-project').open,
+  }));
+  t('client id: without one, the page still asks for yours and says so',
+    bareUi.disabled === true && bareUi.setup === 'Setting it up, once' && bareUi.open === true,
+    `${bareUi.setup}, panel open`);
 
   // ---- the account, on every page ----
   // The chip reads the stored profile, not a token — which is the whole reason

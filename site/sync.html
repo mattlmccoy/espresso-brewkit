@@ -119,26 +119,30 @@
       </div>
 
       <div class="bx panel" style="margin-top:22px">
-        <div class="tag">Your Google client ID</div>
-        <div class="field" style="margin-top:14px"><label for="client">OAuth client ID</label>
-          <input id="client" type="text" placeholder="…apps.googleusercontent.com"></div>
-        <div class="btn-row">
-          <button id="save-client" type="button">Save</button>
-          <button class="danger ghost" id="clear-client" type="button">Clear</button>
-        </div>
-        <p class="msg" id="client-msg"></p>
-        <p class="note" data-notice="sync-0" style="margin-top:14px">This is public by design. A browser cannot keep a
-        secret, so Google secures it with an origin allowlist instead: the id only works from the
-        exact web address you register. Pasting it here is safe; putting it in the repository would
-        be too.</p>
+        <details id="own-project">
+          <summary class="tag" style="cursor:pointer;display:inline-block" id="client-summary">Your
+          Google client ID</summary>
+          <p class="msg" id="client-lead" style="margin-top:12px"></p>
+          <div class="field" style="margin-top:10px"><label for="client">OAuth client ID</label>
+            <input id="client" type="text" placeholder="…apps.googleusercontent.com"></div>
+          <div class="btn-row">
+            <button id="save-client" type="button">Save</button>
+            <button class="danger ghost" id="clear-client" type="button">Clear</button>
+          </div>
+          <p class="msg" id="client-msg"></p>
+          <p class="note" data-notice="sync-0" style="margin-top:14px">The id is public by design. A
+          browser cannot keep a secret, so Google secures it with an origin allowlist instead: it
+          only works from the exact web address registered against it. That is why this copy of the
+          site can ship one, and why lifting it from the page buys nobody anything.</p>
+        </details>
       </div>
     </div>
 
     <div>
       <div class="bx panel">
-        <div class="tag">Setting it up, once</div>
-        <p class="msg" style="margin-top:10px">Ten minutes, and only you can do it — the credential
-        belongs to your Google account, not to this project.</p>
+        <div class="tag" id="setup-tag">Setting it up, once</div>
+        <p class="msg" id="setup-lead" style="margin-top:10px">Ten minutes, and only you can do it —
+        the credential belongs to your Google account, not to this project.</p>
         <ol class="steps-list">
           <li>Open <strong>console.cloud.google.com</strong> and make a new project. Call it
           anything.</li>
@@ -233,7 +237,10 @@ function paint() {
   // event does not fire in the tab that did the writing.
   paintAccount();
   const cfg = sync.config();
-  $('client').value = cfg.clientId ?? '';
+  // The box holds *your override*, not the id the site ships with. Showing the
+  // shipped one would invite people to "save" it and pin this device to it.
+  $('client').value = cfg.ownClientId ?? '';
+  paintClientPanel(cfg);
   const account = client?.account ?? cfg.account ?? null;
   const live = !!client?.token;
 
@@ -257,6 +264,33 @@ function paint() {
     ? `Last synced ${new Date(cfg.lastSync).toLocaleString()}. `
       + `${store.all().length} shots on this device.`
     : `Never synced. ${store.all().length} shots on this device.`;
+}
+
+/**
+ * Whether this copy of the site brings its own credential decides what the
+ * page is asking of you: nothing at all, or ten minutes in a Google console.
+ * Two quite different pages, so they say different things.
+ */
+function paintClientPanel(cfg) {
+  const shipped = !!cfg.shippedClientId;
+  const own = !!cfg.ownClientId;
+  $('own-project').open = !shipped || own;
+  $('client-summary').textContent = shipped
+    ? 'Use a different Google project' : 'Your Google client ID';
+  $('client-lead').textContent = shipped
+    ? (own
+      ? 'This device is signing in through your own project rather than the one the site ships '
+        + 'with. Clear it to go back to the default.'
+      : 'This site ships with a client id, so you do not need one. Paste your own only if you '
+        + 'would rather the data went through a project you control.')
+    : 'This copy of the site does not ship a client id, so sign-in needs one of yours. The steps '
+      + 'are on the right.';
+  $('setup-tag').textContent = shipped ? 'Deploying your own copy' : 'Setting it up, once';
+  $('setup-lead').textContent = shipped
+    ? 'Not needed to use this one — sign in above. This is what it takes to run brewkit at your '
+      + 'own address, where the credential has to be yours.'
+    : 'Ten minutes, and only you can do it — the credential belongs to your Google account, not '
+      + 'to this project.';
 }
 
 /**
@@ -330,7 +364,8 @@ $('save-client').addEventListener('click', () => {
   }
   sync.saveConfig({ clientId: id });
   client = null;
-  $('client-msg').textContent = id ? 'Saved. Sign in above.' : 'Cleared.';
+  $('client-msg').textContent = id ? 'Saved. Sign in above.'
+    : sync.config().clientId ? 'Cleared — back to the id this site ships with.' : 'Cleared.';
   paint();
 });
 
@@ -338,7 +373,8 @@ $('clear-client').addEventListener('click', () => {
   sync.saveConfig({ clientId: '', lastSync: null, account: null });
   client = null;
   $('client').value = '';
-  $('client-msg').textContent = 'Cleared.';
+  $('client-msg').textContent = sync.config().clientId
+    ? 'Cleared — back to the id this site ships with.' : 'Cleared.';
   paint();
 });
 
