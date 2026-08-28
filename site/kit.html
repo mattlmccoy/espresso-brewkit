@@ -56,6 +56,35 @@
       </div>
 
       <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Add a machine</div>
+        <div class="row">
+          <div class="field"><label for="m-name">Name</label>
+            <input id="m-name" type="text" placeholder="Lelit Bianca"></div>
+          <div class="field"><label for="m-kind">Type</label><select id="m-kind"></select></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="m-temp">Usual temp (°C)</label>
+            <input id="m-temp" type="number" step="0.5" placeholder="93"></div>
+          <div class="field"><label for="m-pressure">Usual pressure (bar)</label>
+            <input id="m-pressure" type="number" step="0.1" placeholder="9"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="m-preinf">Pre-infusion (s)</label>
+            <input id="m-preinf" type="number" step="0.5"></div>
+          <div class="field"><label for="m-basket">Usual basket</label>
+            <input id="m-basket" type="text" placeholder="18 g VST"></div>
+        </div>
+        <div class="btn-row">
+          <button class="primary" id="m-save" type="button">Save machine</button>
+          <button class="ghost" id="m-cancel" type="button" style="display:none">Cancel edit</button>
+        </div>
+        <p class="msg" id="m-msg"></p>
+        <p class="note" style="margin-top:14px">The usual settings become a shot's defaults, so
+        they stop being four fields you retype every time. Anything you set on the shot itself
+        still wins.</p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
         <div class="tag">Track something else</div>
         <p class="hint" style="margin-top:0;font:600 13px/1.5 var(--sans);color:var(--ink-dim)">
         A water filter, a set of burrs, a descale interval — anything that runs out. They differ
@@ -117,6 +146,14 @@
         </div>
         <div id="grinders"></div>
         <p class="empty" id="g-empty">No grinders yet.</p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <div class="tag" style="margin:0">Machines</div><span class="badge" id="m-count">0</span>
+        </div>
+        <div id="machines"></div>
+        <p class="empty" id="m-empty">No machines yet.</p>
       </div>
 
       <div class="bx panel" style="margin-top:22px">
@@ -327,6 +364,70 @@ function renderGrinders() {
   }
 }
 
+/* -------------------------------------------------------------- machines */
+let editingMachine = null;
+$('m-kind').replaceChildren(...kit.MACHINE_KINDS.map((k) => el('option', { value: k }, k)));
+
+$('m-save').addEventListener('click', () => {
+  const name = $('m-name').value.trim();
+  if (!name) { $('m-msg').textContent = 'Give the machine a name.'; return; }
+  const m = kit.saveMachine({
+    id: editingMachine, name, kind: $('m-kind').value,
+    default_temp_c: num('m-temp'), default_pressure_bar: num('m-pressure'),
+    default_preinfusion_s: num('m-preinf'), basket: $('m-basket').value.trim(),
+  });
+  $('m-msg').textContent = `${editingMachine ? 'Updated' : 'Added'} ${m.name}.`;
+  clearMachineForm();
+});
+$('m-cancel').addEventListener('click', clearMachineForm);
+
+function clearMachineForm() {
+  editingMachine = null;
+  for (const id of ['m-name', 'm-temp', 'm-pressure', 'm-preinf', 'm-basket']) $(id).value = '';
+  $('m-kind').selectedIndex = 0;
+  $('m-cancel').style.display = 'none';
+  $('m-save').textContent = 'Save machine';
+}
+
+function renderMachines() {
+  const shots = store.all();
+  const list = kit.machines();
+  const holder = $('machines');
+  holder.replaceChildren();
+  $('m-count').textContent = list.length;
+  $('m-empty').style.display = list.length ? 'none' : '';
+
+  for (const m of list) {
+    const used = shots.filter((s) => s.machine_id === m.id);
+    const defaults = [
+      Number.isFinite(Number(m.default_temp_c)) ? `${m.default_temp_c} °C` : null,
+      Number.isFinite(Number(m.default_pressure_bar)) ? `${m.default_pressure_bar} bar` : null,
+      Number.isFinite(Number(m.default_preinfusion_s)) ? `${m.default_preinfusion_s} s pre-infusion` : null,
+      m.basket || null,
+    ].filter(Boolean);
+    holder.appendChild(el('div', { class: 'bx', style: 'padding:15px 17px;margin-bottom:12px' },
+      el('div', { style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap' },
+        el('strong', { style: 'font-size:15px' }, m.name),
+        el('span', { class: 'badge', style: 'margin-left:auto' }, m.kind)),
+      el('p', { class: 'msg', style: 'margin-top:6px' },
+        [`${used.length} shot${used.length === 1 ? '' : 's'}`,
+         defaults.length ? defaults.join(' · ') : 'no default settings'].join(' · ')),
+      el('div', { class: 'btn-row', style: 'margin-top:10px' },
+        el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none', onclick: () => {
+          editingMachine = m.id;
+          $('m-name').value = m.name; $('m-kind').value = m.kind;
+          $('m-temp').value = m.default_temp_c ?? '';
+          $('m-pressure').value = m.default_pressure_bar ?? '';
+          $('m-preinf').value = m.default_preinfusion_s ?? '';
+          $('m-basket').value = m.basket ?? '';
+          $('m-cancel').style.display = ''; $('m-save').textContent = 'Update machine';
+          $('m-name').scrollIntoView({ block: 'center' });
+        } }, 'Edit'),
+        el('button', { class: 'danger ghost', type: 'button', style: 'padding:5px 10px;box-shadow:none',
+          onclick: () => { if (confirm(`Delete ${m.name}?`)) kit.removeMachine(m.id); } }, 'Delete'))));
+  }
+}
+
 /* ----------------------------------------------------------- consumables */
 let editingConsumable = null;
 
@@ -403,7 +504,7 @@ function renderConsumables() {
   }
 }
 
-function render() { renderBags(); renderGrinders(); renderConsumables(); }
+function render() { renderBags(); renderGrinders(); renderMachines(); renderConsumables(); }
 kit.subscribe(render);
 store.subscribe(render);
 supply.subscribe(render);

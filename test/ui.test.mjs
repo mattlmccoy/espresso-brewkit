@@ -1080,6 +1080,74 @@ try {
     navLinks.join(' '));
 
 
+
+  // ---- machines are entities, like grinders ----
+  await page.goto(B + '/kit.html');
+  await page.fill('#m-name', 'Test Bianca');
+  await page.selectOption('#m-kind', 'Dual boiler');
+  await page.fill('#m-temp', '93.5');
+  await page.fill('#m-pressure', '9');
+  await page.fill('#m-preinf', '6');
+  await page.fill('#m-basket', '18 g VST');
+  await page.click('#m-save');
+  await page.waitForFunction(() => /Added/.test(document.getElementById('m-msg').textContent),
+    { timeout: 4000 });
+  t('machine: saved and listed like a grinder',
+    (await page.locator('#machines .bx').count()) === 1
+    && /Test Bianca/.test(await page.innerText('#machines')),
+    (await page.innerText('#machines')).replace(/\s+/g, ' ').slice(0, 70));
+  const machineId = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('brewkit.machines.v1'))[0].id);
+  t('machine: gets a real id, not a null key', /^machine-\d+$/.test(machineId ?? ''), machineId);
+
+  // Its usual settings are a shot's defaults, so they stop being retyped.
+  const defaults = await page.evaluate(async (id) => {
+    const kit = await import('./assets/js/core/kit.js');
+    const plain = kit.attachKit({ machine_id: id });
+    const overridden = kit.attachKit({ machine_id: id, temp_c: 96, basket: '20 g' });
+    return {
+      temp: plain.temp_c, pressure: plain.pressure_bar, preinf: plain.preinfusion_s,
+      basket: plain.basket, name: plain.machine_name,
+      overTemp: overridden.temp_c, overBasket: overridden.basket,
+    };
+  }, machineId);
+  t('machine: its usual settings become the shot\u2019s defaults',
+    defaults.temp === 93.5 && defaults.pressure === 9 && defaults.preinf === 6
+    && defaults.basket === '18 g VST',
+    `${defaults.temp} °C, ${defaults.pressure} bar, ${defaults.preinf} s, ${defaults.basket}`);
+  t('machine: anything set on the shot itself still wins',
+    defaults.overTemp === 96 && defaults.overBasket === '20 g',
+    `${defaults.overTemp} °C, ${defaults.overBasket}`);
+  t('machine: the name is copied onto the row so the CSV stands alone',
+    defaults.name === 'Test Bianca', defaults.name);
+
+  // The grinder's name used to be written into grind_label, which is a
+  // different quantity entirely — it now has a field of its own.
+  const naming = await page.evaluate(async (gid) => {
+    const kit = await import('./assets/js/core/kit.js');
+    const r = kit.attachKit({ grinder_id: gid, grind_label: 'medium-fine' });
+    return { grinder_name: r.grinder_name, grind_label: r.grind_label };
+  }, kitIds.grinder);
+  t('machine: the grinder name no longer overwrites the grind label',
+    naming.grinder_name === 'Test DF64' && naming.grind_label === 'medium-fine',
+    `name "${naming.grinder_name}", label "${naming.grind_label}"`);
+
+  // On Live it is a picker, and choosing it fills the machine's settings.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  t('machine: Live offers it as a picker, not a text field',
+    (await page.evaluate(() => document.getElementById('p-machine').tagName)) === 'SELECT',
+    await page.evaluate(() => document.getElementById('p-machine').tagName));
+  await page.selectOption('#p-machine', machineId);
+  await page.waitForTimeout(200);
+  t('machine: picking one fills in the settings it usually runs at',
+    (await page.inputValue('#p-temp')) === '93.5'
+    && (await page.inputValue('#p-pressure')) === '9'
+    && (await page.inputValue('#p-basket')) === '18 g VST',
+    `${await page.inputValue('#p-temp')} °C / ${await page.inputValue('#p-pressure')} bar / `
+      + `${await page.inputValue('#p-basket')}`);
+
   // ---- what is running out ----
   // Shots alone never account for a bag: beans get purged through the grinder,
   // spilled, or used for a pour-over. A log that only subtracts logged doses

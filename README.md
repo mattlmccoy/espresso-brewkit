@@ -20,7 +20,7 @@ plain CSV you own.
 | **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session, driven by the scale. Weigh, grind, pull, rate — it steps itself. |
 | **[Shots](https://mattlmccoy.github.io/espresso-brewkit/shots.html)** | Every shot you have pulled, with its flow curve, its diagnosis, and how it sits against the rest. |
 | **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
-| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders and consumables. What a shot was made with, how stale it was, and what is running out. |
+| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders, machines and consumables. What a shot was made with, how stale it was, and what is running out. |
 | **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
 
 Pulling a shot and analysing one are different activities on different schedules.
@@ -75,6 +75,19 @@ caused by automation you could not see.
   any of it. Only arming starts vessel detection. Your scale's own tare button
   works too: when the reading jumps to zero brewkit follows it rather than
   stacking its own offset on top and showing a large negative number.
+
+## Kit is a set of real objects
+
+Bags, grinders and machines are entities, not free text typed onto each shot.
+The shot stores an id; the name is copied alongside it so the exported CSV still
+means something months later on a computer with no local storage.
+
+A machine carries the settings it usually runs at — temperature, pressure,
+pre-infusion, basket — and those become a shot's defaults, so they stop being
+four fields retyped every time. Anything set on the shot itself still wins.
+Machine *type* is recorded too, and is not decoration: a lever's pressure is
+whatever the spring or your arm is doing at that instant, which means something
+quite different from a pump machine's gauge reading.
 
 ## What is running out
 
@@ -279,7 +292,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-204 assertions across the site in both themes: the analysis results, the
+212 assertions across the site in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
