@@ -26,6 +26,10 @@ const page = await ctx.newPage();
 const errs = [];
 page.on('console', (m) => { if (m.type() === 'error') errs.push('CONSOLE: ' + m.text()); });
 page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
+// One persistent handler, not a `once` per click: a confirm() that legitimately
+// does not fire (nothing to delete) leaves a stray handler armed, and the next
+// dialog is then accepted twice.
+page.on('dialog', (d) => d.accept().catch(() => {}));
 
 try {
   // 1. Landing page + load sample data
@@ -370,7 +374,6 @@ try {
   const keptCaps = await page.locator('#caps-table tbody tr').count();
   t('settings: re-validating keeps existing captures', keptCaps >= 2, keptCaps + ' rows');
 
-  page.once('dialog', (d) => d.accept());
   await page.locator('#advanced').evaluate((d) => { d.open = true; });
   await page.click('#forget-device');
   await page.waitForTimeout(300);
@@ -438,7 +441,6 @@ try {
     () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
   await page.locator('#advanced').evaluate((d) => { d.open = true; });
   await page.click('#revalidate');
-  page.once('dialog', (d) => d.accept());
   await page.click('#clear-caps');
   await page.waitForTimeout(200);
   const csv = 'grams,uuid,frame_hex,device,captured_at\n'
@@ -515,6 +517,57 @@ try {
   t('captures: survive a reload', rowsAfter === rowsBefore, `${rowsBefore} -> ${rowsAfter}`);
 
 
+
+
+  // ---- a saved scale is one click, not a reminder that you own one ----
+  // Listing saved scales as text made the memory useless: you still had to walk
+  // the browser's chooser past every Bluetooth device in the room.
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => localStorage.removeItem('brewkit.devices.v1'));
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+
+  await page.goto(B + '/live.html?mock=lefu&manual=1');
+  await page.waitForSelector('#saved-devices [data-reopen]', { timeout: 5000 });
+  const reopenBtn = page.locator('#saved-devices [data-reopen]').first();
+  t('reconnect: the saved scale is a button, not a sentence',
+    /^connect to /i.test((await reopenBtn.innerText()).trim()) && await reopenBtn.isEnabled(),
+    (await reopenBtn.innerText()).trim());
+  t('reconnect: choosing a different scale becomes the secondary action',
+    (await page.getAttribute('#connect', 'class')) === 'ghost'
+    && /different/i.test(await page.textContent('#connect')),
+    await page.textContent('#connect'));
+  t('reconnect: the page states which reconnect path this browser can take',
+    await page.locator('#reopen-note').isVisible()
+    && /chooser/i.test(await page.textContent('#reopen-note')),
+    (await page.textContent('#reopen-note')).slice(0, 60));
+
+  await reopenBtn.click();
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  t('reconnect: clicking it connects and lands in the session',
+    /Reconnected/.test(await page.textContent('#conn-msg')), await page.textContent('#conn-msg'));
+  t('reconnect: the remembered decoder is used, with no setup step',
+    !(await page.locator('#step-setup').isVisible())
+    && /remembered/i.test(await page.textContent('#decoder-note')),
+    await page.textContent('#decoder-note'));
+  // Nothing is on this scale, so the weight is legitimately 0.0 — what proves
+  // the link is live is that decoded frames are arriving at all.
+  await page.waitForFunction(
+    () => document.querySelectorAll('#frames div').length > 3, { timeout: 10000 });
+  t('reconnect: frames stream after a one-click reconnect',
+    (await page.locator('#frames div').count()) > 3,
+    (await page.locator('#frames div').count()) + ' frames, readout ' + (await page.textContent('#o-w')) + ' g');
+
+  await page.goto(B + '/live.html?mock=lefu&manual=1');
+  await page.waitForSelector('#forget-all', { state: 'visible', timeout: 5000 });
+  await page.click('#forget-all');
+  await page.waitForTimeout(300);
+  t('reconnect: saved scales can be cleared from the connect screen',
+    (await page.locator('#saved-devices [data-reopen]').count()) === 0
+    && (await page.evaluate(() => localStorage.getItem('brewkit.devices.v1'))) === '{}',
+    await page.textContent('#conn-msg'));
 
   // ---- the weight readout has to be usable for weighing, not just for shots ----
   // A constant-velocity filter explains a step as an enormous velocity and

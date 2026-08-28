@@ -77,6 +77,7 @@
     <div class="btn-row">
       <button class="primary" id="connect" type="button">Choose a scale</button>
       <button class="ghost" id="no-scale" type="button">Continue without a scale</button>
+      <button class="ghost" id="forget-all" type="button" style="display:none">Forget saved scales</button>
       <span class="msg" id="conn-msg" style="margin:0"></span>
     </div>
     <details style="margin-top:16px">
@@ -98,6 +99,7 @@
       stops advertising while something else is connected to it — close nRF Connect, the vendor app,
       or another tab holding it. Many scales also sleep after a minute or two idle.</p>
     </details>
+    <p class="note" id="reopen-note" style="margin-top:14px;display:none"></p>
     <p class="note" style="margin-top:14px">Chrome, Edge and Opera only. Firefox and Safari have no
     Web Bluetooth, and on iOS no browser does. Without a scale the session still works — every
     weight becomes something you type instead of something that arrives.</p>
@@ -332,6 +334,20 @@ boot();
 const $ = (id) => document.getElementById(id);
 const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
 
+// Test seam. ?mock=lefu|generic substitutes a synthetic scale for the real
+// transport everywhere a link is opened, so the reconnect path is exercisable
+// without hardware; ?manual additionally leaves the connect screen up instead of
+// auto-connecting, which is the only way to click the saved-scale button.
+const params = new URLSearchParams(location.search);
+const mock = params.get('mock');
+const manualMock = params.has('manual');
+const makeLink = () => (mock
+  ? (mock === 'lefu' ? new LefuMockScale() : new MockScale())
+  : new ScaleLink());
+// A mock link stands in for the transport, so the controls that open one are
+// live even where the browser itself has no Web Bluetooth.
+const canLink = () => !!mock || isSupported();
+
 /* ---------------------------------------------------------------- storage */
 // A device profile is everything needed to pick up where you left off: the
 // name you chose, and the decoder that was verified against that scale.
@@ -413,7 +429,7 @@ function setPhase(phase) {
 
 const reason = unsupportedReason();
 if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
-$('connect').disabled = !isSupported();
+$('connect').disabled = !canLink();
 
 if (isSupported() && navigator.bluetooth.getAvailability) {
   navigator.bluetooth.getAvailability().then((ok) => {
@@ -425,16 +441,81 @@ if (isSupported() && navigator.bluetooth.getAvailability) {
   }).catch(() => {});
 }
 
-/** Web Bluetooth cannot reconnect without a user gesture, so this is a reminder, not a shortcut. */
+/**
+ * Saved scales, as buttons.
+ *
+ * Listing them as text was the wrong shape: the whole point of remembering a
+ * scale is that getting back to it should be one click, not a menu dive through
+ * every Bluetooth device in the room. Where the browser still holds the
+ * permission this connects with no chooser at all; where it does not, the
+ * chooser opens filtered to that one scale.
+ */
 function renderSaved() {
   const holder = $('saved-devices');
   holder.replaceChildren();
-  const list = Object.values(devices);
+  const list = Object.entries(devices);
   if (!list.length) return;
-  holder.appendChild(el('div', { class: 'tag' }, `${list.length} saved scale(s)`));
-  holder.appendChild(el('p', { class: 'msg', style: 'margin-top:8px' },
-    list.map((d) => d.name).join(' · ')
-    + ' — choose the scale below and it will be recognised automatically.'));
+  holder.appendChild(el('div', { class: 'tag' },
+    list.length === 1 ? 'Your scale' : `Your scales`));
+  holder.appendChild(el('div', { class: 'btn-row', style: 'margin-top:12px' },
+    ...list.map(([key, d]) => el('button', {
+      class: 'primary', type: 'button', 'data-reopen': key,
+      disabled: canLink() ? null : '',
+      onclick: () => reopenSaved(key),
+    }, `Connect to ${d.name}`))));
+
+  // Once there is a saved scale, picking a new one is the rarer thing to do.
+  $('connect').className = 'ghost';
+  $('connect').textContent = 'Choose a different scale';
+  $('forget-all').style.display = '';
+
+  // Say which of the two reconnect paths this browser can actually take, rather
+  // than promising one click and silently opening a chooser.
+  const note = $('reopen-note');
+  note.style.display = '';
+  note.textContent = navigator.bluetooth?.getDevices
+    ? 'Connecting to a saved scale uses a permission this browser already holds, so it happens '
+      + 'without the device chooser. Clearing this site\u2019s Bluetooth permission in browser '
+      + 'settings will make it ask once more.'
+    : 'This browser cannot reconnect without asking \u2014 it has no getDevices(). Clicking a saved '
+      + 'scale still opens the chooser, but filtered to that one device instead of everything nearby.';
+}
+
+/** Reconnect to a scale we have seen before, asking for as little as possible. */
+async function reopenSaved(key) {
+  const saved = devices[key];
+  if (!saved) return;
+  $('conn-msg').textContent = `Looking for ${saved.name}…`;
+  for (const b of $('saved-devices').querySelectorAll('button')) b.disabled = true;
+  try {
+    const l = makeLink();
+    attach(l);
+    const { name, id, viaPermission } = await l.reopen(key, { name: saved.bleName ?? saved.name });
+    await l.connect();
+    report(l.chars);
+    if (!l.chars.some((c) => c.notify)) {
+      $('conn-msg').textContent = `Connected to ${name}, but nothing notifies — see Discovery options.`;
+      return;
+    }
+    // Reconnecting through the permission store can hand back a different id
+    // than the one saved under; key the profile to what we actually got.
+    if (id && id !== key && !devices[id]) {
+      devices[id] = saved;
+      delete devices[key];
+      persistDevices();
+    }
+    await afterConnect(name, id ?? key);
+    $('conn-msg').textContent = viaPermission
+      ? `Reconnected to ${saved.name}.`
+      : `Reconnected to ${saved.name} after confirming it.`;
+  } catch (err) {
+    // A cancelled chooser is a decision, not a failure.
+    $('conn-msg').textContent = /cancel|user gesture|chooser/i.test(err.message)
+      ? `No scale selected.` : err.message;
+    link = null;
+  } finally {
+    renderSaved();
+  }
 }
 renderSaved();
 
@@ -601,7 +682,7 @@ async function afterConnect(name, id) {
 
 $('connect').addEventListener('click', async () => {
   try {
-    const l = new ScaleLink();
+    const l = makeLink();
     attach(l);
     const raw = $('extra-uuid').value.trim().toLowerCase();
     const extra = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(raw) ? [raw] : [];
@@ -637,6 +718,19 @@ $('no-scale').addEventListener('click', () => {
 });
 
 $('disconnect').addEventListener('click', () => link?.disconnect());
+
+$('forget-all').addEventListener('click', () => {
+  const n = Object.keys(devices).length;
+  if (!window.confirm(`Forget ${n} saved scale(s)? Their names and decoders are deleted.`)) return;
+  devices = {};
+  persistDevices();
+  $('connect').className = 'primary';
+  $('connect').textContent = 'Choose a scale';
+  $('forget-all').style.display = 'none';
+  $('reopen-note').style.display = 'none';
+  renderSaved();
+  $('conn-msg').textContent = 'Saved scales forgotten.';
+});
 
 /* ------------------------------------------------------------------ naming */
 $('save-device').addEventListener('click', () => {
@@ -1128,10 +1222,9 @@ kit.subscribe(() => { if (step === 'prep') refreshPrep(); });
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so
-// the pipeline stays testable without hardware: ?mock=lefu or ?mock=generic.
-const mock = new URLSearchParams(location.search).get('mock');
-if (mock) {
-  const m = mock === 'lefu' ? new LefuMockScale() : new MockScale();
+// the pipeline stays testable without hardware.
+if (mock && !manualMock) {
+  const m = makeLink();
   const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
   attach(m);
   m.connect()

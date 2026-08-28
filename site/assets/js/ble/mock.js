@@ -25,6 +25,7 @@ export class MockScale extends EventTarget {
   }
 
   async choose() { return { name: 'Mock Scale', id: 'mock' }; }
+  async reopen(id, { name = 'Mock Scale' } = {}) { return { name, id: id ?? 'mock', viaPermission: true }; }
   async connect() { this.emit('connected', { name: 'Mock Scale', services: 1, characteristics: 1 }); return this.chars; }
 
   async subscribeAll() {

@@ -125,6 +125,15 @@ genuinely changed — believe the scale, zero the flow, carry on. That settles i
 sample with no overshoot, and it frees the process noise to be tuned for flow
 smoothness alone rather than for chasing steps.
 
+**A saved scale is one click.** `requestDevice()` always shows the browser's
+chooser — that *is* the permission prompt, so there is no way around it the first
+time. But `navigator.bluetooth.getDevices()` returns devices the origin already
+holds a persisted permission for, and connecting to one of those needs no chooser
+at all. Saved scales are buttons: click yours and it connects. Where the browser
+has no `getDevices()`, clicking still opens the chooser — filtered to that one
+device rather than everything in the room — and the page says which of the two is
+about to happen instead of promising one click and delivering the other.
+
 **Browser support is the real constraint.** Chrome, Edge and Opera have Web
 Bluetooth; Firefox and Safari do not, and on iOS no browser does. It also needs a
 secure context, which GitHub Pages provides but a plain-http LAN address does not.
@@ -169,7 +178,7 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-162 assertions across all eight tools in both themes: the analysis results, the
+169 assertions across all eight tools in both themes: the analysis results, the
 legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
 WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
 and the absence of rhetorical-question headings.
