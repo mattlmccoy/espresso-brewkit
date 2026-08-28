@@ -6,33 +6,31 @@
 <title>Shot log · espresso·brewkit</title>
 <meta name="description" content="Record espresso shots and export them as a single CSV.">
 <link rel="stylesheet" href="./assets/css/app.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
 </head>
 <body>
-<header class="site-head">
-  <div class="wrap">
-    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
     <nav class="nav">
       <a href="./calculator.html">Calculator</a>
-      <a href="./logger.html">Log</a>
+      <a href="./logger.html" aria-current="page">Log</a>
       <a href="./explore.html">Explore</a>
       <a href="./quality.html">Quality</a>
       <a href="./uncertainty.html">Uncertainty</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
-  </div>
-</header>
+  </header>
 
-<div class="wrap">
   <div class="page-head">
     <h1>Shot log</h1>
-    <p class="lede">One table, one CSV. Stored in this browser only.</p>
+    <p class="desc">One table, one CSV. Stored in this browser only.</p>
   </div>
 
   <div class="split">
     <div>
-      <div class="card">
-        <h3>Log a shot</h3>
+      <div class="bx panel">
+        <div class="tag">New shot</div>
         <div class="row">
           <div class="field"><label for="dose">Dose in (g)</label><input id="dose" type="number" step="0.1" value="18"></div>
           <div class="field"><label for="yield">Yield out (g)</label><input id="yield" type="number" step="0.1" value="36"></div>
@@ -49,16 +47,16 @@
           <div class="field"><label for="temp_c">Water temp (°C)</label><input id="temp_c" type="number" step="0.5" value="93"></div>
           <div class="field"><label for="pressure_bar">Pressure (bar)</label><input id="pressure_bar" type="number" step="0.1" value="9"></div>
         </div>
-        <div class="field"><label for="notes">Notes</label><input id="notes" type="text" placeholder="tasting note, prep change…"></div>
+        <div class="field"><label for="notes">Notes</label><input id="notes" type="text" placeholder="tasting note, prep change"></div>
         <div class="btn-row">
           <button class="primary" id="add" type="button">Add shot</button>
-          <button class="ghost" id="reset" type="button">Reset form</button>
+          <button class="ghost" id="reset" type="button">Reset</button>
         </div>
-        <p id="add-msg" style="margin:10px 0 0;font-size:.88rem;color:var(--text-dim)"></p>
+        <p class="msg" id="add-msg"></p>
       </div>
 
-      <div class="card" style="margin-top:18px">
-        <h3>Data</h3>
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Data</div>
         <div class="btn-row">
           <button id="export" type="button">Export CSV</button>
           <button id="import-btn" type="button">Import CSV</button>
@@ -66,40 +64,36 @@
           <button class="danger ghost" id="clear" type="button">Clear all</button>
         </div>
         <input id="import" type="file" accept=".csv,text/csv" class="sr">
-        <p id="data-msg" style="margin:10px 0 0;font-size:.88rem;color:var(--text-dim)"></p>
-        <p class="note" style="margin-top:12px;font-size:.83rem">
-          Import accepts this project's CSV and the legacy one-file-per-shot format from the
-          Python version. Legacy rows are converted on the way in: TDS is rescaled from a
-          fraction to a percentage, grind labels map to their nominal micron value, and the
-          old "<em>Used</em>" booleans collapse into an <code>assumed fields</code> column.
-        </p>
+        <p class="msg" id="data-msg"></p>
+        <p class="note" style="margin-top:14px">Import accepts this project's CSV and the legacy
+        one-file-per-shot format. Legacy rows are converted on the way in: TDS is rescaled from a
+        fraction to a percentage, grind labels map to their nominal micron value, and the old
+        <code>Used</code> booleans collapse into an <code>assumed fields</code> column.</p>
       </div>
     </div>
 
-    <div class="card">
-      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:12px">
-        <h3 style="margin:0">Shots</h3>
+    <div class="bx panel">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+        <div class="tag" style="margin:0">Shots</div>
         <span class="badge" id="count">0</span>
       </div>
       <div class="table-scroll"><table id="tbl">
         <thead><tr>
-          <th>ID</th><th>When</th><th class="n">Dose</th><th class="n">Yield</th>
-          <th class="n">Ratio</th><th class="n">Grind</th><th class="n">Temp</th>
-          <th class="n">Time</th><th class="n">TDS %</th><th class="n">EY %</th>
-          <th class="n">Flow</th><th>Notes</th><th></th>
+          <th>ID</th><th>When</th><th>Dose</th><th>Yield</th><th>Ratio</th><th>Grind</th>
+          <th>Temp</th><th>Time</th><th>TDS %</th><th>EY %</th><th>Flow</th><th>Notes</th><th></th>
         </tr></thead>
         <tbody></tbody>
       </table></div>
       <p class="empty" id="empty">No shots yet. Add one, or load the samples.</p>
     </div>
   </div>
-</div>
-<footer class="site-foot"><div class="wrap">
-  espresso·brewkit — measurement tools for espresso.
-  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
-  Everything runs in your browser; no data leaves this device.
-</div></footer>
 
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
 <script type="module">
 import { boot, fmt, el } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";

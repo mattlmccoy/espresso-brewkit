@@ -46,17 +46,22 @@ function pad(min, max, frac = 0.06) {
   return [min - p, max + p];
 }
 
-function frame(container, { width = 720, height = 440, m = { t: 16, r: 18, b: 52, l: 64 } } = {}) {
+/**
+ * @param cap  true  — never scale past the natural width. Necessary for charts
+ *                     whose aspect ratio is tall or square (a box plot, the 3D
+ *                     view): stretched to a wide panel they grow taller than
+ *                     the viewport.
+ *             false — fill the container. Right for wide charts, which
+ *                     otherwise leave dead space in a full-width panel.
+ */
+function frame(container, { width = 720, height = 440, m = { t: 16, r: 18, b: 52, l: 64 }, cap = true } = {}) {
   container.replaceChildren();
   const svg = el('svg', {
     viewBox: `0 0 ${width} ${height}`,
     class: 'chart',
     preserveAspectRatio: 'xMidYMid meet',
     role: 'img',
-    // Scale down to fit a narrow container, but never up past the natural size:
-    // a square 3D plot in a wide card would otherwise grow taller than the
-    // viewport and become unusable.
-    style: `max-width:${width}px`,
+    style: cap ? `max-width:${width}px` : null,
   }, container);
   return { svg, width, height, m, iw: width - m.l - m.r, ih: height - m.t - m.b };
 }
@@ -105,7 +110,7 @@ export function scatter(container, { points, fit, xLabel, yLabel, flagged = new 
   const xd = pad(Math.min(...xs), Math.max(...xs));
   const yd = pad(Math.min(...ys), Math.max(...ys));
 
-  const f = frame(container);
+  const f = frame(container, { cap: false });
   const { sx, sy } = axes(f, xd, yd, xLabel, yLabel);
 
   if (fit?.ok) {
@@ -152,7 +157,7 @@ export function residuals(container, { fit, points, xLabel = 'Fitted value' }) {
   const xd = pad(Math.min(...xs), Math.max(...xs));
   const yd = [-yMax * 1.2, yMax * 1.2];
 
-  const f = frame(container, { height: 260 });
+  const f = frame(container, { height: 260, cap: false });
   const { sx, sy } = axes(f, xd, yd, xLabel, 'Residual');
   el('line', { x1: f.m.l, y1: sy(0), x2: f.m.l + f.iw, y2: sy(0), class: 'zero' }, f.svg);
   const g = el('g', {}, f.svg);

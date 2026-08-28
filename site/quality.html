@@ -6,87 +6,78 @@
 <title>Quality · espresso·brewkit</title>
 <meta name="description" content="Outlier detection and repeatability statistics for your shot log.">
 <link rel="stylesheet" href="./assets/css/app.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
 </head>
 <body>
-<header class="site-head">
-  <div class="wrap">
-    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
     <nav class="nav">
       <a href="./calculator.html">Calculator</a>
       <a href="./logger.html">Log</a>
       <a href="./explore.html">Explore</a>
-      <a href="./quality.html">Quality</a>
+      <a href="./quality.html" aria-current="page">Quality</a>
       <a href="./uncertainty.html">Uncertainty</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
-  </div>
-</header>
+  </header>
 
-<div class="wrap">
   <div class="page-head">
     <h1>Quality</h1>
-    <p class="lede">Whether your shots are repeatable enough to draw conclusions from —
-    and which ones are not like the others.</p>
+    <p class="desc">Repeatability statistics and outlier detection.</p>
   </div>
 
-  <div class="card" style="margin-bottom:18px">
-    <div class="field" style="margin:0;max-width:320px">
-      <label for="field">Variable</label><select id="field"></select>
-    </div>
+  <div class="bx panel" style="padding:15px;max-width:360px">
+    <label for="field">Variable</label><select id="field"></select>
   </div>
 
-  <div id="nodata" class="card empty" style="display:none">
+  <div id="nodata" class="bx panel empty" style="display:none;margin-top:22px">
     Need at least 4 shots with a value for this variable.
     <a href="./logger.html">Add some</a> or load the sample data.
   </div>
 
   <div id="content">
-    <div id="verdict" class="note" style="margin-bottom:18px"></div>
+    <p class="note" id="verdict" style="margin-top:22px"></p>
 
-    <div class="grid g3" style="margin-bottom:18px">
-      <div class="stat"><div class="k">n</div><div class="v" id="s-n">—</div></div>
-      <div class="stat"><div class="k">Mean</div><div class="v" id="s-mean">—</div></div>
-      <div class="stat"><div class="k">Std. deviation</div><div class="v" id="s-sd">—</div></div>
-      <div class="stat"><div class="k">Coeff. of variation</div><div class="v"><span id="s-cv">—</span><span class="u">%</span></div></div>
-      <div class="stat"><div class="k">Median</div><div class="v" id="s-med">—</div></div>
-      <div class="stat"><div class="k">IQR</div><div class="v" id="s-iqr">—</div></div>
-      <div class="stat"><div class="k">Range</div><div class="v" id="s-range">—</div></div>
-      <div class="stat"><div class="k">Robust σ (MAD)</div><div class="v" id="s-mad">—</div></div>
+    <div class="grid g3" style="margin-top:22px">
+      <div class="st bx hero"><div class="k">n</div><div class="v" id="s-n">—</div></div>
+      <div class="st bx"><div class="k">Mean</div><div class="v" id="s-mean">—</div></div>
+      <div class="st bx"><div class="k">Std. deviation</div><div class="v" id="s-sd">—</div></div>
+      <div class="st bx"><div class="k">Coeff. of variation</div><div class="v"><span id="s-cv">—</span><span class="u">%</span></div></div>
+      <div class="st bx"><div class="k">Median</div><div class="v" id="s-med">—</div></div>
+      <div class="st bx"><div class="k">IQR</div><div class="v" id="s-iqr">—</div></div>
+      <div class="st bx"><div class="k">Range</div><div class="v" id="s-range" style="font-size:26px">—</div></div>
+      <div class="st bx"><div class="k">Robust σ (MAD)</div><div class="v" id="s-mad">—</div></div>
     </div>
 
-    <div class="split">
-      <div class="card">
-        <h3>Distribution</h3>
+    <div class="split" style="margin-top:22px">
+      <div class="bx panel">
+        <div class="tag">Distribution</div>
         <div class="chart-wrap"><div id="box"></div></div>
       </div>
-      <div class="card">
-        <h3>Per-shot scores</h3>
-        <p style="font-size:.88rem;color:var(--text-dim)">
+      <div class="bx panel">
+        <div class="tag">Per-shot scores</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
           Three methods, because they fail differently. The plain <strong>z-score</strong> is computed
-          from a mean and standard deviation that the outlier itself inflates — with a small
-          sample, one extreme point can push the threshold out past itself and escape detection.
-          The <strong>modified z-score</strong> uses the median and MAD, which an outlier cannot
-          drag. Where they disagree, believe the modified score.
-        </p>
+          from a mean and standard deviation that the outlier itself inflates — with a small sample,
+          one extreme point can push the threshold out past itself and escape detection. The
+          <strong>modified z-score</strong> uses the median and MAD, which an outlier cannot drag.
+          Where they disagree, believe the modified score.</p>
         <div class="table-scroll"><table>
-          <thead><tr>
-            <th>Shot</th><th class="n">Value</th><th class="n">z</th><th class="n">mod z</th>
-            <th>IQR</th><th>z&gt;2.5</th><th>mod z&gt;3.5</th>
-          </tr></thead>
+          <thead><tr><th>Shot</th><th>Value</th><th>z</th><th>mod z</th><th>IQR</th><th>z&gt;2.5</th><th>mod z&gt;3.5</th></tr></thead>
           <tbody id="rows"></tbody>
         </table></div>
-        <p id="fences" style="font-size:.85rem;color:var(--text-mute);margin-top:10px"></p>
+        <p class="msg" id="fences"></p>
       </div>
     </div>
   </div>
-</div>
-<footer class="site-foot"><div class="wrap">
-  espresso·brewkit — measurement tools for espresso.
-  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
-  Everything runs in your browser; no data leaves this device.
-</div></footer>
 
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
 <script type="module">
 import { boot, fmt, el } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";

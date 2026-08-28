@@ -63,9 +63,25 @@ python3 -m http.server -d site 8000
 
 Charts are hand-rolled SVG rather than a charting library. Three reasons: the chart
 types here are few and specific, colours come from CSS custom properties so
-everything follows the light/dark theme for free, and the 3D view needs a fitted
-regression plane rather than a generic surface. It also keeps the page under
-50 kB total instead of pulling ~3 MB of Plotly for four charts.
+everything follows the light/dark theme and the design language for free, and the
+3D view needs a fitted regression plane rather than a generic surface. Markup, CSS
+and JS come to roughly 55 kB across the whole site, against ~3 MB for Plotly.
+
+Fonts (Archivo, Archivo Black, Space Mono) are self-hosted from `site/assets/fonts/`
+— latin subsets only, ~160 kB, cached after the first page. Self-hosted rather than
+linked from Google Fonts so there is no third-party request, no render-blocking
+dependency on a host outside the project, and the pages render identically offline.
+
+### Design language
+
+Hard edges and offset shadows, no border radius anywhere, Archivo Black for display
+type, Space Mono for every number. One accent for chrome and data points, one for the
+fitted line, one for anything flagged — so no colour has to mean two things at once.
+Both themes are defined in `site/assets/css/app.css` as custom properties; the chart
+module reads those properties and knows nothing about the palette, which is why
+restyling the site does not touch the maths.
+
+Page headings state the tool's name. No rhetorical questions, no taglines.
 
 ### `design/`
 

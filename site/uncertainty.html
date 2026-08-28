@@ -6,111 +6,94 @@
 <title>Uncertainty · espresso·brewkit</title>
 <meta name="description" content="GUM uncertainty propagation through the extraction yield equation, with a variance budget.">
 <link rel="stylesheet" href="./assets/css/app.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
 </head>
 <body>
-<header class="site-head">
-  <div class="wrap">
-    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
     <nav class="nav">
       <a href="./calculator.html">Calculator</a>
       <a href="./logger.html">Log</a>
       <a href="./explore.html">Explore</a>
       <a href="./quality.html">Quality</a>
-      <a href="./uncertainty.html">Uncertainty</a>
+      <a href="./uncertainty.html" aria-current="page">Uncertainty</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
-  </div>
-</header>
+  </header>
 
-<div class="wrap">
   <div class="page-head">
     <h1>Uncertainty</h1>
-    <p class="lede">How much of your extraction yield figure is real, and which measurement
-    is responsible for the rest.</p>
+    <p class="desc">GUM propagation through the extraction yield equation.</p>
   </div>
 
   <div class="split">
     <div>
-      <div class="card">
-        <h3>Measurement uncertainties</h3>
-        <p style="font-size:.87rem;color:var(--text-dim)">Standard uncertainties (k=1), in the
-        units of each input.</p>
-        <div class="field"><label for="uMass">Mass, u(m) — g</label>
-          <input id="uMass" type="number" step="0.001" value="0.01"></div>
-        <div class="field"><label for="uBrix">Brix, u(B) — °Bx</label>
-          <input id="uBrix" type="number" step="0.01" value="0.5"></div>
-        <div class="field"><label for="uFactor">Brix→TDS factor, u(k)</label>
-          <input id="uFactor" type="number" step="0.005" value="0.02"></div>
-        <div class="field"><label for="factor">Factor value, k</label>
-          <input id="factor" type="number" step="0.01" value="0.85"></div>
-        <p class="note warn" style="font-size:.84rem">
-          <strong>Set u(k) to 0</strong> to reproduce the original Python results, which treated
-          the Brix→TDS factor as exact. It is not exact, and leaving it out understates the
-          reported uncertainty — often substantially.
-        </p>
+      <div class="bx panel">
+        <div class="tag">Input uncertainties</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+        Standard uncertainties (k=1), in the units of each input.</p>
+        <div class="field"><label for="uMass">Mass, u(m) — g</label><input id="uMass" type="number" step="0.001" value="0.01"></div>
+        <div class="field"><label for="uBrix">Brix, u(B) — °Bx</label><input id="uBrix" type="number" step="0.01" value="0.5"></div>
+        <div class="field"><label for="uFactor">Brix→TDS factor, u(k)</label><input id="uFactor" type="number" step="0.005" value="0.02"></div>
+        <div class="field"><label for="factor">Factor value, k</label><input id="factor" type="number" step="0.01" value="0.85"></div>
+        <p class="note warn"><strong>Set u(k) to 0</strong> to reproduce the original Python results,
+        which treated the Brix→TDS factor as exact. It is not exact, and leaving it out understates
+        the reported uncertainty.</p>
       </div>
 
-      <div class="card" style="margin-top:18px">
-        <h3>Shot</h3>
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Shot</div>
         <div class="field"><label for="pick">From the log</label><select id="pick"></select></div>
         <div class="row">
           <div class="field"><label for="dose">Dose (g)</label><input id="dose" type="number" step="0.01" value="18"></div>
           <div class="field"><label for="yield">Yield (g)</label><input id="yield" type="number" step="0.01" value="36"></div>
         </div>
-        <div class="field"><label for="brix">Brix (°Bx)</label><input id="brix" type="number" step="0.01" value="10.7"></div>
+        <div class="field" style="margin-bottom:0"><label for="brix">Brix (°Bx)</label><input id="brix" type="number" step="0.01" value="10.7"></div>
       </div>
     </div>
 
     <div>
-      <div class="grid g3" style="margin-bottom:18px">
-        <div class="stat hero"><div class="k">Extraction yield</div>
-          <div class="v"><span id="o-ey">—</span><span class="u"> ± <span id="o-exp">—</span> %</span></div>
-          <div class="k" style="margin-top:6px" id="o-cov"></div>
-        </div>
-        <div class="stat"><div class="k">Combined std. unc.</div>
-          <div class="v">±<span id="o-uc">—</span></div></div>
-        <div class="stat"><div class="k">Relative</div>
-          <div class="v">±<span id="o-rel">—</span><span class="u">%</span></div></div>
+      <div class="grid g3">
+        <div class="st bx hero"><div class="k">Extraction yield</div>
+          <div class="v"><span id="o-ey">—</span><span class="u"> ± <span id="o-exp">—</span>%</span></div>
+          <div class="k" style="margin-top:10px" id="o-cov"></div></div>
+        <div class="st bx"><div class="k">Combined std. unc.</div><div class="v">±<span id="o-uc">—</span></div></div>
+        <div class="st bx"><div class="k">Relative</div><div class="v">±<span id="o-rel">—</span><span class="u">%</span></div></div>
       </div>
 
-      <div class="card">
-        <h3>Uncertainty budget</h3>
-        <p style="font-size:.9rem;color:var(--text-dim)">
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Uncertainty budget</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
           Each input's contribution is |∂EY/∂x| · u(x). Shares are of <em>variance</em>, because
           variances add — which is why one term usually dominates and the rest round to nothing.
-          This table is the whole point: it tells you which measurement is worth improving,
-          and which is already irrelevant.
-        </p>
+          This table tells you which measurement is worth improving, and which is already irrelevant.</p>
         <div class="table-scroll"><table>
-          <thead><tr>
-            <th>Input</th><th class="n">u(x)</th><th class="n">∂EY/∂x</th>
-            <th class="n">Contribution</th><th class="n">Share of variance</th>
-          </tr></thead>
+          <thead><tr><th>Input</th><th>u(x)</th><th>∂EY/∂x</th><th>Contribution</th><th>Share of variance</th></tr></thead>
           <tbody id="budget"></tbody>
         </table></div>
-        <p id="interp" class="note" style="margin-top:14px"></p>
+        <p class="note" id="interp" style="margin-top:16px"></p>
       </div>
 
-      <div class="card" style="margin-top:18px">
-        <h3>Across the whole log</h3>
-        <p style="font-size:.9rem;color:var(--text-dim)">Every logged shot with a Brix reading,
-        with expanded uncertainty at the coverage factor above.</p>
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Whole log</div>
+        <p style="margin-top:0;font-size:13.5px;color:var(--ink-dim);font-weight:500">
+        Every logged shot with a Brix reading, at the coverage factor above.</p>
         <div class="table-scroll"><table>
-          <thead><tr><th>Shot</th><th class="n">EY %</th><th class="n">± U</th><th class="n">Relative %</th></tr></thead>
+          <thead><tr><th>Shot</th><th>EY %</th><th>± U</th><th>Relative %</th></tr></thead>
           <tbody id="alltbl"></tbody>
         </table></div>
-        <p id="allsummary" style="font-size:.88rem;color:var(--text-dim);margin-top:10px"></p>
+        <p class="msg" id="allsummary"></p>
       </div>
     </div>
   </div>
-</div>
-<footer class="site-foot"><div class="wrap">
-  espresso·brewkit — measurement tools for espresso.
-  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
-  Everything runs in your browser; no data leaves this device.
-</div></footer>
 
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
 <script type="module">
 import { boot, fmt, el } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";
