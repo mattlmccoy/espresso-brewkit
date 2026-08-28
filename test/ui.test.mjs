@@ -1093,8 +1093,13 @@ try {
       .every((h) => labLinks.includes(h)), labLinks.join(' '));
   const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
   t('lab: the daily loop is what the nav shows',
-    navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html',
+    navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html'
+      + ',./sync.html',
     navLinks.join(' '));
+  t('lab: and Sync rides in as the account chip, not as a sixth tab',
+    await page.locator('.nav a[data-account]').count() === 1
+    && (await page.getAttribute('.nav a[data-account]', 'href')) === './sync.html',
+    'one chip, last');
 
 
 
@@ -1296,6 +1301,37 @@ try {
   t('signin: signing out revokes the token with Google',
     out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
     `revoked ${out.revoked}, account cleared`);
+
+  // ---- the account, on every page ----
+  // The chip reads the stored profile, not a token — which is the whole reason
+  // a page holding no credential can still say whose log this is.
+  await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    sync.saveConfig({ account: { name: 'Ada Lovelace', email: 'ada@example.com', picture: '' } });
+  });
+  const chips = {};
+  for (const name of ['live.html', 'shots.html', 'kit.html', 'lab.html', 'advisor.html']) {
+    await page.goto(`${B}/${name}`);
+    await page.waitForSelector('.nav a[data-account]', { timeout: 4000 });
+    chips[name] = [await page.textContent('.nav a[data-account] .acct-face'),
+                   await page.textContent('.nav a[data-account] .acct-name')].join('|');
+  }
+  t('account: the signed-in face follows you across the tool',
+    Object.values(chips).every((v) => v === 'AL|Ada Lovelace')
+    && Object.keys(chips).length === 5, JSON.stringify(chips));
+  t('account: and says which account, not just that there is one',
+    /ada@example\.com/.test(await page.getAttribute('.nav a[data-account]', 'title') ?? ''),
+    await page.getAttribute('.nav a[data-account]', 'title'));
+
+  await page.evaluate(async () => {
+    const sync = await import('./assets/js/core/sync.js');
+    sync.saveConfig({ account: null });
+  });
+  await page.goto(B + '/live.html');
+  t('account: signed out, the same control is the way in to Sync',
+    (await page.textContent('.nav a[data-account]')).trim() === 'Sync'
+    && await page.locator('.nav a[data-account] .acct-face').count() === 0,
+    await page.textContent('.nav a[data-account]'));
 
   // ---- when Google refuses ----
   // The commonest failure by far is an unpublished app whose owner never added
