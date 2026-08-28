@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculator · espresso·brewkit</title>
+<meta name="description" content="Brix to TDS to extraction yield, brew ratio, and flow rate.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+</head>
+<body>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </div>
+</header>
+<div class="wrap">
+  <div class="page-head">
+    <h1>Extraction calculator</h1>
+    <p class="lede">Enter what you measured. Everything downstream is derived.</p>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <h3>Measured</h3>
+      <div class="row">
+        <div class="field"><label for="dose">Dose in (g)</label>
+          <input id="dose" type="number" step="0.01" value="18"></div>
+        <div class="field"><label for="yield">Yield out (g)</label>
+          <input id="yield" type="number" step="0.01" value="36"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="brix">Brix (°Bx)</label>
+          <input id="brix" type="number" step="0.01" value="10.7"></div>
+        <div class="field"><label for="time">Shot time (s)</label>
+          <input id="time" type="number" step="0.1" value="28"></div>
+      </div>
+      <div class="field">
+        <label for="factor">Brix → TDS factor</label>
+        <input id="factor" type="number" step="0.01" value="0.85">
+      </div>
+      <p class="note" style="font-size:.83rem" id="factor-note"></p>
+    </div>
+
+    <div>
+      <div class="grid g3" style="margin-bottom:18px">
+        <div class="stat hero"><div class="k">Extraction yield</div>
+          <div class="v"><span id="o-ey">—</span><span class="u">%</span></div>
+          <div id="o-band" style="margin-top:6px"></div>
+        </div>
+        <div class="stat"><div class="k">TDS</div>
+          <div class="v"><span id="o-tds">—</span><span class="u">%</span></div></div>
+        <div class="stat"><div class="k">Brew ratio</div>
+          <div class="v">1:<span id="o-ratio">—</span></div></div>
+        <div class="stat"><div class="k">Solids in cup</div>
+          <div class="v"><span id="o-solids">—</span><span class="u">g</span></div></div>
+        <div class="stat"><div class="k">Average flow</div>
+          <div class="v"><span id="o-flow">—</span><span class="u">g/s</span></div></div>
+        <div class="stat"><div class="k">Solids per gram dose</div>
+          <div class="v"><span id="o-spd">—</span><span class="u">mg/g</span></div></div>
+      </div>
+
+      <div class="card">
+        <h3>Ratio needed to hit a target yield</h3>
+        <p style="color:var(--text-dim);font-size:.9rem">
+        At the TDS above, holding everything else constant, this is the brew ratio that
+        would land on your target. It is a planning number, not a promise — pulling longer
+        also lowers TDS, so the real result lands short of it.</p>
+        <div class="row" style="max-width:420px">
+          <div class="field"><label for="target">Target yield (%)</label>
+            <input id="target" type="number" step="0.1" value="20"></div>
+          <div class="stat"><div class="k">Required ratio</div>
+            <div class="v">1:<span id="o-treq">—</span></div></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <h3>Add this to the log</h3>
+        <div class="btn-row">
+          <button class="primary" id="save" type="button">Save as a shot</button>
+          <span id="save-msg" style="align-self:center;font-size:.88rem;color:var(--text-dim)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<footer class="site-foot"><div class="wrap">
+  espresso·brewkit — measurement tools for espresso.
+  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
+  Everything runs in your browser; no data leaves this device.
+</div></footer>
+
+<script type="module">
+import { boot, fmt } from "./assets/js/ui.js";
+import * as coffee from "./assets/js/core/coffee.js";
+import * as store from "./assets/js/core/store.js";
+boot();
+
+document.getElementById("factor-note").textContent = coffee.BRIX_FACTOR_NOTE;
+
+const ids = ["dose","yield","brix","time","factor","target"];
+const val = (id) => parseFloat(document.getElementById(id).value);
+const set = (id, v) => { document.getElementById(id).textContent = v; };
+
+function recalc() {
+  const dose = val("dose"), yld = val("yield"), brix = val("brix");
+  const time = val("time"), factor = val("factor"), target = val("target");
+
+  const tds = coffee.brixToTds(brix, factor);
+  const ey = coffee.extractionYield(tds, dose, yld);
+  const solids = coffee.solidsMass(tds, yld);
+
+  set("o-tds", fmt(tds, 2));
+  set("o-ey", fmt(ey, 2));
+  set("o-ratio", fmt(coffee.ratio(dose, yld), 2));
+  set("o-solids", fmt(solids, 3));
+  set("o-flow", fmt(coffee.avgFlow(yld, time), 2));
+  set("o-spd", fmt((solids / dose) * 1000, 1));
+  set("o-treq", fmt(coffee.ratioForYield(target, tds), 2));
+
+  const band = coffee.classifyYield(ey);
+  const holder = document.getElementById("o-band");
+  holder.replaceChildren();
+  if (band) {
+    const b = document.createElement("span");
+    b.className = "badge " + (band.label === "Typical range" ? "ok" : "warn");
+    b.textContent = band.label;
+    b.title = band.hint;
+    holder.appendChild(b);
+  }
+}
+
+ids.forEach((id) => document.getElementById(id).addEventListener("input", recalc));
+recalc();
+
+document.getElementById("save").addEventListener("click", () => {
+  const s = store.add({
+    dose_g: val("dose"), yield_g: val("yield"), brix: val("brix"),
+    time_s: val("time"),
+  });
+  document.getElementById("save-msg").textContent =
+    "Saved " + s.shot_id + " — " + fmt(s.ey_pct, 2) + "% yield.";
+});
+</script>
+</body>
+</html>

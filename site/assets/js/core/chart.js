@@ -1,0 +1,367 @@
+// SVG charting. No dependencies.
+//
+// Hand-rolled rather than pulling in Plotly (~3 MB) or Chart.js: the chart
+// types here are few and specific, colours come from CSS custom properties so
+// everything follows the light/dark theme for free, and the 3D view needs a
+// regression plane rather than a generic surface. Output is plain SVG, so it
+// scales, prints, and can be saved straight out of the page.
+
+const NS = 'http://www.w3.org/2000/svg';
+const el = (name, attrs = {}, parent = null) => {
+  const n = document.createElementNS(NS, name);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v !== null && v !== undefined) n.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(n);
+  return n;
+};
+
+/** "Nice" axis ticks — round numbers covering [min,max]. */
+export function ticks(min, max, count = 6) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (min === max) return [min];
+  const span = max - min;
+  const raw = span / count;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const norm = raw / mag;
+  const step = (norm <= 1.5 ? 1 : norm <= 3 ? 2 : norm <= 7 ? 5 : 10) * mag;
+  const out = [];
+  for (let t = Math.ceil(min / step) * step; t <= max + step * 1e-9; t += step) {
+    out.push(Math.round(t / step) * step);
+  }
+  return out;
+}
+
+const fmtTick = (v) => {
+  const a = Math.abs(v);
+  if (a === 0) return '0';
+  if (a >= 1000 || a < 0.01) return v.toExponential(1);
+  return String(Math.round(v * 1000) / 1000);
+};
+
+function pad(min, max, frac = 0.06) {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
+  if (min === max) return [min - 1, max + 1];
+  const p = (max - min) * frac;
+  return [min - p, max + p];
+}
+
+function frame(container, { width = 720, height = 440, m = { t: 16, r: 18, b: 52, l: 64 } } = {}) {
+  container.replaceChildren();
+  const svg = el('svg', {
+    viewBox: `0 0 ${width} ${height}`,
+    class: 'chart',
+    preserveAspectRatio: 'xMidYMid meet',
+    role: 'img',
+    // Scale down to fit a narrow container, but never up past the natural size:
+    // a square 3D plot in a wide card would otherwise grow taller than the
+    // viewport and become unusable.
+    style: `max-width:${width}px`,
+  }, container);
+  return { svg, width, height, m, iw: width - m.l - m.r, ih: height - m.t - m.b };
+}
+
+function axes(f, xd, yd, xLabel, yLabel) {
+  const { svg, m, iw, ih } = f;
+  const sx = (v) => m.l + ((v - xd[0]) / (xd[1] - xd[0])) * iw;
+  const sy = (v) => m.t + ih - ((v - yd[0]) / (yd[1] - yd[0])) * ih;
+
+  const g = el('g', {}, svg);
+  for (const t of ticks(xd[0], xd[1])) {
+    const x = sx(t);
+    el('line', { x1: x, y1: m.t, x2: x, y2: m.t + ih, class: 'grid' }, g);
+    el('text', { x, y: m.t + ih + 20, class: 'tick', 'text-anchor': 'middle' }, g).textContent = fmtTick(t);
+  }
+  for (const t of ticks(yd[0], yd[1])) {
+    const y = sy(t);
+    el('line', { x1: m.l, y1: y, x2: m.l + iw, y2: y, class: 'grid' }, g);
+    el('text', { x: m.l - 10, y: y + 4, class: 'tick', 'text-anchor': 'end' }, g).textContent = fmtTick(t);
+  }
+  el('line', { x1: m.l, y1: m.t + ih, x2: m.l + iw, y2: m.t + ih, class: 'axis' }, g);
+  el('line', { x1: m.l, y1: m.t, x2: m.l, y2: m.t + ih, class: 'axis' }, g);
+
+  if (xLabel) {
+    el('text', { x: m.l + iw / 2, y: f.height - 8, class: 'axis-label', 'text-anchor': 'middle' }, svg)
+      .textContent = xLabel;
+  }
+  if (yLabel) {
+    el('text', {
+      x: 14, y: m.t + ih / 2, class: 'axis-label', 'text-anchor': 'middle',
+      transform: `rotate(-90 14 ${m.t + ih / 2})`,
+    }, svg).textContent = yLabel;
+  }
+  return { sx, sy };
+}
+
+/**
+ * Scatter plot with an optional fitted line and 95% confidence band for the
+ * mean response. The band is the honest part: it widens away from x̄, which is
+ * exactly where a small dataset stops supporting extrapolation.
+ */
+export function scatter(container, { points, fit, xLabel, yLabel, flagged = new Set(), onHover }) {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  if (!xs.length) return;
+  const xd = pad(Math.min(...xs), Math.max(...xs));
+  const yd = pad(Math.min(...ys), Math.max(...ys));
+
+  const f = frame(container);
+  const { sx, sy } = axes(f, xd, yd, xLabel, yLabel);
+
+  if (fit?.ok) {
+    const steps = 60;
+    const band = [];
+    const lo = [];
+    for (let i = 0; i <= steps; i++) {
+      const x = xd[0] + ((xd[1] - xd[0]) * i) / steps;
+      const y = fit.predict(x);
+      const half = fit.tCrit * fit.seMean(x);
+      band.push([sx(x), sy(y + half)]);
+      lo.push([sx(x), sy(y - half)]);
+    }
+    el('path', {
+      d: `M${band.map((p) => p.join(',')).join('L')}L${lo.reverse().map((p) => p.join(',')).join('L')}Z`,
+      class: 'band',
+    }, f.svg);
+    el('line', {
+      x1: sx(xd[0]), y1: sy(fit.predict(xd[0])),
+      x2: sx(xd[1]), y2: sy(fit.predict(xd[1])),
+      class: 'fit',
+    }, f.svg);
+  }
+
+  const g = el('g', {}, f.svg);
+  points.forEach((p, i) => {
+    const c = el('circle', {
+      cx: sx(p.x), cy: sy(p.y), r: 5,
+      class: flagged.has(i) ? 'pt pt-flag' : 'pt',
+    }, g);
+    const title = el('title', {}, c);
+    title.textContent = p.label ?? `(${fmtTick(p.x)}, ${fmtTick(p.y)})`;
+    if (onHover) c.addEventListener('mouseenter', () => onHover(i));
+  });
+}
+
+/** Residuals vs fitted. Structure here means the linear model is wrong. */
+export function residuals(container, { fit, points, xLabel = 'Fitted value' }) {
+  if (!fit?.ok) return;
+  const pts = points.map((p, i) => ({ x: fit.predict(p.x), y: fit.resid[i] })).filter((p) => Number.isFinite(p.y));
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  const yMax = Math.max(...ys.map(Math.abs)) || 1;
+  const xd = pad(Math.min(...xs), Math.max(...xs));
+  const yd = [-yMax * 1.2, yMax * 1.2];
+
+  const f = frame(container, { height: 260 });
+  const { sx, sy } = axes(f, xd, yd, xLabel, 'Residual');
+  el('line', { x1: f.m.l, y1: sy(0), x2: f.m.l + f.iw, y2: sy(0), class: 'zero' }, f.svg);
+  const g = el('g', {}, f.svg);
+  for (const p of pts) el('circle', { cx: sx(p.x), cy: sy(p.y), r: 4, class: 'pt' }, g);
+}
+
+/** Box plot with whiskers at the 1.5×IQR fence and outliers drawn separately. */
+export function boxplot(container, { values, label = '' }) {
+  const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (v.length < 4) return;
+  const q = (p) => {
+    const pos = (v.length - 1) * p;
+    const lo = Math.floor(pos), hi = Math.ceil(pos);
+    return lo === hi ? v[lo] : v[lo] + (v[hi] - v[lo]) * (pos - lo);
+  };
+  const q1 = q(0.25), med = q(0.5), q3 = q(0.75), iqr = q3 - q1;
+  const fenceLo = q1 - 1.5 * iqr, fenceHi = q3 + 1.5 * iqr;
+  const inside = v.filter((x) => x >= fenceLo && x <= fenceHi);
+  const whiskLo = Math.min(...inside), whiskHi = Math.max(...inside);
+  const out = v.filter((x) => x < fenceLo || x > fenceHi);
+
+  const f = frame(container, { width: 340, height: 420, m: { t: 20, r: 20, b: 44, l: 64 } });
+  const yd = pad(Math.min(...v), Math.max(...v), 0.12);
+  const sy = (y) => f.m.t + f.ih - ((y - yd[0]) / (yd[1] - yd[0])) * f.ih;
+
+  for (const t of ticks(yd[0], yd[1])) {
+    el('line', { x1: f.m.l, y1: sy(t), x2: f.m.l + f.iw, y2: sy(t), class: 'grid' }, f.svg);
+    el('text', { x: f.m.l - 10, y: sy(t) + 4, class: 'tick', 'text-anchor': 'end' }, f.svg).textContent = fmtTick(t);
+  }
+  const cx = f.m.l + f.iw / 2;
+  const bw = Math.min(120, f.iw * 0.5);
+
+  el('line', { x1: cx, y1: sy(whiskHi), x2: cx, y2: sy(q3), class: 'axis' }, f.svg);
+  el('line', { x1: cx, y1: sy(whiskLo), x2: cx, y2: sy(q1), class: 'axis' }, f.svg);
+  el('line', { x1: cx - bw / 4, y1: sy(whiskHi), x2: cx + bw / 4, y2: sy(whiskHi), class: 'axis' }, f.svg);
+  el('line', { x1: cx - bw / 4, y1: sy(whiskLo), x2: cx + bw / 4, y2: sy(whiskLo), class: 'axis' }, f.svg);
+  el('rect', { x: cx - bw / 2, y: sy(q3), width: bw, height: Math.max(1, sy(q1) - sy(q3)), class: 'box' }, f.svg);
+  el('line', { x1: cx - bw / 2, y1: sy(med), x2: cx + bw / 2, y2: sy(med), class: 'median' }, f.svg);
+  for (const o of out) el('circle', { cx, cy: sy(o), r: 5, class: 'pt pt-flag' }, f.svg);
+  if (label) {
+    el('text', { x: cx, y: f.height - 12, class: 'axis-label', 'text-anchor': 'middle' }, f.svg).textContent = label;
+  }
+}
+
+/** Correlation matrix as a heatmap. Diverging scale centred on zero. */
+export function heatmap(container, { matrix, labels }) {
+  const n = labels.length;
+  const cell = 62;
+  const left = 132, top = 108;
+  const f = frame(container, {
+    width: left + n * cell + 20, height: top + n * cell + 24, m: { t: 0, r: 0, b: 0, l: 0 },
+  });
+
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const r = matrix[i][j];
+      const x = left + j * cell, y = top + i * cell;
+      const t = Number.isFinite(r) ? r : 0;
+      // Positive -> accent, negative -> cool. Alpha carries magnitude.
+      const fill = t >= 0
+        ? `color-mix(in oklab, var(--pos) ${Math.abs(t) * 100}%, transparent)`
+        : `color-mix(in oklab, var(--neg) ${Math.abs(t) * 100}%, transparent)`;
+      el('rect', { x, y, width: cell - 3, height: cell - 3, rx: 4, fill, class: 'cell' }, f.svg);
+      el('text', {
+        x: x + (cell - 3) / 2, y: y + (cell - 3) / 2 + 4,
+        class: 'cell-text', 'text-anchor': 'middle',
+      }, f.svg).textContent = Number.isFinite(r) ? r.toFixed(2) : '—';
+    }
+    el('text', { x: left - 10, y: top + i * cell + cell / 2, class: 'tick', 'text-anchor': 'end' }, f.svg)
+      .textContent = labels[i];
+    const lx = left + i * cell + (cell - 3) / 2;
+    el('text', {
+      x: lx, y: top - 10, class: 'tick', 'text-anchor': 'start',
+      transform: `rotate(-45 ${lx} ${top - 10})`,
+    }, f.svg).textContent = labels[i];
+  }
+}
+
+/**
+ * 3D scatter with a fitted regression plane, orthographic projection,
+ * drag to rotate. Painter's algorithm on depth for correct occlusion.
+ */
+export function surface3d(container, { points, model, labels, size = 560 }) {
+  let yaw = -0.7, pitch = 0.72;
+
+  const xs = points.map((p) => p.x1);
+  const zs = points.map((p) => p.x2);
+  const ys = points.map((p) => p.y);
+  const rx = [Math.min(...xs), Math.max(...xs)];
+  const rz = [Math.min(...zs), Math.max(...zs)];
+  const ry = [Math.min(...ys), Math.max(...ys)];
+  const norm = (v, r) => (r[1] === r[0] ? 0.5 : (v - r[0]) / (r[1] - r[0])) - 0.5;
+
+  function project(x, y, z) {
+    // Rotate about the vertical (y) axis, then tilt.
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const x1 = x * cy - z * sy;
+    const z1 = x * sy + z * cy;
+    const y1 = y * cp - z1 * sp;
+    const depth = y * sp + z1 * cp;
+    // 0.5 rather than something larger: the corner of a unit cube sits at
+    // 0.5·√3 ≈ 0.866 of the half-extent, so any bigger scale clips the
+    // bounding box at some rotations.
+    const k = size * 0.5;
+    return { px: size / 2 + x1 * k, py: size / 2 - y1 * k, depth };
+  }
+
+  // The SVG is created once and only its children are redrawn. Rebuilding the
+  // element on every frame would detach the node the pointer capture is bound to
+  // and, before this was restructured, leaked a fresh set of listeners per frame.
+  container.replaceChildren();
+  const svg = el('svg', {
+    viewBox: `0 0 ${size} ${size}`,
+    class: 'chart chart-3d',
+    preserveAspectRatio: 'xMidYMid meet',
+    role: 'img',
+    style: `max-width:${size}px`,
+  }, container);
+
+  function draw() {
+    svg.replaceChildren();
+    const items = [];
+
+    // Bounding-box wireframe. Without it a plane and a cloud of dots float in
+    // undifferentiated space and the rotation is impossible to read; the box is
+    // what makes the orientation legible.
+    const C = [-0.5, 0.5];
+    const corners = [];
+    for (const x of C) for (const y of C) for (const z of C) corners.push([x, y, z]);
+    const EDGES = [[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+    for (const [a, b] of EDGES) {
+      const p1 = project(...corners[a]);
+      const p2 = project(...corners[b]);
+      items.push({
+        depth: Math.min(p1.depth, p2.depth) - 1e3, // always behind the data
+        draw: () => el('line', {
+          x1: p1.px, y1: p1.py, x2: p2.px, y2: p2.py, class: 'box3d',
+        }, svg),
+      });
+    }
+
+    // Plane as a quad mesh so it occludes points correctly cell by cell.
+    if (model?.ok) {
+      const N = 10;
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          const corners = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]].map(([a, b]) => {
+            const X = rx[0] + ((rx[1] - rx[0]) * a) / N;
+            const Z = rz[0] + ((rz[1] - rz[0]) * b) / N;
+            return project(norm(X, rx), norm(model.predict(X, Z), ry), norm(Z, rz));
+          });
+          items.push({
+            depth: corners.reduce((s, c) => s + c.depth, 0) / 4,
+            draw: () => el('polygon', {
+              points: corners.map((c) => `${c.px},${c.py}`).join(' '),
+              class: 'plane',
+            }, svg),
+          });
+        }
+      }
+    }
+
+    for (const p of points) {
+      const q = project(norm(p.x1, rx), norm(p.y, ry), norm(p.x2, rz));
+      items.push({
+        depth: q.depth,
+        draw: () => {
+          const c = el('circle', { cx: q.px, cy: q.py, r: 6, class: 'pt pt-3d' }, svg);
+          el('title', {}, c).textContent = p.label
+            ?? `${fmtTick(p.x1)}, ${fmtTick(p.x2)} → ${fmtTick(p.y)}`;
+        },
+      });
+    }
+
+    items.sort((a, b) => a.depth - b.depth).forEach((it) => it.draw());
+
+    if (labels) {
+      const legend = el('g', {}, svg);
+      labels.slice(0, 3).forEach((t, i) => {
+        el('text', { x: 12, y: 20 + i * 17, class: 'tick' }, legend).textContent = t;
+      });
+    }
+  }
+
+  // Pointer events cover mouse, touch and pen with one path, and pointer capture
+  // keeps the drag alive when the cursor leaves the element — no window listeners.
+  let last = null;
+  svg.addEventListener('pointerdown', (e) => {
+    last = { x: e.clientX, y: e.clientY };
+    svg.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  svg.addEventListener('pointermove', (e) => {
+    if (!last) return;
+    // Scale by the on-screen size so a drag rotates by the same amount
+    // regardless of how the SVG has been scaled to fit its container.
+    const scale = size / (svg.getBoundingClientRect().width || size);
+    yaw += (e.clientX - last.x) * 0.01 * scale;
+    pitch = Math.max(-1.4, Math.min(1.4, pitch + (e.clientY - last.y) * 0.01 * scale));
+    last = { x: e.clientX, y: e.clientY };
+    draw();
+  });
+  const end = (e) => {
+    last = null;
+    if (svg.hasPointerCapture?.(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+  };
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+
+  draw();
+}

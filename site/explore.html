@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore · espresso·brewkit</title>
+<meta name="description" content="Regress extraction yield against your brewing variables, in 2D and 3D.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+</head>
+<body>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="page-head">
+    <h1>Explore</h1>
+    <p class="lede">Fit your shots against one variable or two, and see how much the fit
+    is actually supported by the data you have.</p>
+  </div>
+
+  <div class="card" style="margin-bottom:18px">
+    <div class="grid g3" style="gap:14px">
+      <div class="field" style="margin:0"><label for="resp">Response (y)</label><select id="resp"></select></div>
+      <div class="field" style="margin:0"><label for="p1">Predictor (x)</label><select id="p1"></select></div>
+      <div class="field" style="margin:0"><label for="p2">Second predictor (optional)</label><select id="p2"></select></div>
+    </div>
+  </div>
+
+  <div id="nodata" class="card empty" style="display:none">
+    No shots loaded. <a href="./logger.html">Add some</a> or load the sample data from the
+    <a href="./index.html">home page</a>.
+  </div>
+
+  <div id="content">
+    <div class="grid g3" style="margin-bottom:18px">
+      <div class="stat"><div class="k">Points used</div><div class="v" id="s-n">—</div></div>
+      <div class="stat"><div class="k">R²</div><div class="v" id="s-r2">—</div></div>
+      <div class="stat"><div class="k">RMSE</div><div class="v" id="s-rmse">—</div></div>
+      <div class="stat"><div class="k">Slope</div><div class="v" id="s-slope">—</div></div>
+    </div>
+
+    <div class="card">
+      <h3 id="fit-title">Fit</h3>
+      <p id="fit-eq" class="num" style="color:var(--accent);font-size:1rem;margin-bottom:4px"></p>
+      <p id="fit-verdict" style="font-size:.92rem;color:var(--text-dim)"></p>
+      <div class="chart-wrap"><div id="chart"></div></div>
+    </div>
+
+    <div class="grid g2" style="margin-top:18px">
+      <div class="card">
+        <h3>Residuals</h3>
+        <p style="font-size:.88rem;color:var(--text-dim)">Should look like noise around zero.
+        A curve or a fan means a straight line is the wrong model, whatever R² says.</p>
+        <div class="chart-wrap"><div id="resid"></div></div>
+      </div>
+      <div class="card">
+        <h3>Correlation matrix</h3>
+        <p style="font-size:.88rem;color:var(--text-dim)">Pearson r between every numeric field.
+        Correlation between two predictors is worth noticing before you read too much into either.</p>
+        <div class="chart-wrap"><div id="heat"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<footer class="site-foot"><div class="wrap">
+  espresso·brewkit — measurement tools for espresso.
+  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
+  Everything runs in your browser; no data leaves this device.
+</div></footer>
+
+<script type="module">
+import { boot, fmt } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+import * as stats from "./assets/js/core/stats.js";
+import * as chart from "./assets/js/core/chart.js";
+import { PREDICTORS, RESPONSES, NUMERIC, label } from "./assets/js/core/schema.js";
+boot();
+
+const $ = (id) => document.getElementById(id);
+
+function fillSelect(sel, keys, selected, noneLabel) {
+  sel.replaceChildren();
+  if (noneLabel) {
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = noneLabel;
+    sel.appendChild(o);
+  }
+  for (const k of keys) {
+    const o = document.createElement("option");
+    o.value = k; o.textContent = label(k);
+    if (k === selected) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+fillSelect($("resp"), RESPONSES, "ey_pct");
+fillSelect($("p1"), PREDICTORS, "grind_setting");
+fillSelect($("p2"), PREDICTORS, "", "— none (2D fit) —");
+
+/** Fields with at least a little variation; a constant column tells you nothing. */
+function usableNumeric(rows) {
+  return NUMERIC.filter((k) => {
+    const v = stats.clean(store.column(rows, k));
+    return v.length >= 3 && stats.sd(v) > 0;
+  });
+}
+
+function render() {
+  const rows = store.all();
+  $("nodata").style.display = rows.length ? "none" : "";
+  $("content").style.display = rows.length ? "" : "none";
+  if (!rows.length) return;
+
+  const respKey = $("resp").value;
+  const p1Key = $("p1").value;
+  const p2Key = $("p2").value;
+
+  const y = store.column(rows, respKey);
+  const x1 = store.column(rows, p1Key);
+
+  if (p2Key && p2Key !== p1Key) {
+    const x2 = store.column(rows, p2Key);
+    const m = stats.mlr2(x1, x2, y);
+    $("fit-title").textContent = "Plane fit — drag to rotate";
+    $("s-n").textContent = m.ok ? m.n : "—";
+    $("s-r2").textContent = m.ok ? fmt(m.r2, 4) : "—";
+    $("s-rmse").textContent = m.ok ? fmt(m.rmse, 3) : "—";
+    $("s-slope").textContent = m.ok ? fmt(m.b1, 4) : "—";
+
+    if (!m.ok) {
+      $("fit-eq").textContent = "";
+      $("fit-verdict").textContent = "Cannot fit: " + m.reason + ".";
+      $("chart").replaceChildren();
+      $("resid").replaceChildren();
+    } else {
+      $("fit-eq").textContent =
+        label(respKey) + " = " + fmt(m.b0, 3)
+        + (m.b1 >= 0 ? " + " : " − ") + fmt(Math.abs(m.b1), 4) + "·" + label(p1Key)
+        + (m.b2 >= 0 ? " + " : " − ") + fmt(Math.abs(m.b2), 4) + "·" + label(p2Key);
+      $("fit-verdict").textContent =
+        "Adjusted R² = " + fmt(m.r2adj, 4) + " (raw R² = " + fmt(m.r2, 4) + "). "
+        + "Adding a predictor can only raise raw R², so compare the adjusted value against "
+        + "the single-predictor fit before believing the second variable earned its place.";
+
+      const pts = rows.map((r, i) => ({
+        x1: x1[i], x2: x2[i], y: y[i],
+        label: (r.shot_id ?? "") + ": " + fmt(y[i], 2),
+      })).filter((p) => Number.isFinite(p.x1) && Number.isFinite(p.x2) && Number.isFinite(p.y));
+
+      chart.surface3d($("chart"), {
+        points: pts, model: m,
+        labels: ["x → " + label(p1Key), "z → " + label(p2Key), "y ↑ " + label(respKey)],
+      });
+
+      const fitted = pts.map((p) => m.predict(p.x1, p.x2));
+      const f2 = stats.linreg(fitted, pts.map((p) => p.y));
+      $("resid").replaceChildren();
+      if (f2.ok) {
+        chart.residuals($("resid"), {
+          fit: f2,
+          points: fitted.map((v, i) => ({ x: v, y: pts[i].y })),
+          xLabel: "Predicted " + label(respKey),
+        });
+      }
+    }
+  } else {
+    const f = stats.linreg(x1, y);
+    $("fit-title").textContent = "Linear fit";
+    $("s-n").textContent = f.n ?? "—";
+    $("s-r2").textContent = f.ok ? fmt(f.r2, 4) : "—";
+    $("s-rmse").textContent = f.ok ? fmt(f.rmse, 3) : "—";
+    $("s-slope").textContent = f.ok ? fmt(f.slope, 4) : "—";
+
+    if (!f.ok) {
+      $("fit-eq").textContent = "";
+      $("fit-verdict").textContent = "Cannot fit: " + f.reason + ".";
+      $("chart").replaceChildren();
+      $("resid").replaceChildren();
+    } else {
+      $("fit-eq").textContent = label(respKey) + " = " + fmt(f.intercept, 3)
+        + (f.slope >= 0 ? " + " : " − ") + fmt(Math.abs(f.slope), 4) + "·" + label(p1Key);
+      $("fit-verdict").textContent = f.significant
+        ? "Slope 95% CI [" + fmt(f.slopeCI[0], 4) + ", " + fmt(f.slopeCI[1], 4) + "] excludes zero, "
+          + "so there is evidence of a real relationship at n=" + f.n + "."
+        : "Slope 95% CI [" + fmt(f.slopeCI[0], 4) + ", " + fmt(f.slopeCI[1], 4) + "] includes zero. "
+          + "At n=" + f.n + " this data does not establish a relationship — the trend line is drawn, "
+          + "but do not act on it.";
+
+      const points = rows.map((r, i) => ({
+        x: x1[i], y: y[i],
+        label: (r.shot_id ?? "") + ": " + fmt(x1[i], 2) + " → " + fmt(y[i], 2),
+      })).filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
+
+      chart.scatter($("chart"), { points, fit: f, xLabel: label(p1Key), yLabel: label(respKey) });
+      chart.residuals($("resid"), { fit: f, points, xLabel: "Fitted " + label(respKey) });
+    }
+  }
+
+  const keys = usableNumeric(rows);
+  const matrix = keys.map((a) => keys.map((b) => stats.pearson(store.column(rows, a), store.column(rows, b))));
+  chart.heatmap($("heat"), { matrix, labels: keys.map(label) });
+}
+
+for (const id of ["resp", "p1", "p2"]) $(id).addEventListener("change", render);
+store.subscribe(render);
+render();
+</script>
+</body>
+</html>

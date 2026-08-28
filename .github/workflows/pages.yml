@@ -1,0 +1,57 @@
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'data/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The dataset is versioned at data/ and served from the site root, so the
+      # sample loader can fetch ./data/shots.csv. Copied at build time rather
+      # than committed twice.
+      - name: Stage data into the site
+        run: |
+          mkdir -p site/data
+          cp data/shots.csv site/data/shots.csv
+          cp -r data/legacy site/data/legacy
+
+      - name: Sanity-check the pages
+        run: |
+          set -e
+          for f in site/*.html; do
+            grep -q '</html>' "$f" || { echo "::error file=$f::truncated HTML"; exit 1; }
+          done
+          test -f site/assets/css/app.css
+          test -f site/data/shots.csv
+          echo "checked $(ls site/*.html | wc -l) pages"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

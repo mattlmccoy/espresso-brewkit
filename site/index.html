@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>espresso·brewkit</title>
+<meta name="description" content="Browser-based measurement tools for espresso: extraction calculator, shot log, regression explorer, and uncertainty analysis.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>☕</text></svg>">
+</head>
+<body>
+<header class="site-head">
+  <div class="wrap">
+    <a class="brand" href="./index.html">espresso<b>·</b>brewkit</a>
+    <nav class="nav">
+      <a href="./calculator.html">Calculator</a>
+      <a href="./logger.html">Log</a>
+      <a href="./explore.html">Explore</a>
+      <a href="./quality.html">Quality</a>
+      <a href="./uncertainty.html">Uncertainty</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="hero">
+    <h1>Measurement tools for espresso.</h1>
+    <p class="lede">A browser-based toolkit for logging shots, propagating measurement
+    uncertainty, and finding which variables actually move extraction yield — plus the
+    design for an open-source scale that records all of it without a phone.</p>
+  </section>
+
+  <h2 style="margin-top:0">Tools</h2>
+  <div class="grid g3">
+    <a class="tool-card" href="./calculator.html">
+      <span class="ico">🧮</span><h3>Calculator</h3>
+      <p>Brix to TDS to extraction yield, brew ratio, and average flow. Solve for whichever value you are missing.</p>
+    </a>
+    <a class="tool-card" href="./logger.html">
+      <span class="ico">📓</span><h3>Shot log</h3>
+      <p>Record shots, derive everything that follows, and import or export a single CSV. Reads the old one-file-per-shot format too.</p>
+    </a>
+    <a class="tool-card" href="./explore.html">
+      <span class="ico">📈</span><h3>Explore</h3>
+      <p>Regress yield against any variable, fit a plane against two, and read the correlation matrix. With confidence bands, not just a trend line.</p>
+    </a>
+    <a class="tool-card" href="./quality.html">
+      <span class="ico">🔍</span><h3>Quality</h3>
+      <p>Outlier detection by three methods, and the descriptive statistics that tell you whether your prep is repeatable enough to model.</p>
+    </a>
+    <a class="tool-card" href="./uncertainty.html">
+      <span class="ico">🔬</span><h3>Uncertainty</h3>
+      <p>GUM propagation through the yield equation, with a variance budget that shows which measurement is actually limiting you.</p>
+    </a>
+    <a class="tool-card" href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">
+      <span class="ico">🛠</span><h3>Scale design</h3>
+      <p>Hardware, firmware, and data-model specification for a low-profile scale that logs shots on-device and drives a detachable display.</p>
+    </a>
+  </div>
+
+  <h2>Start here</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3>No data yet?</h3>
+      <p style="color:var(--text-dim);font-size:.93rem">Load the 15 sample extractions to see every tool populated,
+      then clear them when you want to start your own log.</p>
+      <div class="btn-row">
+        <button class="primary" id="load-sample" type="button">Load sample data</button>
+        <a class="badge" href="./logger.html" style="align-self:center">or log a shot →</a>
+      </div>
+      <p id="sample-msg" style="margin:12px 0 0;font-size:.88rem;color:var(--text-dim)"></p>
+    </div>
+    <div class="card">
+      <h3>How it works</h3>
+      <p style="color:var(--text-dim);font-size:.93rem;margin-bottom:8px">
+      Shots live in your browser's local storage. Nothing is uploaded, there is no account,
+      and the export is a plain CSV you own.</p>
+      <p style="color:var(--text-dim);font-size:.93rem;margin:0">
+      The same CSV schema is what the <a href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">scale</a>
+      writes to its own flash, so the hardware and these tools share one format.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { boot } from "./assets/js/ui.js";
+import * as store from "./assets/js/core/store.js";
+boot();
+const msg = document.getElementById("sample-msg");
+document.getElementById("load-sample").addEventListener("click", async () => {
+  try {
+    const res = await fetch("./data/shots.csv");
+    if (!res.ok) throw new Error(res.status + " " + res.statusText);
+    const r = store.importCsv(await res.text());
+    msg.textContent = r.added + " shots loaded (" + r.skipped + " already present). Total: " + r.total + ".";
+  } catch (e) {
+    msg.textContent = "Could not load sample data: " + e.message;
+  }
+});
+</script>
+<footer class="site-foot"><div class="wrap">
+  espresso·brewkit — measurement tools for espresso.
+  <a href="https://github.com/mattlmccoy/espresso-brewkit">Source on GitHub</a>.
+  Everything runs in your browser; no data leaves this device.
+</div></footer>
+</body>
+</html>
