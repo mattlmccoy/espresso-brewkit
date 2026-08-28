@@ -14,7 +14,25 @@
 
 const CFG_KEY = 'brewkit.sync.v1';
 const FILE_NAME = 'brewkit.json';
-const SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+// drive.appdata is the narrowest Drive scope there is: a hidden folder this app
+// creates, and nothing else in the user's Drive. `openid email profile` is added
+// only so the page can show who is signed in — an account chooser that then
+// tells you nothing about which account you chose is a worse experience than no
+// chooser at all. Both appear on the consent screen, which is the point.
+export const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
+export const IDENTITY_SCOPES = 'openid email profile';
+export const SCOPE = `${IDENTITY_SCOPES} ${DRIVE_SCOPE}`;
+
+export const SCOPE_EXPLAINED = [
+  { scope: 'drive.appdata', label: 'A private folder in your Drive',
+    detail: 'Created by this app, invisible in your file list, and unreadable by anything else. '
+      + 'It cannot see the rest of your Drive.' },
+  { scope: 'profile', label: 'Your name and picture',
+    detail: 'Shown on this page so you can tell which account you are syncing to. Never sent '
+      + 'anywhere.' },
+  { scope: 'email', label: 'Your email address',
+    detail: 'Shown alongside your name for the same reason.' },
+];
 
 /** Every store that travels, and the key each record is identified by. */
 export const STORES = [
@@ -38,7 +56,9 @@ function writeJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; }
 }
 
-export const config = () => ({ clientId: '', lastSync: null, email: null, ...readJSON(CFG_KEY, {}) });
+export const config = () => ({
+  clientId: '', lastSync: null, account: null, ...readJSON(CFG_KEY, {}),
+});
 export function saveConfig(patch) {
   const next = { ...config(), ...patch };
   writeJSON(CFG_KEY, next);
@@ -147,10 +167,24 @@ function dedupeTombstones(list) {
  * less that lives here the less is taken on trust.
  */
 export class DriveClient {
-  constructor({ clientId, fetchImpl = null } = {}) {
+  /**
+   * @param gis  the Google Identity Services oauth2 namespace. Injectable so the
+   *             sign-in flow can be driven end to end by the suite — the whole
+   *             point of keeping this half thin is that it is otherwise
+   *             untestable without a real Google account.
+   */
+  constructor({ clientId, fetchImpl = null, gis = null } = {}) {
     this.clientId = clientId;
     this.token = null;
+    this.account = null;
     this.fetch = fetchImpl ?? ((...a) => fetch(...a));
+    this._gis = gis;
+  }
+
+  async gis() {
+    if (this._gis) return this._gis;
+    await DriveClient.loadGis();
+    return window.google.accounts.oauth2;
   }
 
   /** Google Identity Services, loaded lazily so the page costs nothing without it. */
@@ -167,11 +201,17 @@ export class DriveClient {
     });
   }
 
+  /**
+   * The real Google flow: account chooser, then a consent screen naming each
+   * permission, then a token. `prompt: ''` lets Google skip the chooser when
+   * there is only one signed-in account and consent is already given, which is
+   * what makes a return visit one click rather than three.
+   */
   async signIn({ prompt = '' } = {}) {
     if (!this.clientId) throw new Error('No Google OAuth client ID has been set.');
-    await DriveClient.loadGis();
-    return new Promise((resolve, reject) => {
-      const client = window.google.accounts.oauth2.initTokenClient({
+    const oauth2 = await this.gis();
+    const token = await new Promise((resolve, reject) => {
+      const client = oauth2.initTokenClient({
         client_id: this.clientId,
         scope: SCOPE,
         prompt,
@@ -180,13 +220,50 @@ export class DriveClient {
           this.token = r.access_token;
           resolve(r.access_token);
         },
-        error_callback: (e) => reject(new Error(e?.message ?? 'Sign-in was dismissed.')),
+        error_callback: (e) => reject(new Error(
+          e?.type === 'popup_closed' ? 'Sign-in window was closed.'
+            : e?.message ?? 'Sign-in was dismissed.')),
       });
       client.requestAccessToken();
     });
+    await this.loadAccount();
+    return token;
   }
 
-  signOut() { this.token = null; }
+  /** Who is signed in, so the page can say so rather than just claiming success. */
+  async loadAccount() {
+    try {
+      const res = await this.fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const me = await res.json();
+      this.account = {
+        name: me.name ?? me.given_name ?? null,
+        email: me.email ?? null,
+        picture: me.picture ?? null,
+      };
+      saveConfig({ account: this.account });
+      return this.account;
+    } catch {
+      // Identity is a nicety; failing to fetch it must not fail the sync.
+      this.account = null;
+      return null;
+    }
+  }
+
+  /** Sign out properly: hand the token back rather than just forgetting it. */
+  async signOut({ revoke = true } = {}) {
+    const token = this.token;
+    this.token = null;
+    this.account = null;
+    saveConfig({ account: null });
+    if (!revoke || !token) return;
+    try {
+      const oauth2 = await this.gis();
+      oauth2.revoke?.(token);
+    } catch { /* the token expires on its own soon enough */ }
+  }
 
   async api(path, opts = {}) {
     const res = await this.fetch(`https://www.googleapis.com/${path}`, {
