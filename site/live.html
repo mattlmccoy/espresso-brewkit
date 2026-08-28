@@ -88,7 +88,9 @@
         <input id="ref" type="number" step="0.1" value="0"></div>
       <div class="btn-row"><button id="capture" type="button">Capture</button>
         <button class="ghost" id="export-caps" type="button">Export</button>
+        <button class="ghost" id="import-caps-btn" type="button">Import</button>
         <button class="ghost" id="clear-caps" type="button">Clear</button></div>
+      <input id="import-caps" type="file" accept=".csv,text/csv" class="sr">
     </div>
     <p class="msg" id="cap-msg"></p>
     <div id="caps-table" style="margin-top:14px"></div>
@@ -498,6 +500,39 @@ $('clear-caps').addEventListener('click', () => {
   $('cands').replaceChildren();
   renderCaps();
   $('cap-msg').textContent = 'Cleared.';
+});
+
+// Captures exported from another session — or another machine — should be
+// applicable, not just readable. Without this the export was a dead end.
+$('import-caps-btn').addEventListener('click', () => $('import-caps').click());
+$('import-caps').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  e.target.value = '';
+  const lines = (await file.text()).trim().split(/\r?\n/);
+  if (lines.length < 2) { $('cap-msg').textContent = 'That file has no rows.'; return; }
+  const head = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  const iG = head.indexOf('grams'), iU = head.indexOf('uuid'), iH = head.indexOf('frame_hex');
+  if (iG < 0 || iU < 0 || iH < 0) {
+    $('cap-msg').textContent = 'Expected a brewkit capture CSV with grams, uuid and frame_hex columns.';
+    return;
+  }
+  let added = 0, skipped = 0;
+  for (const line of lines.slice(1)) {
+    const cells = line.split(',');
+    const grams = parseFloat(cells[iG]);
+    const uuid = (cells[iU] ?? '').trim();
+    const frame = (cells[iH] ?? '').trim();
+    if (!Number.isFinite(grams) || !uuid || !unhex(frame).length) { skipped++; continue; }
+    caps.push({ grams, frames: { [uuid]: frame }, deviceKey,
+                device: displayName(), at: new Date().toISOString(), imported: true });
+    added++;
+  }
+  persistCaps();
+  renderCaps();
+  solve();
+  $('cap-msg').textContent = `Imported ${added} capture(s)`
+    + (skipped ? `, skipped ${skipped} unreadable row(s)` : '') + '.';
 });
 
 $('export-caps').addEventListener('click', () => {

@@ -351,7 +351,88 @@ try {
     Object.keys(afterForget).length + ' remaining');
   t('settings: forget returns to connect', await page.locator('#step-connect').isVisible());
 
+  // ---- real captured frames, locked into CI ----
+  // These 16 rows came off an INSMART (Lefu) 5 kg scale, including negatives.
+  // The sign lives in a status byte, not the weight bytes: decoding them as
+  // plain unsigned reported -416.4 g as +416.4 g, which looks like a real
+  // reading rather than a fault. This is the regression that must not return.
+  await page.goto(B + '/live.html');
+  const REAL = [
+    ['12 06 05 00 45 10 05 00', 416.5], ['12 06 05 00 56 00 05 00', 8.6],
+    ['12 06 05 00 21 01 05 00', 28.9],  ['12 06 05 00 9d 09 05 00', 246.1],
+    ['12 06 05 00 e2 19 05 00', 662.6], ['12 06 05 00 6e 3c 05 00', 1547],
+    ['12 06 05 00 ae 38 05 00', 1451],  ['12 06 05 00 5c 35 05 00', 1366],
+    ['12 06 05 00 95 22 05 00', 885.3], ['12 06 05 00 d8 17 05 00', 610.4],
+    ['12 06 05 00 9f 09 05 00', 246.3], ['12 06 05 00 c9 16 05 00', 583.3],
+    ['12 06 15 00 44 10 05 00', -416.4], ['12 06 15 00 9d 09 05 00', -246.1],
+    ['12 06 15 00 22 01 05 00', -29],
+  ];
+  const real = await page.evaluate(async (cases) => {
+    const dec = await import('./assets/js/ble/decode.js');
+    const drv = await import('./assets/js/ble/drivers.js');
+    const d = drv.DRIVERS.find((x) => x.id === 'lefu-fff0');
+    const out = { exact: 0, total: cases.length, worst: 0, matched: 0, negatives: [] };
+    for (const [h, want] of cases) {
+      const b = dec.unhex(h);
+      if (d.match(b)) out.matched++;
+      const got = dec.applyCandidate(d.decoder, b);
+      const err = Math.abs(got - want);
+      if (err < 0.06) out.exact++;
+      if (err > out.worst) out.worst = err;
+      if (want < 0) out.negatives.push(got);
+    }
+    // The auto-decoder must be able to derive this from the captures alone.
+    const samples = cases.map(([h, g]) => ({ bytes: dec.unhex(h), grams: g }));
+    const found = dec.findCandidates(samples, { maxError: 0.15 });
+    out.derived = found.length ? dec.describeCandidate(found[0]) : null;
+    out.derivedErr = found.length ? found[0].error : null;
+    // And the stability bit should flag an unsettled frame.
+    out.stableOnSettled = dec.isStable(d.decoder, dec.unhex('12 06 05 00 45 10 05 00'));
+    out.stableOnMoving = dec.isStable(d.decoder, dec.unhex('12 06 01 00 94 22 05 00'));
+    return out;
+  }, REAL);
+
+  t('hardware: driver decodes every real capture', real.exact === real.total,
+    `${real.exact}/${real.total} exact, worst ${real.worst.toFixed(3)} g`);
+  t('hardware: header matches on every real frame', real.matched === real.total,
+    `${real.matched}/${real.total}`);
+  t('hardware: negative readings stay negative', real.negatives.every((v) => v < 0),
+    real.negatives.map((v) => v.toFixed(1)).join(', '));
+  t('hardware: auto-decoder derives the sign-flag encoding',
+    /sign @2/.test(real.derived ?? ''), `${real.derived} (err ${real.derivedErr?.toFixed(3)})`);
+  t('hardware: stability bit distinguishes settled from moving',
+    real.stableOnSettled === true && real.stableOnMoving === false,
+    `settled=${real.stableOnSettled} moving=${real.stableOnMoving}`);
+
+  // ---- captures exported from elsewhere can be imported ----
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.locator('#advanced').evaluate((d) => { d.open = true; });
+  await page.click('#revalidate');
+  page.once('dialog', (d) => d.accept());
+  await page.click('#clear-caps');
+  await page.waitForTimeout(200);
+  const csv = 'grams,uuid,frame_hex,device,captured_at\n'
+    + REAL.slice(0, 6).map(([h, g]) =>
+        `${g},0000fff3-0000-1000-8000-00805f9b34fb,${h},InSmart,2026-08-28T00:00:00Z`).join('\n') + '\n';
+  await page.setInputFiles('#import-caps', {
+    name: 'captures.csv', mimeType: 'text/csv', buffer: Buffer.from(csv),
+  });
+  await page.waitForFunction(
+    () => /Imported/.test(document.getElementById('cap-msg').textContent), { timeout: 4000 });
+  t('import: capture CSV is accepted', true, await page.textContent('#cap-msg'));
+  const importedRows = await page.locator('#caps-table tbody tr').count();
+  t('import: imported captures appear in the table', importedRows === 6, importedRows + ' rows');
+  const importedCands = await page.locator('#cands .cand').count();
+  t('import: imported captures solve to a candidate', importedCands > 0,
+    importedCands + ' candidates');
+
   // ---- a recognised scale needs no teaching ----
+  // Clear saved profiles first: an earlier block connects the same mock, and a
+  // remembered device short-circuits the detection path this is meant to test.
+  await page.goto(B + '/live.html');
+  await page.evaluate(() => localStorage.removeItem('brewkit.devices.v1'));
   await page.goto(B + '/live.html?mock=lefu');
   await page.waitForFunction(
     () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
