@@ -94,6 +94,10 @@ Two layers:
 
 1. **Hampel prefilter** on the decimated stream. Over a sliding window, compute the median and the median absolute deviation; replace any sample more than ~3·MAD from the median with the median. This kills single-sample spikes without the blunt-instrument delay of a plain median filter.
 2. **Innovation gating in the update.** Compute the normalized innovation `|y|/√S`. If it exceeds ~4σ, this sample is an outlier: inflate `R` for this step only (equivalently, apply a Huber-style bounded gain) rather than rejecting outright. Inflating rather than rejecting is important — a genuine fast transient (someone sets a cup down, the shot suddenly gushes) also produces large innovations, and a hard reject would make the filter blind exactly when the world is changing. Inflating degrades gracefully; rejecting fails hard.
+3. **Step detection above the gate.** Inflating `R` is the right response to *one* bad sample and the wrong response to a step, because the inflation is proportional to the innovation — so the bigger the real change, the less the filter believes it. Track a run of large innovations that all share a sign: one is a droplet impact, several in a row are a cup being set down or a dose being poured in. On a run, snap the state to the measurement and **zero the flow**. Zeroing is the load-bearing half — carrying the velocity a step implies is precisely what makes the estimate slingshot past the true weight.
+
+This was measured, not assumed. The browser implementation without step detection overshot an 18 g step to 25.2 g and took 1.7 s to settle, which is unusable for weighing a dose; with it, no overshoot and one sample of lag. It costs nothing in flow accuracy, and because the process noise no longer has to be large enough to chase steps, it can be tuned for flow smoothness alone — which cut steady-state flow error by about a third.
+
 
 ### Two operating regimes
 

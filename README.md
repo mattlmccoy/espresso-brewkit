@@ -1,9 +1,9 @@
 # espresso·brewkit
 
-**Measurement tools for espresso.** A browser-based toolkit for logging shots,
-propagating measurement uncertainty, and working out which variables actually move
-extraction yield — plus the design for an open-source scale that records all of it
-without a phone.
+**Measurement tools for espresso.** A browser-based toolkit for pulling a shot with
+a Bluetooth scale streaming into the log, propagating measurement uncertainty, and
+working out which variables actually move extraction yield — plus the design for an
+open-source scale that records all of it without a phone.
 
 **→ [Open the tools](https://mattlmccoy.github.io/espresso-brewkit/)**
 
@@ -17,12 +17,76 @@ plain CSV you own.
 
 | | |
 |---|---|
+| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session: weigh the beans, weigh the grounds, pull the shot, rate it. Streams from a Bluetooth scale and writes one complete row. |
+| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags and grinders as real objects, so a shot records what it was made with and how stale the coffee was on the day. |
+| **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
 | **[Calculator](https://mattlmccoy.github.io/espresso-brewkit/calculator.html)** | Brix → TDS → extraction yield, brew ratio, solids in the cup, average flow. Plus the ratio you'd need to hit a target yield. |
 | **[Shot log](https://mattlmccoy.github.io/espresso-brewkit/logger.html)** | Record shots, derive everything downstream, import and export one CSV. Reads the old one-file-per-shot format too. |
 | **[Explore](https://mattlmccoy.github.io/espresso-brewkit/explore.html)** | Regress any response against one variable or two. Confidence bands, residual plots, a rotatable 3D plane fit, and a correlation matrix. |
 | **[Quality](https://mattlmccoy.github.io/espresso-brewkit/quality.html)** | Outlier detection by three methods, and the repeatability statistics that tell you whether your data can support a conclusion at all. |
-| **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | Stream weight from a Bluetooth scale, watch the shot pour, and save the curve straight to the log. Includes a demo that needs no hardware. |
 | **[Uncertainty](https://mattlmccoy.github.io/espresso-brewkit/uncertainty.html)** | GUM propagation through the yield equation, with a variance budget showing which measurement is actually limiting you. |
+
+## The session
+
+The Live page is five steps — **Prep → Dose → Grind → Brew → Rate** — and produces a
+single row with 35 fields in it, including the flow curve. Every other tool on the
+site reads that row, which is the point: the dose you weighed, the grind you dialled
+and the rating you gave are all in the same table as the extraction yield.
+
+- **Dose and grounds-out are weighed, not assumed.** The difference is retention —
+  the grounds still inside the grinder — which is why a single-dose workflow rarely
+  gives back what you put in.
+- **The curve is kept.** First-drip time, peak flow, steady flow and the late-shot
+  flow slope are computed at full rate, then the curve is stored downsampled to 4 Hz
+  (`t:w|t:w|…`, about 1.4 kB) so a CSV of shots still opens in a spreadsheet.
+- **The stop is predicted, not observed.** The puck keeps dripping after the pump
+  cuts, so stopping when the cup reads the target overshoots it every time. The lag
+  is learned from your own completed shots rather than assumed.
+- **Nothing is required.** No scale, no bag, no rating — every step can be skipped
+  or typed. A tool that insists on the full ceremony before it will time anything
+  gets closed.
+
+## What the curve tells you
+
+Shot time and final weight cannot distinguish a channelled shot from a coarse one;
+both are "22 seconds, 36 grams". The shape can. `diagnose.js` reads four scalars off
+the curve and separates them:
+
+| Signature | Reading |
+|---|---|
+| Flow **rises** through the back half | A channel opened. Grinding finer to fix the sourness makes the next one worse — it's a prep fault. |
+| Flow falls steeply late | Fines migrating down and blocking the basket. Normal in small amounts. |
+| First drop past ~12 s | Close to choking the machine; poor repeatability. |
+| First drop under 3 s with fast flow | The bed is offering almost no resistance. |
+
+An intact puck compacts as it runs, so its flow should **sag**. Flow that climbs is
+water finding a path with less resistance than the bed around it, and that is the
+one finding you cannot get from a stopwatch.
+
+## Two models
+
+**"What grind hits my target time?"** is physics. Flow through a packed bed is
+Darcy's law, permeability goes as the square of particle size, and a grinder dial is
+roughly linear in burr gap — so `log(flow)` comes out near-linear in dial setting.
+Fit it, invert it, done. Usable after about three shots.
+
+The grind sensitivity is **partially pooled**: it is mostly a property of the
+grinder, not the bag, because the same dial step moves the burrs the same distance
+whatever is in the hopper. So it is estimated across every shot on that grinder and
+shrunk toward, rather than refit from the two shots a fresh bag has. The intercept
+stays bag-specific, since how much a particular coffee resists is exactly what
+changes between bags. The page says which half of the answer it borrowed.
+
+**"What grind tastes best?"** is not physics — nobody has a model of your palate. So
+it is a search: a Matérn 5/2 Gaussian process over your ratings, with expected
+improvement picking the next setting to try, and a distance penalty so it does not
+tell you to jump eight steps on the strength of six shots. It needs closer to ten
+rated shots, and it says so instead of guessing.
+
+Ratings are ordinal — the step from 6 to 7 is not necessarily the step from 8 to 9 —
+and this treats them as continuous with a generous noise term. That approximation is
+stated in the UI, because it is why the suggestion is a place to look rather than an
+answer.
 
 ## Three things this does that a spreadsheet won't
 
@@ -51,6 +115,16 @@ stream with a constant-velocity Kalman filter (`site/assets/js/core/filter.js`),
 because most scales report weight only, and differencing a smoothed weight signal
 costs filter delay twice and amplifies the noise you just removed.
 
+**Steps are detected, not filtered.** A constant-velocity model is a good
+description of espresso and a terrible one of putting 18 g of beans on a scale: a
+step has no velocity, so the filter can only explain a jump as an enormous one, and
+it slingshots past. The plain version overshot an 18 g step to 25 g and took 1.7 s
+to settle. Now a single large innovation is still damped as a droplet impact or a
+knock, but several in a row all in the same direction are taken as the world having
+genuinely changed — believe the scale, zero the flow, carry on. That settles in one
+sample with no overshoot, and it frees the process noise to be tuned for flow
+smoothness alone rather than for chasing steps.
+
 **Browser support is the real constraint.** Chrome, Edge and Opera have Web
 Bluetooth; Firefox and Safari do not, and on iOS no browser does. It also needs a
 secure context, which GitHub Pages provides but a plain-http LAN address does not.
@@ -75,7 +149,8 @@ will connect through, so building this is not throwaway work.
 
 ```
 site/       the GitHub Pages app — plain HTML + ES modules, no build step
-  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters
+  assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters,
+                     bags and grinders, curve diagnosis, the two advisor models
   assets/js/ble/     Web Bluetooth transport, protocol auto-decoder, mock scale
 data/       shots.csv (canonical dataset) + the original per-shot files
 design/     specification for the scale hardware and firmware
@@ -94,10 +169,19 @@ npm run serve                 # prints a local URL, serves site/ with data/ moun
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-57 assertions across all five tools in both themes: the analysis results, the legacy
-CSV import path, the 3D drag interaction, theme persistence, font loading, WCAG
-contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing, and the
-absence of rhetorical-question headings.
+162 assertions across all eight tools in both themes: the analysis results, the
+legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
+WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
+and the absence of rhetorical-question headings.
+
+The models are tested against ground truth rather than against themselves. The
+resistance fit is given shots generated from a known `log(Q) = a + b·grind + c·days`
+and has to recover `b` and `c`; the recommendation has to match the closed-form
+inverse; the curve metrics have to recover a flow profile whose peak, steady rate
+and late slope are known by construction; and the filter has to survive a step, a
+droplet impact, a slow pour and a whole shot. Refusals are tested too — the advisor
+must decline to fit two shots, or eight shots all at the same setting, rather than
+emitting a confident number.
 
 ```bash
 npm install

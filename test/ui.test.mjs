@@ -146,7 +146,8 @@ try {
   const FAMILIES = ['Archivo', 'Archivo Black', 'Space Mono'];
   for (const [name, url] of [['home','/index.html'],['calculator','/calculator.html'],
       ['logger','/logger.html'],['explore','/explore.html'],['quality','/quality.html'],
-      ['uncertainty','/uncertainty.html']]) {
+      ['uncertainty','/uncertainty.html'],['kit','/kit.html'],['advisor','/advisor.html'],
+      ['live','/live.html']]) {
     await page.goto(B + url);
     await page.waitForTimeout(250);
     const loaded = await page.evaluate(async () => { await document.fonts.ready;
@@ -312,10 +313,37 @@ try {
   const w2 = await page.evaluate(() => parseFloat(document.getElementById('o-w').textContent));
   t('live: net weight climbs during extraction', w2 > w1 && w1 >= 0, `${w1} g -> ${w2} g`);
 
+  // Saving is on the Rate step now, and Stop is what turns a running curve into
+  // the scalars a record is made of. Walking that path is the test.
   const shotsBefore = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
+  await page.click('#stop');
+  await page.waitForFunction(() => /g in/.test(document.getElementById('live-msg').textContent),
+    { timeout: 5000 });
+  await page.click('#stepper button[data-step="rate"]');
+  await page.click('#r-rate button:nth-child(7)');
+  await page.click('#r-tags button:nth-child(3)');
   await page.click('#save');
-  const shotsAfter = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length);
-  t('live: captured shot saves to the log', shotsAfter === shotsBefore + 1, shotsBefore + ' -> ' + shotsAfter);
+  await page.waitForFunction(() => /Saved/.test(document.getElementById('save-msg').textContent),
+    { timeout: 5000 });
+  const shots = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]'));
+  const last = shots.at(-1) ?? {};
+  t('live: captured shot saves to the log', shots.length === shotsBefore + 1,
+    shotsBefore + ' -> ' + shots.length);
+  t('live: the saved row carries the flow curve',
+    typeof last.curve === 'string' && last.curve.split('|').length > 4,
+    (last.curve ?? '').slice(0, 40) + '…');
+  t('live: curve scalars are wired into the record',
+    Number.isFinite(last.peak_flow_gs) && Number.isFinite(last.steady_flow_gs)
+      && Number.isFinite(last.flow_slope_late),
+    `peak ${last.peak_flow_gs}, steady ${last.steady_flow_gs}, late ${last.flow_slope_late}`);
+  t('live: rating and tags are recorded', last.rating === 7 && last.tags === 'balanced',
+    `${last.rating} / ${last.tags}`);
+  t('live: yield and time come from the curve, not a guess',
+    last.yield_g > 1 && last.time_s > 1 && Math.abs(last.ratio - last.yield_g / last.dose_g) < 1e-6,
+    `${last.yield_g} g in ${last.time_s} s, ratio ${last.ratio?.toFixed?.(2)}`);
+  t('live: the diagnosis is shown where the shot ends',
+    (await page.locator('#r-diag').innerText()).trim().length > 10,
+    (await page.locator('#r-diag').innerText()).replace(/\s+/g, ' ').slice(0, 70));
 
   // ---- the profile is remembered on reconnect ----
   // The whole point: a scale set up once is not set up again.
@@ -485,6 +513,345 @@ try {
   await page.waitForTimeout(300);
   const rowsAfter = await page.locator('#caps-table tbody tr').count();
   t('captures: survive a reload', rowsAfter === rowsBefore, `${rowsBefore} -> ${rowsAfter}`);
+
+
+
+  // ---- the weight readout has to be usable for weighing, not just for shots ----
+  // A constant-velocity filter explains a step as an enormous velocity and
+  // slingshots past it: this overshot an 18 g dose to 25 g and took 1.7 s to
+  // settle. That is the regression this locks down.
+  const filt = await page.evaluate(async () => {
+    const { FlowEstimator } = await import('./assets/js/core/filter.js');
+    let seed = 9;
+    const n = (s = 0.03) => { seed = (seed * 1103515245 + 12345) % 2147483648;
+      return (seed / 2147483648 - 0.5) * s * 2; };
+    const out = {};
+
+    // 18 g placed on the scale at t = 2, streamed at 10 Hz.
+    {
+      const est = new FlowEstimator(); const rows = [];
+      for (let i = 0; i < 120; i++) { const t = i * 0.1; const truth = t < 2 ? 0 : 18;
+        rows.push({ t: +t.toFixed(1), w: est.step(t, truth + n()).weight }); }
+      const after = rows.filter((r) => r.t >= 2);
+      out.overshoot = Math.max(...after.map((r) => r.w));
+      out.settle = after.find((r) => Math.abs(r.w - 18) < 0.1).t - 2;
+    }
+    // A single droplet slam is damped, not believed.
+    {
+      const est = new FlowEstimator(); let w = 0; let worst = 0;
+      for (let i = 0; i < 200; i++) { const t = i * 0.1;
+        const truth = t < 2 ? 0 : t < 28 ? 1.8 : 0; w += truth * 0.1;
+        const r = est.step(t, w + (i === 120 ? 3.5 : 0) + n());
+        if (i >= 120 && i <= 125) worst = Math.max(worst, Math.abs(r.weight - w)); }
+      out.spikeError = worst;
+      out.spikeSteps = est.steps;
+    }
+    // Beans trickling in is not a step, and must not be treated as one.
+    {
+      const est = new FlowEstimator(); let w = 0; let resets = 0;
+      for (let i = 0; i < 200; i++) { const t = i * 0.1; const rate = t > 2 && t < 8 ? 3 : 0;
+        w += rate * 0.1; if (est.step(t, w + n()).step) resets++; }
+      out.pourResets = resets; out.pourFinal = est.w; out.pourTruth = w;
+    }
+    // Flow through a whole shot: the number the curve diagnosis rests on.
+    {
+      const est = new FlowEstimator(); let w = 0; const err = [];
+      for (let i = 0; i < 400; i++) { const t = i * 0.1;
+        const truth = t < 2 ? 0 : t < 5 ? (t - 2) * 0.6 : t < 28 ? 1.8 - (t - 5) * 0.012 : 0;
+        w += truth * 0.1; const r = est.step(t, w + n());
+        if (t > 6 && t < 27) err.push(r.flow - truth); }
+      out.flowRms = Math.sqrt(err.reduce((s, v) => s + v * v, 0) / err.length);
+      out.shotSteps = est.steps;
+    }
+    return out;
+  });
+  t('filter: an 18 g step does not overshoot', filt.overshoot < 18.3,
+    `peaked at ${filt.overshoot.toFixed(2)} g (was 25.18)`);
+  t('filter: a placed mass settles within 0.3 s', filt.settle <= 0.3,
+    `${filt.settle.toFixed(1)} s (was 1.7)`);
+  t('filter: a single droplet impact is damped, not believed',
+    filt.spikeError < 0.6 && filt.spikeSteps === 0,
+    `worst ${filt.spikeError.toFixed(2)} g off, ${filt.spikeSteps} step resets`);
+  t('filter: a slow pour is not mistaken for a step',
+    filt.pourResets === 0 && Math.abs(filt.pourFinal - filt.pourTruth) < 0.1,
+    `${filt.pourResets} resets, ${filt.pourFinal.toFixed(2)} of ${filt.pourTruth.toFixed(2)} g`);
+  t('filter: flow tracking through a shot stays accurate',
+    filt.flowRms < 0.06 && filt.shotSteps === 0,
+    `${filt.flowRms.toFixed(4)} g/s RMS, ${filt.shotSteps} spurious resets`);
+
+  // ================================================================ workflow
+  // Bags, grinders, the five-step session, and the two models that read them.
+
+  // ---- diagnosis separates the failure modes that look alike ----
+  await page.goto(B + '/live.html');
+  const diag = await page.evaluate(async () => {
+    const d = await import('./assets/js/core/diagnose.js');
+    const build = (f) => {
+      const c = []; let w = 0;
+      for (let t = 0; t <= 34; t += 0.025) { w += Math.max(0, f(t)) * 0.025; c.push([+t.toFixed(3), +w.toFixed(3)]); }
+      return c;
+    };
+    const codes = (curve, extra) => {
+      const m = d.curveMetrics(curve);
+      return { m, codes: d.diagnose({ ...m, time_s: m.duration_s, ...extra }).map((x) => x.code) };
+    };
+    return {
+      // Healthy: ramps up, sags gently, pump cuts at 28 s.
+      clean: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.6 : t < 28 ? 1.8 - (t - 5) * 0.012 : 0.05), { ratio: 2 }),
+      // A channel opening at 16 s: flow climbs when it should be sagging.
+      channel: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5 : t < 30 ? 1.4 + Math.max(0, t - 16) * 0.09 : 0.04), { ratio: 2.4 }),
+      // Choked: nothing for 14 s, then a trickle.
+      choked: codes(build((t) => (t < 14 ? 0 : t < 33 ? 0.45 : 0)), { ratio: 1.4 }),
+      // Gusher: water through almost immediately, fast throughout.
+      gusher: codes(build((t) => (t < 1 ? 0 : t < 12 ? 2.9 : 0.03)), { ratio: 2 }),
+    };
+  });
+  t('diagnose: a clean curve is reported as clean', diag.clean.codes.length === 0,
+    diag.clean.codes.join(',') || 'no findings');
+  t('diagnose: a late flow rise is called channelling', diag.channel.codes.includes('channeling'),
+    diag.channel.codes.join(','));
+  t('diagnose: channelling is not confused with a slow shot',
+    !diag.channel.codes.includes('choked'), diag.channel.codes.join(','));
+  t('diagnose: a long pre-drip is called choked', diag.choked.codes.includes('choked'),
+    diag.choked.codes.join(','));
+  t('diagnose: a fast free-flowing shot is called a gusher', diag.gusher.codes.includes('gusher'),
+    diag.gusher.codes.join(','));
+  // The metrics are what the diagnosis rests on, so check them against a curve
+  // whose true peak, steady rate and late slope are known by construction.
+  t('diagnose: curve metrics recover the true flow profile',
+    Math.abs(diag.clean.m.peak_flow_gs - 1.8) < 0.05
+    && Math.abs(diag.clean.m.steady_flow_gs - 1.66) < 0.06
+    && Math.abs(diag.clean.m.flow_slope_late + 0.012) < 0.01,
+    `peak ${diag.clean.m.peak_flow_gs} (1.8), steady ${diag.clean.m.steady_flow_gs} (1.66), `
+      + `late ${diag.clean.m.flow_slope_late} (-0.012)`);
+  t('diagnose: the drip tail is trimmed before the slope is measured',
+    Math.abs(diag.clean.m.duration_s - 28) < 0.5, diag.clean.m.duration_s + ' s of 34 s recorded');
+
+  // ---- the resistance model recovers a slope it was never told ----
+  const advisorMath = await page.evaluate(async () => {
+    const a = await import('./assets/js/core/advisor.js');
+    const grinder = { id: 'g', name: 'Test', min: 0, max: 40, step: 0.5 };
+    // Ground truth: log Q = -1.0 + 0.22·grind - 0.008·days, plus a little noise.
+    let seed = 7;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 - 0.5; };
+    const shots = [[10, 3], [12, 5], [14, 7], [11, 9], [13, 11], [15, 13], [9, 15], [12.5, 17]]
+      .map(([g, d], i) => ({
+        shot_id: 's' + i, grinder_id: 'g', bag_id: 'b', grind_setting: g, days_off_roast: d,
+        steady_flow_gs: +Math.exp(-1.0 + 0.22 * g - 0.008 * d + rnd() * 0.06).toFixed(3),
+        dose_g: 18, yield_g: 36, rating: Math.round(8 - 0.35 * Math.abs(g - 12.5) ** 1.6 + rnd()),
+      }));
+    const fit = a.fitResistance(shots, { grinderId: 'g', bagId: 'b' });
+    const rec = a.recommendGrind(shots, { grinderId: 'g', bagId: 'b', grinder, targetTimeS: 28,
+      targetDoseG: 18, targetRatio: 2, days: 12, currentSetting: 13 });
+    const closed = (Math.log(36 / 28) + 1.0 + 0.008 * 12) / 0.22;
+    const taste = a.suggestByTaste(shots, { grinderId: 'g', bagId: 'b', grinder, currentSetting: 13 });
+    return {
+      b: fit.b, c: fit.c, lambda: fit.lambda, setting: rec.setting, closed,
+      confidence: rec.confidence,
+      thin: a.fitResistance(shots.slice(0, 2), { grinderId: 'g' }),
+      flat: a.fitResistance(shots.map((s) => ({ ...s, grind_setting: 12 })), { grinderId: 'g' }),
+      taste: { ok: taste.ok, n: taste.n, setting: taste.setting, peak: taste.modelPeak },
+      unrated: a.suggestByTaste(shots.slice(0, 3), { grinderId: 'g', bagId: 'b', grinder }),
+    };
+  });
+  t('advisor: recovers the true grind sensitivity', Math.abs(advisorMath.b - 0.22) < 0.02,
+    `b = ${advisorMath.b.toFixed(4)} (true 0.22)`);
+  t('advisor: recovers the true staleness coefficient', Math.abs(advisorMath.c + 0.008) < 0.003,
+    `c = ${advisorMath.c.toFixed(5)} (true -0.008)`);
+  t('advisor: the recommendation matches the closed-form inverse',
+    Math.abs(advisorMath.setting - advisorMath.closed) < 0.4,
+    `${advisorMath.setting} vs ${advisorMath.closed.toFixed(2)}`);
+  t('advisor: partial pooling weights the bag against the grinder',
+    advisorMath.lambda > 0 && advisorMath.lambda < 1, 'lambda ' + advisorMath.lambda.toFixed(2));
+  t('advisor: refuses to fit two shots rather than inventing a slope',
+    advisorMath.thin.ok === false && /at least 3/.test(advisorMath.thin.reason), advisorMath.thin.reason);
+  t('advisor: refuses when every shot used the same setting',
+    advisorMath.flat.ok === false && /same grind/.test(advisorMath.flat.reason), advisorMath.flat.reason);
+  t('advisor: the taste search finds the rated optimum',
+    advisorMath.taste.ok && Math.abs(advisorMath.taste.peak.setting - 12.5) <= 1,
+    `peak at ${advisorMath.taste.peak?.setting} (ratings peak at 12.5)`);
+  t('advisor: the taste search declines with too few ratings',
+    advisorMath.unrated.ok === false && /at least 4/.test(advisorMath.unrated.reason),
+    advisorMath.unrated.reason);
+
+  // ---- Kit: a bag and a grinder, through the UI ----
+  await page.goto(B + '/kit.html');
+  await page.fill('#b-name', 'Test Guji');
+  await page.fill('#b-roaster', 'Test Roasters');
+  await page.fill('#b-weight', '250');
+  const roasted = new Date(Date.now() - 9 * 86400000).toISOString().slice(0, 10);
+  await page.fill('#b-roast', roasted);
+  await page.click('#b-save');
+  await page.waitForFunction(() => /Added/.test(document.getElementById('b-msg').textContent));
+  const bagCards = await page.locator('#bags .bx').count();
+  t('kit: a bag is saved and listed', bagCards === 1, bagCards + ' bag(s)');
+  t('kit: days off roast is shown, not the raw date',
+    /9 d off roast/i.test(await page.innerText('#bags')),
+    (await page.innerText('#bags')).replace(/\s+/g, ' ').slice(0, 80));
+
+  await page.fill('#g-name', 'Test DF64');
+  await page.fill('#g-min', '0'); await page.fill('#g-max', '40'); await page.fill('#g-step', '0.5');
+  await page.click('#g-save');
+  await page.waitForFunction(() => /Added/.test(document.getElementById('g-msg').textContent));
+  t('kit: a grinder is saved and listed', (await page.locator('#grinders .bx').count()) === 1,
+    await page.innerText('#grinders'));
+
+  await page.fill('#g-name', 'Broken'); await page.fill('#g-max', '-5');
+  await page.click('#g-save');
+  t('kit: a nonsense dial range is refused', /above dial min/.test(await page.textContent('#g-msg')),
+    await page.textContent('#g-msg'));
+
+  const kitIds = await page.evaluate(() => ({
+    bag: JSON.parse(localStorage.getItem('brewkit.bags.v1'))[0].id,
+    grinder: JSON.parse(localStorage.getItem('brewkit.grinders.v1'))[0].id,
+  }));
+  t('kit: saved records get a real id', /^bag-\d+$/.test(kitIds.bag ?? '')
+    && /^grinder-\d+$/.test(kitIds.grinder ?? ''), `${kitIds.bag} / ${kitIds.grinder}`);
+  // An option with no value attribute falls back to matching on its label, which
+  // is how a missing id stayed invisible until a saved row had no bag on it.
+  await page.goto(B + '/logger.html');
+  const bagOptionValues = await page.$$eval('#bag option', (os) => os.map((o) => o.value));
+  t('kit: selects carry ids as option values, not labels',
+    bagOptionValues.includes(kitIds.bag), bagOptionValues.join(' | '));
+  await page.goto(B + '/kit.html');
+
+  // ---- the session flow, end to end, against the recognised mock scale ----
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.click('#stepper button[data-step="prep"]');
+  t('session: the stepper marks the current step',
+    (await page.getAttribute('#stepper button[data-step="prep"]', 'aria-current')) === 'step');
+  await page.selectOption('#p-bag', kitIds.bag);
+  await page.selectOption('#p-grinder', kitIds.grinder);
+  await page.fill('#p-grind', '12.5');
+  await page.fill('#p-dose', '18.2');
+  await page.fill('#p-ratio', '2');
+  t('session: the target is stated in the units you set it in',
+    /18\.2 g in, 36\.4 g out/.test(await page.textContent('#p-target')),
+    await page.textContent('#p-target'));
+
+  await page.click('#stepper button[data-step="dose"]');
+  await page.fill('#d-manual', '18.2');
+  await page.click('#stepper button[data-step="grind"]');
+  await page.fill('#g-manual', '17.9');
+  t('session: retention is derived from dose and grounds out',
+    /retention 0\.30 g \(1\.6%\)/.test(await page.textContent('#g-retention')),
+    await page.textContent('#g-retention'));
+
+  await page.click('#stepper button[data-step="brew"]');
+  await page.click('#arm');
+  await page.waitForFunction(
+    () => document.getElementById('state').dataset.state === 'extracting', { timeout: 20000 });
+  await page.waitForTimeout(4000);
+  await page.click('#stop');
+  await page.waitForFunction(() => /g in/.test(document.getElementById('live-msg').textContent),
+    { timeout: 5000 });
+  t('session: the shot summary reports the curve scalars',
+    /First drip/i.test(await page.innerText('#b-summary'))
+    && /Steady flow/i.test(await page.innerText('#b-summary')),
+    (await page.innerText('#b-summary')).replace(/\s+/g, ' ').slice(0, 70));
+
+  await page.click('#stepper button[data-step="rate"]');
+  await page.click('#r-rate button:nth-child(8)');
+  await page.click('#save');
+  await page.waitForFunction(() => /Saved/.test(document.getElementById('save-msg').textContent),
+    { timeout: 5000 });
+  const rec = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1')).at(-1));
+  t('session: the row links to the bag and the grinder',
+    rec.bag_id && rec.grinder_id && rec.grind_setting === 12.5,
+    `${rec.bag_id} / ${rec.grinder_id} @ ${rec.grind_setting}`);
+  t('session: the bag is copied onto the row so the CSV stands alone',
+    rec.bean_name === 'Test Guji' && rec.roaster === 'Test Roasters',
+    `${rec.roaster} — ${rec.bean_name}`);
+  t('session: days off roast is frozen at the time of the shot', rec.days_off_roast === 9,
+    String(rec.days_off_roast));
+  t('session: dose, grounds out and retention are all on the row',
+    rec.dose_g === 18.2 && rec.grounds_out_g === 17.9 && Math.abs(rec.retention_g - 0.3) < 0.001,
+    `${rec.dose_g} / ${rec.grounds_out_g} / ${rec.retention_g}`);
+  t('session: the rating is recorded', rec.rating === 8, String(rec.rating));
+
+  // Reopening should not make you re-pick the bag you were already using.
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.click('#stepper button[data-step="prep"]');
+  t('session: the last coffee, grinder and grind come back',
+    (await page.inputValue('#p-grind')) === '12.5'
+    && (await page.$eval('#p-bag', (e) => e.value)) === kitIds.bag,
+    `${await page.$eval('#p-bag', (e) => e.value)} @ ${await page.inputValue('#p-grind')}`);
+  // A sticky default that overwrites what you are typing is worse than no default.
+  await page.fill('#p-dose', '20');
+  await page.waitForTimeout(150);
+  t('session: sticky defaults do not fight the keyboard',
+    (await page.inputValue('#p-dose')) === '20', await page.inputValue('#p-dose'));
+
+  // ---- the advisor page renders what the models produce ----
+  await page.evaluate((ids) => {
+    const shots = JSON.parse(localStorage.getItem('brewkit.shots.v1'));
+    let seed = 11;
+    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 - 0.5; };
+    [[10, 3], [12, 5], [14, 7], [11, 9], [13, 11], [15, 13], [9, 15]].forEach(([g, d], i) => {
+      shots.push({
+        shot_id: 'seed-' + i, timestamp: '2026-01-0' + (i + 1) + ' 09:00:00',
+        grinder_id: ids.grinder, bag_id: ids.bag, grind_setting: g, days_off_roast: d,
+        steady_flow_gs: +Math.exp(-1.0 + 0.22 * g - 0.008 * d + rnd() * 0.06).toFixed(3),
+        dose_g: 18, yield_g: 36, time_s: 28, rating: Math.round(8 - 0.35 * Math.abs(g - 12.5) ** 1.6 + rnd()),
+      });
+    });
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify(shots));
+  }, kitIds);
+  await page.goto(B + '/advisor.html');
+  await page.selectOption('#grinder', kitIds.grinder);
+  await page.selectOption('#bag', kitIds.bag);
+  await page.fill('#cur', '13');
+  await page.waitForTimeout(300);
+  const recText = await page.innerText('#rec');
+  t('advisor page: a grind recommendation is rendered', /\d/.test(recText) && !/Not enough/.test(recText),
+    recText.replace(/\s+/g, ' ').slice(0, 90));
+  t('advisor page: it says which part of the model is borrowed',
+    /grinder-wide|borrowed entirely/.test(recText), /grinder-wide/.test(recText) ? 'pooled slope explained' : recText.slice(0, 60));
+  t('advisor page: the taste search renders a suggestion',
+    !/Nothing to search/.test(await page.innerText('#taste')),
+    (await page.innerText('#taste')).replace(/\s+/g, ' ').slice(0, 70));
+  // Scoping is the point of the selects: without it the 15 legacy sample shots,
+  // whose grind settings are nominal micron values in the hundreds, land in the
+  // same regression as dial settings of 9–15 and the fit becomes nonsense.
+  const resPts = await page.locator('#res-chart svg circle.pt').count();
+  t('advisor page: the resistance plot is scoped to the chosen grinder',
+    resPts >= 7 && resPts <= 10, resPts + ' points (7 seeded + this session)');
+  const recSetting = Number((recText.match(/^\s*([\d.]+)/) ?? [])[1]);
+  t('advisor page: the recommendation lands on a dial position that exists',
+    recSetting >= 0 && recSetting <= 40, String(recSetting));
+  t('advisor page: the rating curve is drawn with its uncertainty band',
+    (await page.locator('#taste-chart svg path.band').count()) === 1
+    && (await page.locator('#taste-chart svg circle.pt').count()) >= 7,
+    (await page.locator('#taste-chart svg circle.pt').count()) + ' rated points');
+
+  // ---- the logger writes the same shape the session does ----
+  await page.goto(B + '/logger.html');
+  await page.selectOption('#bag', kitIds.bag);
+  await page.fill('#dose', '18'); await page.fill('#yield', '36');
+  await page.fill('#rating', '6'); await page.fill('#tags', 'sour thin');
+  await page.click('#add');
+  await page.waitForFunction(() => /Added/.test(document.getElementById('add-msg').textContent));
+  const manual = await page.evaluate(() => JSON.parse(localStorage.getItem('brewkit.shots.v1')).at(-1));
+  t('logger: a hand-entered shot carries the bag and the rating',
+    manual.bag_id === kitIds.bag && manual.rating === 6 && manual.tags === 'sour thin'
+    && manual.bean_name === 'Test Guji',
+    `${manual.bean_name} · ${manual.rating} · ${manual.tags}`);
+  t('logger: the table shows the coffee and the rating',
+    /Test Guji/.test(await page.innerText('#tbl')) , 'coffee column present');
+
+  // ---- every page carries the same navigation ----
+  for (const p of ['index', 'live', 'kit', 'advisor', 'calculator', 'logger', 'explore', 'quality', 'uncertainty']) {
+    await page.goto(`${B}/${p}.html`);
+    const hrefs = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
+    if (!hrefs.includes('./kit.html') || !hrefs.includes('./advisor.html')) {
+      t(`nav: ${p}.html links to the new tools`, false, hrefs.join(' '));
+    }
+  }
+  t('nav: every page links to Kit and Advisor', true, '9 pages checked');
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
