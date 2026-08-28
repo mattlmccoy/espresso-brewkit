@@ -220,6 +220,31 @@ try {
   t('mobile: no horizontal page overflow', mobileOverflow <= 1, mobileOverflow + 'px');
   await page.setViewportSize({ width: 1400, height: 1000 });
 
+  // ---- form controls actually render and respond ----
+  // The global `appearance: none` on inputs once stripped checkboxes of their
+  // native rendering, so they toggled invisibly and read as dead controls.
+  await page.goto(B + '/live.html');
+  await page.waitForSelector('#wide');
+  const cb = await page.evaluate(() => {
+    const el = document.getElementById('wide');
+    const cs = getComputedStyle(el);
+    const r = el.getBoundingClientRect();
+    return { appearance: cs.appearance, w: Math.round(r.width), h: Math.round(r.height) };
+  });
+  t('controls: checkbox keeps its native rendering',
+    cb.appearance !== 'none' && cb.w > 8 && cb.h > 8,
+    `appearance:${cb.appearance} ${cb.w}x${cb.h}`);
+
+  const wideWas = await page.isChecked('#wide');
+  await page.click('#wide');
+  const wideNow = await page.isChecked('#wide');
+  t('controls: checkbox toggles on click', wideWas !== wideNow, `${wideWas} -> ${wideNow}`);
+
+  // Clicking the wrapping label must toggle it too — that is most of its hit area.
+  await page.click('.check');
+  t('controls: label click toggles the checkbox', (await page.isChecked('#wide')) === wideWas,
+    'back to ' + wideWas);
+
   // ---- live capture, driven by the mock scale (no hardware) ----
   await page.goto(B + '/live.html');
   await page.waitForSelector('#demo');
