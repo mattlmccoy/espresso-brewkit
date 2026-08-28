@@ -10,7 +10,13 @@ export class MockScale extends EventTarget {
     this.grams = 0;
     this.seq = 0;
     this.timer = null;
-    this.chars = [{ service: '0000fff0-…', uuid: '0000fff1-…', notify: true, read: false, write: false }];
+    // Full 128-bit UUIDs, as a real device reports them. The abbreviated form
+    // this used to carry was not parseable as a UUID anywhere it was handled.
+    this.chars = [{
+      service: '0000fff0-0000-1000-8000-00805f9b34fb',
+      uuid: '0000fff1-0000-1000-8000-00805f9b34fb',
+      notify: true, read: false, write: false,
+    }];
   }
 
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
