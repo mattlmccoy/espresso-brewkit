@@ -55,8 +55,41 @@
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
   --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
-    --band-a:.09;
+  --band-a:.09;
   --warn-bg:#2e2a12;
+}
+
+/* Green phosphor on black, and one typeface for everything.
+   Not a novelty: this page is almost entirely numbers, read at arm's length
+   beside a machine, often in a dark kitchen — which is the exact condition the
+   palette was designed for. Explicit only, because nothing about a system
+   preference asks for a terminal. */
+:root[data-theme="terminal"] {
+  --bg:#050806; --panel:#0a0f0b; --panel-2:#0f1710;
+  --ink:#6ef58e; --ink-dim:#46c46d; --ink-mute:#3fa862; --hair:#1c3f28;
+  --accent:#7df9ff; --accent-ink:#031008; --fit:#ffb000; --flag:#ffcc33;
+  --tag-fg:#031008;
+  --band-a:.10;
+  --warn-bg:#2a2205;
+  --disp: var(--mono);
+  --sans: var(--mono);
+  /* Thin rules and no offset shadow: a terminal draws boxes, it does not
+     stack paper. */
+  --bw: 1.5px;
+  --sh: 0px;
+}
+/* The glow belongs on the few things that are meant to look emitted, not on
+   body text, where it would cost legibility for atmosphere. */
+:root[data-theme="terminal"] h1,
+:root[data-theme="terminal"] .brand,
+:root[data-theme="terminal"] .st .v,
+:root[data-theme="terminal"] .big .n { text-shadow: 0 0 9px rgb(110 245 142 / 38%); }
+:root[data-theme="terminal"] h1::after {
+  content: '\2588'; margin-left: .18em; opacity: .85; animation: caret 1.06s step-end infinite;
+}
+@keyframes caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="terminal"] h1::after { animation: none; }
 }
 
 * { box-sizing: border-box; }

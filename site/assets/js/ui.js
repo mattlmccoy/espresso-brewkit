@@ -5,28 +5,36 @@ import { config as syncConfig } from './core/sync.js';
 
 const THEME_KEY = 'brewkit.theme';
 
+/**
+ * Three palettes, cycled in order. Light and dark also track the system
+ * preference until you choose one; terminal never does, because nothing about
+ * `prefers-color-scheme` asks for green phosphor.
+ */
+export const THEMES = ['light', 'dark', 'terminal'];
+const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal' };
+
+/** What is on screen right now, whether or not it was chosen. */
+function currentTheme() {
+  const explicit = document.documentElement.getAttribute('data-theme');
+  if (THEMES.includes(explicit)) return explicit;
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
 export function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch { /* blocked storage */ }
-  if (saved === 'dark' || saved === 'light') {
-    document.documentElement.setAttribute('data-theme', saved);
-  }
+  if (THEMES.includes(saved)) document.documentElement.setAttribute('data-theme', saved);
   const btn = document.querySelector('[data-theme-toggle]');
   if (!btn) return;
+  // The button is named for where it takes you, not for where you are.
+  const nextTheme = () => THEMES[(THEMES.indexOf(currentTheme()) + 1) % THEMES.length];
   const paint = () => {
-    const explicit = document.documentElement.getAttribute('data-theme');
-    const dark = explicit
-      ? explicit === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches;
-    btn.textContent = dark ? 'Light' : 'Dark';
-    btn.setAttribute('aria-label', `Switch to ${dark ? 'light' : 'dark'} theme`);
+    const next = nextTheme();
+    btn.textContent = LABEL[next];
+    btn.setAttribute('aria-label', `Switch to the ${LABEL[next].toLowerCase()} theme`);
   };
   btn.addEventListener('click', () => {
-    const explicit = document.documentElement.getAttribute('data-theme');
-    const dark = explicit
-      ? explicit === 'dark'
-      : matchMedia('(prefers-color-scheme: dark)').matches;
-    const next = dark ? 'light' : 'dark';
+    const next = nextTheme();
     document.documentElement.setAttribute('data-theme', next);
     try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
     paint();

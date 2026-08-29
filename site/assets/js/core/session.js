@@ -59,11 +59,34 @@ export const STEP_HINT = {
   rate: 'How was it?',
 };
 
-/** What the machine is waiting for, once it has something worth keeping. */
-export const STEP_CATCH = {
-  dose: 'Lift the cup off to lock it in, or hold still.',
-  grind: 'Lift the portafilter off to lock it in, or hold still.',
-};
+/**
+ * Each weighing step is three phases, because that is how the job is actually
+ * done: fetch a container, fill it, take it away. Naming them is what lets the
+ * screen say "put the portafilter on" instead of "grind into the portafilter
+ * and set it on the scale" — an instruction for the whole step, given while you
+ * are in the middle of one part of it.
+ */
+export const PHASE = { VESSEL: 'vessel', FILL: 'fill', READY: 'ready' };
+
+export const VESSEL_NAME = { dose: 'dosing cup', grind: 'portafilter' };
+const NEXT_NAME = { dose: 'the grind', grind: 'brewing' };
+
+/** The line under the step name: one instruction, for right now. */
+export function prompt(s) {
+  if (s.step !== STEP.DOSE && s.step !== STEP.GRIND) return STEP_HINT[s.step];
+  const vessel = VESSEL_NAME[s.step];
+  if (s.phase === PHASE.VESSEL) {
+    return `Put your ${vessel} on the scale — it tares itself once it settles.`;
+  }
+  if (s.phase === PHASE.FILL) {
+    const to = Number.isFinite(s.target) && s.target > 0 ? ` to ${s.target.toFixed(1)} g` : '';
+    return s.step === STEP.DOSE
+      ? `Tared. Dose your beans${to}.`
+      : `Tared. Grind into it${to}.`;
+  }
+  const g = Number.isFinite(s.candidate) ? `${s.candidate.toFixed(1)} g` : 'That';
+  return `${g} — lift the ${vessel} off to move on to ${NEXT_NAME[s.step]}.`;
+}
 
 export class SessionMachine {
   /**
@@ -79,14 +102,49 @@ export class SessionMachine {
    *                 without pausing, short enough not to feel stuck. Any change
    *                 over 0.3 g restarts it, so adding more never trips it
    */
-  constructor({ minMass = 1, maxMass = 45, dropG = 3, settleFor = 0.6, holdFor = 5 } = {}) {
-    this.o = { minMass, maxMass, dropG, settleFor, holdFor };
+  constructor({ minMass = 1, maxMass = 45, dropG = 3, settleFor = 0.6, holdFor = 5,
+                vesselMin = 20, vesselFor = 0.5, vesselBand = 1.0, vesselWithin = 2,
+                nearFrac = 0.12, nearMin = 1.5 } = {}) {
+    this.o = { minMass, maxMass, dropG, settleFor, holdFor,
+               // A dosing cup is ~50 g and a portafilter ~470 g; the heaviest
+               // dose anyone pulls is under 30. Twenty grams sits between them
+               // with room on both sides.
+               vesselMin, vesselFor, vesselBand,
+               // Seconds from an empty platform to a still reading, under which
+               // the weight was put there rather than poured there.
+               vesselWithin,
+               // "Near enough to your target to call it done." A fraction, with
+               // a floor so an 8 g single is not held to ±1 g.
+               nearFrac, nearMin };
+    this.target = 18;
     this.reset();
+  }
+
+  /** The dose you are aiming for, which is what makes "done" knowable. */
+  setTarget(g) {
+    this.target = Number.isFinite(g) && g > 0 ? g : NaN;
+  }
+
+  /**
+   * Grounds are aimed at the dose that was actually weighed, not at the dial
+   * setting — you ground 18.2 g of beans, so 18.2 g is what should come out,
+   * less whatever the grinder keeps.
+   */
+  targetFor() {
+    if (this.step === STEP.GRIND && Number.isFinite(this.dose)) return this.dose;
+    return this.target;
+  }
+
+  nearTarget(net) {
+    const tgt = this.targetFor();
+    if (!Number.isFinite(tgt) || tgt <= 0) return false;
+    return Math.abs(net - tgt) <= Math.max(this.o.nearMin, tgt * this.o.nearFrac);
   }
 
   reset() {
     this.step = STEP.SETUP;
     this.ready = false;
+    this.phase = PHASE.VESSEL;
     this.dose = null;
     this.grounds = null;
     this.candidate = null;      // the settled reading we would commit right now
@@ -94,6 +152,13 @@ export class SessionMachine {
     this._lastRaw = null;
     this._settledSince = null;
     this._settledAt = null;
+    // A vessel only counts once the platform has been seen empty. Without this,
+    // the cup still standing there from the last step would be tared as the
+    // next step's portafilter.
+    this._sawEmpty = false;
+    this._needTare = false;
+    this._roseAt = null;
+    this._recent = [];
     this._t = 0;
     this.holdLeft = null;       // seconds until an unattended capture, or null
     this.events = [];
@@ -109,6 +174,9 @@ export class SessionMachine {
     this.ready = !!ready;
     if (this.ready && this.step === STEP.SETUP) {
       this.step = STEP.DOSE;
+      // Nothing preceded this step, so whatever is on the scale is the cup you
+      // meant to put there.
+      this._enterVessel(true);
       this._log(this._t, 'Coffee and grinder chosen.');
       return STEP.DOSE;
     }
@@ -120,9 +188,50 @@ export class SessionMachine {
     if (!STEP_ORDER.includes(step)) return;
     this.step = step;
     this.candidate = null;
-    this._settledSince = null;
-    this._settledAt = null;
-    this.holdLeft = null;
+    this._enterVessel(true);
+  }
+
+  /**
+   * Back to looking for a container, with the software tare cleared.
+   *
+   * `sawEmpty` is whether the platform can be trusted as it stands. After an
+   * automatic advance it cannot: the cup that ended the last step may still be
+   * sitting there, and taring it as the next step's portafilter would be
+   * exactly the auto-tare bug again. A jump made by hand is different — someone
+   * clicking "Grind" with the portafilter already on the scale means it.
+   */
+  _enterVessel(sawEmpty = false) {
+    this.phase = PHASE.VESSEL;
+    this._sawEmpty = sawEmpty;
+    this._needTare = true;
+    this._restartPlateau();
+  }
+
+  /**
+   * Has the raw reading stopped moving? Independent of the flow estimator,
+   * which is answering a different question and answers it slowly after a step.
+   */
+  _stableRaw(t, raw, seconds, band) {
+    this._recent.push([t, raw]);
+    while (this._recent.length && t - this._recent[0][0] > seconds) this._recent.shift();
+    if (this._recent.length < 3 || t - this._recent[0][0] < seconds * 0.8) return false;
+    const vals = this._recent.map((r) => r[1]);
+    return Math.max(...vals) - Math.min(...vals) < band;
+  }
+
+  /**
+   * One plateau tracker, pointed at whatever the current phase cares about:
+   * the raw weight while looking for a vessel, the tared weight while filling.
+   * Two trackers would be two things to keep in step for no gain.
+   */
+  _plateau(t, v, settled, band, need) {
+    if (!settled) { this._settledAt = null; this._settledSince = null; return false; }
+    if (this._settledAt === null || Math.abs(v - this._settledAt) > band) {
+      this._settledAt = v;
+      this._settledSince = t;
+      return false;
+    }
+    return t - this._settledSince >= need;
   }
 
   /** Record what the machine decided, so the UI can explain itself. */
@@ -144,7 +253,7 @@ export class SessionMachine {
    * @returns {{committed: string|null, advancedTo: string|null}}
    */
   step_(t, raw, net, settled) {
-    const out = { committed: null, advancedTo: null };
+    const out = { committed: null, advancedTo: null, tareTo: null };
     const prevRaw = this._lastRaw;
     this._lastRaw = raw;
     this._t = t;
@@ -153,40 +262,77 @@ export class SessionMachine {
     const weighing = this.step === STEP.DOSE || this.step === STEP.GRIND;
     if (!weighing) { this.holdLeft = null; return out; }
 
-    // A plateau: settled, held, and in a range a dose could actually occupy.
+    // Asked for by goto() or by a commit: clear the software tare so the next
+    // vessel is measured from the platform rather than from the last one.
+    if (this._needTare) { this._needTare = false; out.tareTo = 0; }
+
+    // Anything light enough is "nothing on the scale", which is what re-arms
+    // vessel detection.
+    if (raw < this.o.vesselMin) this._sawEmpty = true;
+
+    // When the reading last left an empty platform. A cup is *placed* — it goes
+    // from nothing to its full weight in one movement — while a dose is poured,
+    // and climbs over seconds. That difference is the only thing separating a
+    // 30 g cup from a 30 g dose on a scale someone tared themselves.
+    if (raw < this.o.minMass) this._roseAt = null;
+    else if (this._roseAt === null) this._roseAt = t;
+
+    if (this.phase === PHASE.VESSEL) {
+      // Stillness is judged from the raw stream rather than from the flow
+      // estimator's `settled`, which is about whether coffee is running and
+      // stays false for a second or two after any large step. A cup that has
+      // landed is still immediately, and should be tared immediately.
+      if (!this._stableRaw(t, raw, this.o.vesselFor, this.o.vesselBand)) return out;
+
+      // Heavier than any dose, or light enough to be one but placed in a single
+      // movement: either way, a container.
+      const placed = this._roseAt !== null && t - this._roseAt <= this.o.vesselWithin;
+      if (this._sawEmpty && raw >= this.o.vesselMin && (raw > this.o.maxMass || placed)) {
+        out.tareTo = +raw.toFixed(2);
+        this.phase = PHASE.FILL;
+        this._restartPlateau();
+        this._log(t, `Tared the ${VESSEL_NAME[this.step]} at ${raw.toFixed(1)} g.`);
+        return out;
+      }
+      // Still, and at a weight a dose could be: beans straight onto a scale you
+      // tared yourself. There is no vessel coming, and waiting for one would
+      // strand the flow on a step already finished.
+      if (net >= this.o.minMass && net <= this.o.maxMass) {
+        this.phase = PHASE.FILL;
+        this._restartPlateau();
+      } else {
+        return out;
+      }
+    }
+
     const plausible = net >= this.o.minMass && net <= this.o.maxMass;
     if (settled && plausible) {
-      if (this._settledAt === null || Math.abs(net - this._settledAt) > 0.3) {
-        // Still changing — the pour is not over, so the clock starts again. The
-        // candidate stays: it is the last thing worth keeping, and a wobble is
-        // not a reason to forget it.
-        this._settledAt = net;
-        this._settledSince = t;
-        this.holdLeft = null;
-      } else {
-        const held = t - this._settledSince;
-        if (held >= this.o.settleFor) this.candidate = +net.toFixed(2);
-        if (this.candidate !== null) {
+      if (this._plateau(t, net, settled, 0.3, this.o.settleFor)) {
+        this.candidate = +net.toFixed(2);
+        if (this.nearTarget(net)) {
+          // It knows you are done, so it says so and waits. Running a clock at
+          // someone who has been told exactly what to do next is just noise.
+          this.phase = PHASE.READY;
+          this.holdLeft = null;
+        } else {
+          // No target, or nowhere near it: the app cannot tell finished from
+          // paused, so the countdown is the fallback it had before.
+          const held = t - this._settledSince;
           this.holdLeft = Math.max(0, +(this.o.holdFor - held).toFixed(1));
-          if (held >= this.o.holdFor) {
-            return this._commit(t, 'after holding still', out);
-          }
+          if (held >= this.o.holdFor) return this._commit(t, 'after holding still', out);
         }
       }
     } else if (!plausible) {
-      // Out of range: the plateau is over, but the candidate is not. This is
-      // precisely the frame where a lifted cup reads zero, and forgetting the
-      // 18 g it was holding a moment ago would throw away the capture the drop
-      // below is about to make.
       this._restartPlateau();
+      // Emptied back out below a dose: still filling, not finished.
+      if (this.phase === PHASE.READY && net < this.o.minMass) this.phase = PHASE.FILL;
     }
 
     // Raw falling away is the thing leaving the platform — never a tare, which
     // leaves raw exactly where it was.
     if (prevRaw - raw > this.o.dropG) {
       if (this.candidate !== null) {
-        return this._commit(t, this.step === STEP.DOSE
-          ? 'when the cup came off' : 'when the portafilter came off', out);
+        return this._commit(t, `when the ${VESSEL_NAME[this.step]} came off`, out);
       }
       // A drop with no candidate is a tare, or a vessel going on and off. It is
       // not the end of a step, and advancing on it would skip the weighing the
@@ -196,7 +342,6 @@ export class SessionMachine {
     return out;
   }
 
-  /** The plateau is over; what it produced is not. */
   _restartPlateau() {
     this._settledAt = null;
     this._settledSince = null;
@@ -214,7 +359,7 @@ export class SessionMachine {
    * reading holding still, or the button — because the signal differs but what
    * happens next does not.
    */
-  _commit(t, why, out = { committed: null, advancedTo: null }) {
+  _commit(t, why, out = { committed: null, advancedTo: null, tareTo: null }) {
     if (this.candidate === null) return out;
     if (this.step === STEP.DOSE) {
       this.dose = this.candidate;
@@ -233,6 +378,11 @@ export class SessionMachine {
     }
     out.advancedTo = this.step;
     this._clearCandidate();
+    // The next step starts by looking for its own container, from a platform
+    // this one has not seen empty yet.
+    this._enterVessel();
+    if (out.tareTo === null) out.tareTo = 0;
+    this._needTare = false;
     return out;
   }
 
@@ -250,11 +400,11 @@ export class SessionMachine {
   snapshot() {
     return {
       step: this.step,
-      // With something worth keeping, the hint stops being "put beans on the
-      // scale" and becomes what will happen next — which is the whole
-      // difference between guided and merely automatic.
-      hint: this.candidate !== null && STEP_CATCH[this.step]
-        ? STEP_CATCH[this.step] : STEP_HINT[this.step],
+      phase: this.phase,
+      vessel: VESSEL_NAME[this.step] ?? null,
+      target: this.targetFor(),
+      hint: prompt({ step: this.step, phase: this.phase, candidate: this.candidate,
+                     target: this.targetFor() }),
       dose: this.dose,
       grounds: this.grounds,
       candidate: this.candidate,
