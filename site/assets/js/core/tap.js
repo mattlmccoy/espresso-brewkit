@@ -165,9 +165,24 @@ export class TapListener {
     const held = ms(this.press.startT);
 
     if (dev > this.opt.threshold * 0.35) {
-      // Still down. Long enough and it stopped being a gesture: something was
-      // put on the scale, so adopt the new weight as the baseline and forget it.
-      if (held > this.opt.maxObjectMs) {
+      // A HOLD FIRES WHILE IT IS STILL HELD, not when it is let go.
+      //
+      // It used to be emitted on release, and only if the release landed
+      // between minHoldMs and maxObjectMs — a 650 ms window. Nobody hits that.
+      // Told to press and hold, a person holds for as long as feels
+      // deliberate, usually a second and a half or more, by which point this
+      // had already decided a cup was put down and thrown the chord away. The
+      // gesture was unreachable in practice however carefully it was performed.
+      if (!this.press.fired && this.taps.length >= 2 && held >= this.opt.minHoldMs) {
+        this.press.fired = true;
+        this.taps = [];
+        return { type: 'hold', at, taps: 2 };
+      }
+      // Down this long without a chord behind it and it stopped being a
+      // gesture: something was put on the scale, so adopt the new weight and
+      // forget it. Not once it has already been called a hold — that is a
+      // finger resting, and the platter returns when it lifts.
+      if (held > this.opt.maxObjectMs && !this.press.fired) {
         this.press = null;
         this.taps = [];
         this.baseline = w;
@@ -178,11 +193,17 @@ export class TapListener {
     // Came back. Which gesture depends only on how long it was down.
     const back = Math.abs(w - this.baseline) <= this.opt.returnBand;
     const peak = this.press.peak;
+    const fired = this.press.fired;
     this.press = null;
     // Report it either way. A press that did not qualify is the interesting
     // one when nothing is firing.
     this.onPress?.({ peak: +peak.toFixed(2), ms: Math.round(held), returned: back,
                      counted: back && held <= this.opt.maxTapMs });
+    // Already spent as a hold. Letting go is not a second gesture.
+    if (fired) {
+      if (!back) this.baseline = w;
+      return null;
+    }
     if (!back) {
       // It returned to somewhere else — a cup lifted, a spill, a knock that
       // moved something. Not a gesture, and the baseline is now wrong.

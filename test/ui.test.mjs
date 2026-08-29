@@ -1648,8 +1648,11 @@ try {
     let fmtA = 0; let fmtB = 0;
     for (let i = 0; i < 15; i++) {
       const a = i < 6 ? m[8][i] : i === 6 ? m[8][7] : i === 7 ? m[8][8] : i === 8 ? m[7][8] : m[14 - i][8];
-      fmtA |= (a & 1) << i;
-      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << i;
+      // Most significant bit first. Reading these back least-significant-first
+      // is what let this check pass over a symbol no real decoder would take:
+      // it agreed with the encoder because the encoder had the same mistake.
+      fmtA |= (a & 1) << (14 - i);
+      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << (14 - i);
     }
     const raw = (fmtA ^ 0x5412) >> 10;
 
@@ -1782,6 +1785,73 @@ try {
     reach.hit === 'watch-phone' && !reach.cellScrolls,
     `point hits ${reach.hit}`);
 
+  // ---- read by something that is not us ----
+  // The gap that let a broken encoder ship. Every QR check in here fed our own
+  // encoder to our own reader, and the two shared a bug: the format information
+  // was written least-significant-bit first, and read back the same way. Self
+  // consistent, and invalid to every real decoder — a phone pointed at one
+  // showed nothing at all, because a camera that cannot parse the format block
+  // never reports finding a code.
+  //
+  // So this is a symbol made by a different encoder entirely, with the modules
+  // written out literally. If our reader can take this, the format block and
+  // the walk agree with the standard rather than merely with themselves.
+  const foreign = await page.evaluate(async (rows) => {
+    const S = await import('./assets/js/core/qrscan.js');
+    const Q = await import('./assets/js/core/qr.js');
+    const mod = rows.map((r) => Int8Array.from([...r].map(Number)));
+    const read = S.decodeMatrix(mod);
+
+    // And the other direction: our own format block, at the cells and in the
+    // order the standard puts them. Level M is 00, so for mask 3 the published
+    // fifteen bits are 101101101001011, most significant first at (8,0).
+    const ours = Q.encode('hello');
+    const bit = (r, c) => (ours.dark(r, c) ? 1 : 0);
+    const copy = [];
+    for (let i = 0; i < 6; i++) copy.push(bit(8, i));
+    copy.push(bit(8, 7), bit(8, 8), bit(7, 8));
+    for (let i = 9; i < 15; i++) copy.push(bit(14 - i, 8));
+    const msbFirst = copy.reduce((a, b, i) => a | (b << (14 - i)), 0) >>> 0;
+    // Recompute what it should be for the mask this symbol actually used.
+    let data = ours.mask;
+    let rem = data;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const want = (((data << 10) | rem) ^ 0x5412) >>> 0;
+    return { read, msbFirst, want, mask: ours.mask,
+             bits: msbFirst.toString(2).padStart(15, '0') };
+  }, [
+      '1111111010011000001111111',
+      '1000001011010110101000001',
+      '1011101010011101101011101',
+      '1011101001110101101011101',
+      '1011101011110000101011101',
+      '1000001000111010101000001',
+      '1111111010101010101111111',
+      '0000000001000111100000000',
+      '1001111110110011110010111',
+      '0010000001011001000111100',
+      '0011001111011001101000001',
+      '0100000101110010001001110',
+      '1000101110101000101000011',
+      '1000110101100101000011010',
+      '1101001011011001101010011',
+      '1010010111110011111101100',
+      '1000111111000101111111111',
+      '0000000011011001100010010',
+      '1111111010010100101010001',
+      '1000001011101101100011000',
+      '1011101011101101111111011',
+      '1011101011100011111000011',
+      '1011101000101010010010011',
+      '1000001001100000001001111',
+      '1111111011001110111010001',
+  ]);
+  t('qr: a symbol from a different encoder reads, so we match the standard',
+    foreign.read === 'brewkit/reader-fixture', JSON.stringify(foreign.read));
+  t('qr: and our own format block is written most-significant-bit first',
+    foreign.msbFirst === foreign.want,
+    `mask ${foreign.mask}: ${foreign.bits} vs ${foreign.want.toString(2).padStart(15, '0')}`);
+
   // ---- reading a code back, which is the half BarcodeDetector would not do ----
   // The offer reaches the phone as a QR and its camera handles that. The reply
   // is the trip that used to be typed, because the browser's own reader is in
@@ -1905,6 +1975,97 @@ try {
     rd.camera.steep && rd.camera.rough, `steep ${rd.camera.steep}, rough ${rd.camera.rough}`);
   t('reader: an empty frame is nothing to report, not an error',
     rd.blank === null && rd.ms < 900, `${rd.blank}, ${rd.ms} ms a frame`);
+
+  // ---- a hold you can actually perform ----
+  // Reported: "tap tap hold doesn't do anything." It could not. The hold was
+  // emitted on release and only if the release landed between minHoldMs and
+  // maxObjectMs — a 650 ms window — so holding for as long as feels deliberate
+  // put it past the point where a press is read as an object being set down.
+  const holdTest = await page.evaluate(async () => {
+    const { TapListener } = await import('./assets/js/core/tap.js');
+    const drive = (script) => {
+      const l = new TapListener();
+      const out = [];
+      let t = 0;
+      const push = (w) => { const g = l.push(+t.toFixed(2), w); if (g) out.push(g.type); t += 0.1; };
+      for (let i = 0; i < 12; i++) push(200);          // a settled platter
+      script(push);
+      for (let i = 0; i < 14; i++) push(200);
+      return out;
+    };
+    const tap = (p) => { p(260); p(200); p(200); };
+    const hold = (p, seconds) => { for (let i = 0; i < seconds * 10; i++) p(262); };
+    const byDuration = {};
+    for (const secs of [0.9, 1.5, 2.5, 4]) {
+      byDuration[secs] = drive((p) => { tap(p); tap(p); hold(p, secs); });
+    }
+    return {
+      byDuration,
+      cupDown: drive((p) => hold(p, 2)),
+      oneTapThenHold: drive((p) => { tap(p); hold(p, 2); }),
+      double: drive((p) => { tap(p); tap(p); }),
+      triple: drive((p) => { tap(p); tap(p); tap(p); }),
+    };
+  });
+  const holds = Object.entries(holdTest.byDuration);
+  t('taps: a hold fires however long it is held, not inside a window',
+    holds.every(([, g]) => g.join() === 'hold'),
+    holds.map(([s, g]) => `${s}s:${g.join('/') || 'nothing'}`).join(' '));
+  t('taps: and letting go is not a second gesture',
+    holds.every(([, g]) => g.length === 1), 'one each');
+  t('taps: a cup set down and lifted is still not a hold',
+    holdTest.cupDown.length === 0 && holdTest.oneTapThenHold.length === 0,
+    `cup ${JSON.stringify(holdTest.cupDown)}, one-tap-then-hold ${JSON.stringify(holdTest.oneTapThenHold)}`);
+  t('taps: two and three taps still mean what they meant',
+    holdTest.double.join() === 'double' && holdTest.triple.join() === 'triple',
+    `${holdTest.double} / ${holdTest.triple}`);
+
+  // ---- calibration is a mode, with a way out ----
+  // Reported: the taps performed to calibrate were also driving the live view,
+  // and it never seemed to end. Both were true.
+  await page.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await page.waitForFunction(() => window.__tuner && window.__sess);
+  const tuner = await page.evaluate(async () => {
+    const read = () => ({
+      badge: document.getElementById('tap-threshold').textContent,
+      button: document.getElementById('tap-learn').textContent,
+      msg: document.getElementById('tap-msg').textContent,
+      owns: window.__tuner.calibrating(),
+      threshold: window.__taps.opt.threshold,
+    });
+    const before = read();
+    document.getElementById('tap-learn').click();
+    const armed = read();
+    // Three taps, as the panel asks for.
+    for (let i = 0; i < 3; i++) {
+      window.__taps.onPress({ peak: 7.4 + i, ms: 130, returned: true, counted: true });
+    }
+    const done = read();
+
+    // Something that is not a tap must not be counted as one.
+    document.getElementById('tap-learn').click();
+    window.__taps.onPress({ peak: 40, ms: 2200, returned: true, counted: false });
+    const afterLean = read();
+    // And cancelling has to put the threshold back, not leave it wide open.
+    document.getElementById('tap-learn').click();
+    const cancelled = read();
+    return { before, armed, done, afterLean, cancelled };
+  });
+  t('taps: arming the tuner hands it the platter, and says so',
+    tuner.armed.owns === true && /Cancel/.test(tuner.armed.button)
+    && /reaches the session/.test(tuner.armed.msg),
+    tuner.armed.msg.slice(0, 60));
+  t('taps: three taps end it, and it says it is done',
+    tuner.done.owns === false && /Learn my taps/.test(tuner.done.button)
+    && /^Done/.test(tuner.done.msg) && tuner.done.threshold > 1.2,
+    tuner.done.msg.slice(0, 64));
+  t('taps: a long lean is not counted as one of the three',
+    /not a tap/.test(tuner.afterLean.msg) && tuner.afterLean.owns === true,
+    tuner.afterLean.msg.slice(0, 56));
+  t('taps: and cancelling puts the threshold back rather than leaving it open',
+    tuner.cancelled.owns === false && tuner.cancelled.threshold === tuner.done.threshold
+    && tuner.cancelled.threshold > 1.2,
+    `left at ${tuner.cancelled.threshold} g, not the 1.2 g it listens at`);
 
   // ---- confidence runs the right way round ----
   // Reported from a real kitchen: 8 g of beans against an 18 g target advanced
@@ -3122,6 +3283,10 @@ try {
     const svg = document.querySelector('#pair-qr svg');
     const side = Math.round(svg.getBoundingClientRect().width);
     return new Promise((res) => {
+      // A promise that only settles on load or error is a test that hangs
+      // rather than fails, and page.evaluate has no timeout of its own.
+      const bail = setTimeout(() => res(false), 8000);
+      const done = (v) => { clearTimeout(bail); res(v); };
       const url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
       const img = new Image();
       img.onload = () => {
@@ -3132,9 +3297,9 @@ try {
         g.drawImage(img, 0, 0, side, side);
         const got = S.scan(g.getImageData(0, 0, side, side));
         URL.revokeObjectURL(url);
-        res(typeof got === 'string' && got.includes('view.html#p='));
+        done(typeof got === 'string' && got.includes('view.html#p='));
       };
-      img.onerror = () => res(false);
+      img.onerror = () => done(false);
       img.src = url;
     });
   });
