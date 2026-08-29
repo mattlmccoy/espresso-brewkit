@@ -217,8 +217,11 @@ export function supplyBoard(bags, shots, now = new Date()) {
     rows.push({
       id: b.id, kind: 'bag', name: b.bean_name || b.id,
       remaining: st.remaining, unit: 'g', pct: st.pct, low: st.low, empty: st.empty,
-      detail: st.shotsLeft === null ? `${st.remaining} g left`
-        : `${st.remaining} g · about ${st.shotsLeft} more shot${st.shotsLeft === 1 ? '' : 's'}`,
+      // `left`, never `remaining`: an over-drawn bag has a negative one, and
+      // "−3912.8 g left" is not something to put on a dashboard.
+      detail: st.empty ? 'used up'
+        : st.shotsLeft === null ? `${st.left} g left`
+          : `${st.left} g · about ${st.shotsLeft} more shot${st.shotsLeft === 1 ? '' : 's'}`,
     });
   }
   for (const c of consumables()) {
@@ -227,7 +230,8 @@ export function supplyBoard(bags, shots, now = new Date()) {
     rows.push({
       id: c.id, kind: 'consumable', name: c.name || c.id,
       remaining: st.remaining, unit: st.unit, pct: st.pct, low: st.low, empty: st.empty,
-      detail: `${st.remaining} ${st.unit} left of ${st.capacity}`,
+      detail: st.empty ? `used up, of ${st.capacity} ${st.unit}`
+        : `${Math.max(0, st.remaining)} ${st.unit} left of ${st.capacity}`,
     });
   }
   return rows.sort((a, b) => a.pct - b.pct);

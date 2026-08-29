@@ -40,6 +40,9 @@ export class MockScale extends EventTarget {
 
   get connected() { return !!this.live; }
 
+  /** A plausible battery, so the chrome around it can be exercised. */
+  async battery() { return 76; }
+
   async subscribeAll() {
     this.timer = setInterval(() => {
       this.emit('frame', { uuid: this.chars[0].uuid, service: this.chars[0].service,

@@ -236,11 +236,9 @@
 
 
     <section class="pane bx panel" data-pane="habits" hidden>
-      <p class="msg" style="margin:0 0 14px">A shot log is a diary whether or not you kept it as
-      one. These are the questions the same rows answer for free.</p>
       <div class="hstats" id="h-stats"></div>
       <div class="cal-head">
-        <span class="tag" style="margin:0">Last six months</span>
+        <span class="tag" style="margin:0">Shots per day</span>
         <span class="cal-key" id="cal-key"></span>
       </div>
       <div class="cal-wrap">
@@ -248,10 +246,10 @@
         <div class="cal" id="cal"></div>
       </div>
       <p class="msg" id="cal-note" style="margin-top:10px"></p>
-      <div class="cell-head" style="margin-top:20px"><span class="tag">When you pull them</span></div>
+      <div class="cell-head" style="margin-top:20px"><span class="tag">Time of day</span></div>
       <div class="hours" id="hours"></div>
       <div class="hour-axis" id="hour-axis"></div>
-      <p class="empty" id="h-empty" hidden>No dated shots yet — pull a few and this fills in.</p>
+      <p class="empty" id="h-empty" hidden>No dated shots yet.</p>
     </section>
 
   <footer class="site-foot">
@@ -753,11 +751,11 @@ function renderHabits() {
     el('div', { class: 'v' }, String(v), u ? el('small', {}, u) : null));
   $('h-stats').replaceChildren(
     stat('Streak', habits.streak(shots), habits.streak(shots) === 1 ? 'day' : 'days'),
-    stat('Last 30 days', sum.shots, 'shots'),
-    stat('On the days you pull', sum.perActiveDay || '—', 'a day'),
+    stat('Shots, 30 days', sum.shots),
+    stat('Per active day', sum.perActiveDay || '—'),
     stat('Beans, 30 days', sum.grams ? fmt(sum.grams / 1000, 2) : '—', 'kg'),
-    stat('Usual day', beat.busiestDay ?? '—'),
-    stat('Usual hour', beat.busiestHour === null ? '—'
+    stat('Busiest day', beat.busiestDay ?? '—'),
+    stat('Peak hour', beat.busiestHour === null ? '—'
       : `${String(beat.busiestHour).padStart(2, '0')}:00`));
 
   $('cal').replaceChildren(...cal.cols.flat().map((c) => el('i', {
@@ -773,13 +771,11 @@ function renderHabits() {
     style: `grid-column:${m.col + 1}`,
   }, habits.MONTHS[m.month])));
   $('cal-key').replaceChildren(
-    document.createTextNode('none'),
+    document.createTextNode('0'),
     ...[0, 0.34, 0.67, 1].map((f) => el('i', {
       style: `background:${shade(f * cal.peak, cal.peak)}` })),
-    document.createTextNode(`${cal.peak}/day`));
-  $('cal-note').textContent = beat.dated
-    ? `${cal.peak} shots on the busiest day. Dotted squares have not happened yet.`
-    : '';
+    document.createTextNode(String(cal.peak)));
+  $('cal-note').textContent = '';
 
   const peakHour = Math.max(1, ...beat.hours);
   $('hours').replaceChildren(...beat.hours.map((n, h) => el('i', {
