@@ -43,10 +43,25 @@
   .capture-line { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .capture-line .val { font-family:var(--disp); font-size:34px; letter-spacing:-.03em; }
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
+  /* The fields the flow is waiting on, while it is waiting on them. A panel of
+     selects sitting quietly beside a stepper is not something anyone knows to
+     fill in first. */
+  .field.wanted select { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+  .field.wanted label { color:var(--accent); }
+  #pair-dlg { border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink);
+    max-width:min(560px, 92vw); padding:20px 22px; }
+  #pair-dlg::backdrop { background:rgba(0,0,0,.45); }
+  #pair-dlg textarea { width:100%; box-sizing:border-box; font:600 11.5px/1.4 var(--mono);
+    background:var(--panel-2); color:var(--ink); border:2px solid var(--ink); padding:8px 9px;
+    resize:vertical; word-break:break-all; }
+  #cell-side.setting-up .cell-scroll > .row.tight3:first-of-type,
+  #cell-side.setting-up #coffee-card { opacity:.45; }
   /* What the app is about to capture, and how long you have to disagree. An
      automatic capture you cannot see coming is the auto-tare mistake again. */
   .catch { display:flex; align-items:center; gap:10px; margin:2px 0 8px;
     padding:7px 10px; border:2px solid var(--ink); background:var(--panel-2); }
+  /* display:flex would otherwise beat the user-agent [hidden] rule. */
+  .catch[hidden] { display:none; }
   .catch-v { font:700 17px/1 var(--mono); color:var(--ink); white-space:nowrap; }
   .catch-bar { flex:1; height:6px; background:var(--hair); overflow:hidden; }
   .catch-bar span { display:block; height:100%; width:0; background:var(--accent);
@@ -166,6 +181,11 @@
           <p class="msg" id="name-msg"></p>
         </div>
         <div class="state-strip" id="state">Idle</div>
+        <div class="btn-row" style="margin:6px 0 2px">
+          <button class="ghost" id="watch-phone" type="button"
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
+          <span class="badge" id="watch-state" hidden>&mdash;</span>
+        </div>
         <p class="hint" id="step-hint"></p>
         <div class="catch" id="catch" hidden>
           <span class="catch-v" id="catch-v">—</span>
@@ -229,6 +249,8 @@
       <!-- Everything about what is going into the cup -->
       <section class="bx cell" id="cell-side">
         <div class="steps" id="stepper">
+          <button type="button" data-step="setup"><span class="n">00</span><span class="l">Setup</span>
+            <span class="sv" id="sv-setup">—</span></button>
           <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
             <span class="sv" id="sv-dose">—</span></button>
           <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
@@ -257,9 +279,9 @@
             <div class="field" style="margin:0"><label for="r-yield">Yield</label>
               <input id="r-yield" type="number" step="0.1"></div>
           </div>
-          <div class="field"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
+          <div class="field needs-setup"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
           <div class="row">
-            <div class="field" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
+            <div class="field needs-setup" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
             <div class="field" style="margin:0"><label for="p-machine">Machine</label><select id="p-machine"></select></div>
           </div>
           <div class="row tight3">
@@ -328,6 +350,33 @@
 
 </div>
 
+
+<!-- Pairing lives in a dialog: it happens once a session, and the page has no
+     room to spare for something finished after fifteen seconds. -->
+<dialog id="pair-dlg">
+  <div class="tag">Watch on a phone</div>
+  <p class="msg" style="margin-top:12px">An iPhone or iPad cannot talk to a Bluetooth scale, so
+  this sends the pour there directly &mdash; no account, nothing hosted, and nothing leaving your
+  Wi-Fi. Two pastes, once per session.</p>
+  <ol class="msg" style="padding-left:20px">
+    <li>Open <strong id="view-url">/view.html</strong> on the phone.</li>
+    <li>Copy the code below and paste it there.</li>
+    <li>Paste its reply back here.</li>
+  </ol>
+  <p class="msg" style="margin:12px 0 5px"><strong>1 &middot; this laptop&rsquo;s code</strong></p>
+  <textarea id="pair-offer" readonly rows="3"
+            autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="btn-row"><button class="primary" id="pair-copy" type="button">Copy code</button></div>
+  <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong></p>
+  <textarea id="pair-answer" rows="3" placeholder="Paste the reply from the phone here"
+            autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <div class="btn-row">
+    <button class="primary" id="pair-accept" type="button">Link</button>
+    <button class="ghost" id="pair-close" type="button">Close</button>
+  </div>
+  <p class="msg" id="pair-msg"></p>
+</dialog>
+
 <footer class="site-foot">
   espresso·brewkit — measurement tools for espresso ·
   <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
@@ -349,6 +398,7 @@ import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
 import { SessionMachine, STEP_ORDER } from './assets/js/core/session.js';
+import { LiveLink, frameOf } from './assets/js/core/link.js';
 import { decodeCurve } from './assets/js/core/schema.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { initNotices, restoreControl, isDismissed } from './assets/js/core/notice.js';
@@ -612,6 +662,7 @@ function onFrame({ uuid, bytes, at }) {
   const snap = brew.step(at, weight, flow);
   const moved = sess.step_(at, weight, snap.net, settled);
   render(snap);
+  broadcast(snap);
   // The countdown moves every frame; the rest of the session panel only moves
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
@@ -1096,7 +1147,11 @@ const targetYield = () => {
  * is not a countdown.
  */
 function paintCatch(s) {
-  $('step-hint').textContent = s.hint;
+  $('step-hint').textContent = s.step === 'setup' ? setupHint() : s.hint;
+  // While the flow is waiting on them, the two fields it is waiting on say so.
+  const waiting = s.step === 'setup';
+  for (const f of document.querySelectorAll('.needs-setup')) f.classList.toggle('wanted', waiting);
+  $('cell-side').classList.toggle('setting-up', waiting);
   const catching = s.candidate !== null && (s.step === 'dose' || s.step === 'grind');
   $('catch').hidden = !catching;
   if (!catching) return;
@@ -1105,12 +1160,28 @@ function paintCatch(s) {
   $('catch-fill').style.width = `${((1 - left / sess.o.holdFor) * 100).toFixed(1)}%`;
 }
 
+/** What is actually missing, named rather than implied. */
+function setupHint() {
+  const noBags = kit.activeBags().length === 0;
+  const noGrinders = kit.grinders().length === 0;
+  if (noBags || noGrinders) {
+    return `Add ${[noBags ? 'a coffee' : null, noGrinders ? 'a grinder' : null]
+      .filter(Boolean).join(' and ')} on the Kit page, then come back — a shot records what it `
+      + 'was made with.';
+  }
+  const want = [!$('p-bag').value ? 'coffee' : null, !$('p-grinder').value ? 'grinder' : null]
+    .filter(Boolean);
+  return `Choose your ${want.join(' and ')} on the right to begin.`;
+}
+
 /** Everything the session knows, redrawn from one place. */
 function paintSession() {
   const s = sess.snapshot();
   paintCatch(s);
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
+  const chosen = kit.bag($('p-bag').value)?.bean_name;
+  $('sv-setup').textContent = chosen ? (chosen.length > 14 ? chosen.slice(0, 13) + '…' : chosen) : '—';
   $('sv-dose').textContent = show(s.dose, s.auto.dose);
   $('sv-grind').textContent = show(s.grounds, s.auto.grounds);
   $('sv-brew').textContent = Number.isFinite(draft.yield_g)
@@ -1158,6 +1229,82 @@ $('stepper').addEventListener('click', (e) => {
   paintSession();
 });
 
+/* ------------------------------------------------- watching from a phone */
+// Web Bluetooth does not exist on iOS in any browser, so an iPad can never be
+// the thing holding the scale. It can be the thing watching, and Drive sync is
+// the wrong shape for that: an account on both ends, and seconds of latency for
+// a number that changes ten times a second. This sends the frames straight
+// across instead — same Wi-Fi, no server, no sign-in.
+const watcher = new LiveLink({ role: 'host' });
+let lastSentAt = 0;
+
+watcher.onState = (state) => {
+  const badge = $('watch-state');
+  badge.hidden = state === 'idle' || state === 'closed';
+  badge.textContent = { waiting: 'Phone: waiting', open: 'Phone: watching',
+                        failed: 'Phone: no route' }[state] ?? state;
+  badge.className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
+  $('watch-phone').textContent = state === 'open' ? 'Stop watching' : 'Watch on phone';
+};
+
+/** Ten a second is plenty for a human reading a number off a phone. */
+function broadcast(snap) {
+  if (watcher.state !== 'open') return;
+  const now = performance.now();
+  if (now - lastSentAt < 100) return;
+  lastSentAt = now;
+  const bag = kit.bag($('p-bag').value);
+  watcher.send(frameOf({
+    snap, sess: sess.snapshot(), target: targetYield(),
+    coffee: bag ? [bag.bean_name, bag.roaster].filter(Boolean).join(' · ') : null,
+    elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
+  }));
+}
+
+$('watch-phone').addEventListener('click', async () => {
+  if (watcher.state === 'open') {
+    watcher.close();
+    return;
+  }
+  $('view-url').textContent = new URL('./view.html', location.href).href;
+  $('pair-msg').textContent = 'Making a code…';
+  $('pair-offer').value = '';
+  $('pair-answer').value = '';
+  $('pair-dlg').showModal();
+  try {
+    $('pair-offer').value = await watcher.offer();
+    $('pair-msg').textContent = 'Copy it, paste it on the phone, then bring back its reply.';
+  } catch (err) {
+    $('pair-msg').textContent = err.message;
+  }
+});
+
+$('pair-copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('pair-offer').value);
+    $('pair-msg').textContent = 'Copied. On a Mac and an iPhone signed into the same Apple '
+      + 'account it is already on the phone\u2019s clipboard.';
+  } catch {
+    $('pair-offer').focus();
+    $('pair-offer').setSelectionRange(0, $('pair-offer').value.length);
+    $('pair-msg').textContent = 'Select the code above and copy it by hand.';
+  }
+});
+
+$('pair-accept').addEventListener('click', async () => {
+  const code = $('pair-answer').value.trim();
+  if (!code) { $('pair-msg').textContent = 'Paste the phone\u2019s reply first.'; return; }
+  try {
+    await watcher.accept(code);
+    $('pair-msg').textContent = 'Linked. The phone follows this page from now on.';
+    setTimeout(() => $('pair-dlg').close(), 900);
+  } catch (err) {
+    $('pair-msg').textContent = err.message;
+  }
+});
+
+$('pair-close').addEventListener('click', () => $('pair-dlg').close());
+
 $('catch-go').addEventListener('click', () => { sess.commit(); paintSession(); });
 $('d-manual').addEventListener('input', () => { sess.set('dose', num('d-manual')); paintSession(); });
 $('g-manual').addEventListener('input', () => { sess.set('grounds', num('g-manual')); paintSession(); });
@@ -1173,8 +1320,21 @@ $('p-machine').addEventListener('change', () => {
   if (!$('p-basket').value && m.basket) $('p-basket').value = m.basket;
 });
 
+/**
+ * Setup is done when the shot knows what it is made of. Bag and grinder are the
+ * two the models actually need — machine and grind setting are recorded but
+ * neither is required to pull, so neither holds the flow up.
+ */
+function syncReady() {
+  sess.setReady(!!$('p-bag').value && !!$('p-grinder').value);
+  // Always a full repaint: this fires on a change event, not in the frame loop,
+  // and the stepper has to follow the step whether or not this call moved it.
+  paintSession();
+}
+
 for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
   $(id).addEventListener('change', refreshAdvice);
+  $(id).addEventListener('change', syncReady);
   $(id).addEventListener('input', () => {
     $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g out `
       + `at 1:${fmt(targetRatio(), 1)}`;
@@ -1532,6 +1692,7 @@ $('p-bag').addEventListener('change', () => {
 initNotices();
 restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDriver); } });
 refreshAdvice();
+syncReady();
 paintSession();
 paintSupply();
 paintCoffee();

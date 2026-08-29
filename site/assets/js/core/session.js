@@ -42,15 +42,17 @@
 // automation, it was caused by automation you could not see.
 
 export const STEP = {
+  SETUP: 'setup',
   DOSE: 'dose',
   GRIND: 'grind',
   BREW: 'brew',
   RATE: 'rate',
 };
 
-export const STEP_ORDER = [STEP.DOSE, STEP.GRIND, STEP.BREW, STEP.RATE];
+export const STEP_ORDER = [STEP.SETUP, STEP.DOSE, STEP.GRIND, STEP.BREW, STEP.RATE];
 
 export const STEP_HINT = {
+  setup: 'Choose your coffee and grinder first — a shot records what it was made with.',
   dose: 'Put your beans on the scale. Tare a dosing cup first if you use one.',
   grind: 'Grind into the portafilter and set it on the scale.',
   brew: 'Lock in and put your cup on the scale. It will tare and time itself.',
@@ -83,7 +85,8 @@ export class SessionMachine {
   }
 
   reset() {
-    this.step = STEP.DOSE;
+    this.step = STEP.SETUP;
+    this.ready = false;
     this.dose = null;
     this.grounds = null;
     this.candidate = null;      // the settled reading we would commit right now
@@ -94,6 +97,22 @@ export class SessionMachine {
     this._t = 0;
     this.holdLeft = null;       // seconds until an unattended capture, or null
     this.events = [];
+  }
+
+  /**
+   * Setup is a step like any other; it advances on a choice rather than on a
+   * weight. Making it a step is the point: a panel of selects sitting quietly
+   * beside the flow is not something a first user knows to fill in, and a shot
+   * that does not know its coffee is a shot no model can use afterwards.
+   */
+  setReady(ready) {
+    this.ready = !!ready;
+    if (this.ready && this.step === STEP.SETUP) {
+      this.step = STEP.DOSE;
+      this._log(this._t, 'Coffee and grinder chosen.');
+      return STEP.DOSE;
+    }
+    return null;
   }
 
   /** Jump to a step by hand. Automation continues from wherever you land. */

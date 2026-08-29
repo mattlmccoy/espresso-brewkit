@@ -89,6 +89,39 @@ Machine *type* is recorded too, and is not decoration: a lever's pressure is
 whatever the spring or your arm is doing at that instant, which means something
 quite different from a pump machine's gauge reading.
 
+## Watching a pour on a phone
+
+No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is Safari
+underneath — so an iPad can never be the thing holding the scale. It can be the
+thing watching, and until now the only way to get data onto it was Drive sync:
+an account on both ends, and a pull-merge-push against Google's servers for a
+number that changes ten times a second. That is the wrong shape twice over, and
+a sign-in problem turns the whole viewer into a blank page.
+
+[Watch](https://mattlmccoy.github.io/espresso-brewkit/view.html) takes the
+frames straight off the laptop instead — **WebRTC, peer to peer**, no server, no
+account, nothing hosted. The two devices are usually a metre apart on the same
+Wi-Fi; the data has no reason to visit California first.
+
+The awkward part is introductions. WebRTC peers cannot start without exchanging
+a description of each other, and that is normally a signalling server's job.
+There isn't one, so you do it: the laptop makes a code, the phone takes it and
+makes a reply, the laptop takes the reply. Two copies and two pastes, once per
+session, about fifteen seconds. On a Mac and an iPhone signed into the same
+Apple account, Universal Clipboard means copying on one is pasting on the other.
+
+**No ICE servers are configured**, which is a decision rather than an omission.
+With none, the browser offers only host candidates — addresses on the local
+network — so the link works on the same Wi-Fi and nowhere else. Across networks
+it fails and says so, rather than quietly relaying your shots through someone
+else's TURN server.
+
+The channel is unordered and unreliable, and every frame carries the whole
+current state rather than a delta: weight, flow, elapsed, brew state, session
+step, dose, target, coffee, and the last 240 points of the curve. Losing a frame
+therefore costs nothing, and a phone that joins mid-shot is not staring at a
+blank chart.
+
 ## Two devices, no server
 
 [Sync](https://mattlmccoy.github.io/espresso-brewkit/sync.html) keeps a computer
@@ -112,8 +145,17 @@ that signed in under the old one.
 Publishing the consent screen is what lets anyone sign in rather than a list of
 named testers. Every scope here is **non-sensitive** — `drive.appdata` is the
 narrowest Drive scope there is, and `openid email profile` only names the
-account — so the app can go to production without the verification review that
-sensitive or restricted scopes require.
+account — so the app needs no verification *review* to go to production.
+
+It still cannot be published from `github.io`. The branding page requires an app
+home page and a privacy policy link, and the domains behind them must be listed
+as **Authorized domains** — where `github.io` is refused, because it sits on the
+[Public Suffix List](https://publicsuffix.org/) and Google treats it as a
+registry suffix like `.com`. That is a property of the hosting, not of the app:
+pointing a custom domain at the same GitHub Pages site clears it, and clears
+Search Console verification with it. Until then the app stays in **Testing**,
+where up to 100 accounts named on the tester list can sign in — which is the
+right shape for a personal tool anyway, and costs nothing.
 
 Setting that credential up is the one manual step for your own deployment, and
 two of its fields cause
