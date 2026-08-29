@@ -210,6 +210,22 @@
   .ladder { margin-top:9px; }
   .ladder[hidden] { display:none; }
   .st.bx[hidden] { display:none; }
+  /* The controls that are not part of any step, kept where they can be reached.
+     The left column is scoped to the step you are on rather than scrolled,
+     because scrolling it was annoying — but a short laptop window still
+     overflows it, and what overflowed was this row. Watch on phone was 55 px
+     below the fold and not clickable at all, so pairing looked like it did not
+     exist rather than like it was further down. Sticky to the bottom of the
+     column, it cannot fall off it. */
+  /* A column that scrolls in the middle and not at the ends. Sticky was tried
+     first and is worse: the row stays put but everything else slides underneath
+     it, so the tiles end up hidden behind a bar. A real footer takes its height
+     out of the scrolling part instead of covering it. */
+  #cell-now { display:flex; flex-direction:column; overflow:hidden; }
+  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+  #cell-now .chrome-row { flex:none; margin:8px 0 0; padding-top:8px;
+    border-top:2px solid var(--hair); }
+  #cell-now .chrome-row button { padding:5px 10px; box-shadow:none; font-size:11.5px; }
   .ladder-track { position:relative; height:7px; background:var(--hair);
     border:2px solid var(--ink); overflow:hidden; }
   .ladder-now { position:absolute; top:0; bottom:0; left:0; background:var(--accent);
@@ -401,6 +417,7 @@
           <span class="badge" id="battery" hidden title="Scale battery">—</span>
           <button class="ghost" id="disconnect" type="button">Disconnect</button>
         </div>
+        <div class="cell-body">
         <div id="name-row" style="display:none">
           <div class="row" style="grid-template-columns:1fr auto;gap:8px;align-items:end">
             <div class="field" style="margin:0"><label for="device-name">Name this scale</label>
@@ -492,19 +509,6 @@
           <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
         </div>
 
-        <div class="btn-row" style="margin:6px 0 2px">
-          <button class="ghost" id="watch-phone" type="button"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
-          <button class="ghost" id="cues" type="button" aria-pressed="false"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
-          <button class="ghost" id="gestures" type="button" aria-pressed="true"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Taps on</button>
-          <button class="ghost" id="send-log" type="button" hidden
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Send log to phone</button>
-          <span class="badge" id="watch-state" hidden>&mdash;</span>
-        </div>
-        <p class="msg" id="watch-msg" style="margin:4px 0 0"></p>
-
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
         <!-- Escape hatches. Needed, and needed rarely: folded away so they are
@@ -529,6 +533,21 @@
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
         <p class="msg" id="lag-note" hidden></p>
+        </div><!-- /.cell-body -->
+
+        <!-- Outside the scrolling part on purpose. These are session controls
+             rather than step content, and the way into pairing is one of them:
+             when the column overflowed a short window this row went with it,
+             55 px past the bottom and not clickable, so "watch on phone" looked
+             like a feature that did not exist. A footer cannot fall off. -->
+        <div class="btn-row chrome-row">
+          <button class="ghost" id="watch-phone" type="button">Watch on phone</button>
+          <button class="ghost" id="cues" type="button" aria-pressed="false">Sound off</button>
+          <button class="ghost" id="gestures" type="button" aria-pressed="true">Taps on</button>
+          <button class="ghost" id="send-log" type="button" hidden>Send log to phone</button>
+          <span class="badge" id="watch-state" hidden>&mdash;</span>
+        </div>
+        <p class="msg" id="watch-msg" style="margin:4px 0 0"></p>
       </section>
 
       <!-- The pour, against a reference -->

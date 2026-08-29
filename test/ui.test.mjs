@@ -1680,6 +1680,108 @@ try {
   t('qr: something too big to encode returns nothing rather than a broken symbol',
     qr.tooLong === null && qr.svgLooksRight, String(qr.tooLong));
 
+  // ---- a real laptop's candidates, which is what broke the QR ----
+  // Reported: "the QR code doesn't show", with the dialog saying the code was
+  // too long. Headless offers one or two candidates and never reproduced it; a
+  // laptop offers one per interface per family, and IPv6 and TCP ones were
+  // being carried verbatim at about 110 characters each.
+  const cand = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/sdp.js');
+    const Q = await import('./assets/js/core/qr.js');
+    const lines = [
+      'a=candidate:1 1 udp 2113937151 192.168.1.7 51234 typ host generation 0',
+      'a=candidate:2 1 udp 2113937150 fe80::1c2b:3d4e:5f60:7a8b 51235 typ host generation 0',
+      'a=candidate:3 1 udp 2113937149 10.0.0.44 51236 typ host generation 0',
+      'a=candidate:4 1 udp 2113937148 2001:db8:85a3::8a2e:370:7334 51237 typ host generation 0',
+      'a=candidate:5 1 udp 2113937147 172.16.9.2 51238 typ host generation 0',
+      'a=candidate:6 1 udp 2113937146 fd12:3456:789a:1::1 51239 typ host generation 0',
+      'a=candidate:7 1 tcp 1518283007 192.168.1.7 9 typ host tcptype active generation 0',
+      'a=candidate:8 1 udp 2113937145 fe80::abcd:1234:5678:9abc 51240 typ host generation 0',
+    ];
+    const fp = Array.from({ length: 32 },
+      (_, i) => ((i * 7 + 3) & 255).toString(16).padStart(2, '0').toUpperCase()).join(':');
+    const sdp = ['v=0', 'o=- 0 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'a=group:BUNDLE 0',
+      'm=application 51234 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', ...lines,
+      'a=ice-ufrag:Ab3D', 'a=ice-pwd:xY7zQ2mN4pL8vR1sT6uW0e', 'a=ice-options:trickle',
+      `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', 'a=mid:0',
+      'a=sctp-port:5000'].join('\r\n');
+    const packed = S.pack(sdp);
+    const url = `https://mattlmccoy.github.io/espresso-brewkit/view.html#p=${packed}`;
+    const qr = Q.encode(url);
+    const back = S.unpack(packed);
+
+    // One IPv6 candidate on its own, there and back.
+    const one = 'candidate:1 1 udp 2113937151 fe80::1c2b:3d4e:5f60:7a8b 51235 typ host generation 0';
+    const v6 = S.packCandidate(one);
+    const v6Back = S.unpackCandidate(v6, 0);
+    // A malformed address must not be mangled into a plausible one.
+    const junk = S.packCandidate('candidate:9 1 udp 1 not:an:address:: 5 typ host');
+
+    return {
+      rawLen: sdp.length,
+      packedLen: packed.length,
+      urlLen: url.length,
+      max: S.MAX_CODE,
+      version: qr?.version ?? null,
+      modules: qr?.n ?? null,
+      kept: (back.match(/a=candidate/g) ?? []).length,
+      // The browser's own order of preference, so the first ones survive.
+      keepsBest: back.includes('192.168.1.7'),
+      fingerprintOk: new RegExp(`a=fingerprint:sha-256 ${fp}`).test(back),
+      v6Len: v6.length,
+      v6Kind: v6[0],
+      v6Addr: v6Back?.split(' ')[4] ?? null,
+      v6Port: v6Back?.split(' ')[5] ?? null,
+      junkKind: junk[0],
+    };
+  });
+  t('pairing: a laptop’s worth of candidates still fits a code',
+    cand.packedLen <= cand.max && cand.rawLen > 900,
+    `${cand.rawLen} chars of SDP → ${cand.packedLen}, budget ${cand.max}`);
+  t('pairing: and therefore still fits a QR a webcam can read',
+    cand.version !== null && cand.version <= 10,
+    `v${cand.version}, ${cand.modules} modules, URL ${cand.urlLen} chars`);
+  t('pairing: IPv6 packs like the others rather than being carried whole',
+    cand.v6Kind === '6' && cand.v6Len < 30
+    && cand.v6Addr === 'fe80:0:0:0:1c2b:3d4e:5f60:7a8b' && cand.v6Port === '51235',
+    `${cand.v6Len} chars → ${cand.v6Addr}`);
+  t('pairing: the ones that are dropped are the ones ICE ranked lowest',
+    cand.kept >= 2 && cand.kept < 8 && cand.keepsBest,
+    `kept ${cand.kept} of 8, highest priority among them`);
+  t('pairing: the fingerprint survives the trim, because nothing works without it',
+    cand.fingerprintOk && cand.junkKind === 'r',
+    `fingerprint intact, unparseable address carried verbatim`);
+
+  // ---- the way into pairing has to be on the screen ----
+  // Reported as "the phone pairing is completely obscured". It was: on a short
+  // window the column overflowed and the row holding "Watch on phone" sat below
+  // the fold, unclickable, so the feature looked absent rather than lower down.
+  const short = await ctx.newPage();
+  await short.setViewportSize({ width: 1400, height: 820 });
+  await short.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await short.waitForFunction(() => window.__sess);
+  await short.waitForTimeout(500);
+  const reach = await short.evaluate(() => {
+    const btn = document.getElementById('watch-phone');
+    const r = btn.getBoundingClientRect();
+    const cell = document.getElementById('cell-now').getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      insideCell: r.bottom <= cell.bottom + 1 && r.top >= cell.top,
+      onScreen: r.bottom <= innerHeight && r.top >= 0,
+      hit: hit?.id ?? 'nothing',
+      // The column itself no longer scrolls; the part above the footer does.
+      cellScrolls: document.getElementById('cell-now').scrollHeight
+        > document.getElementById('cell-now').clientHeight + 1,
+    };
+  });
+  await short.close();
+  t('pairing: the button that opens it is on the screen on a short window',
+    reach.insideCell && reach.onScreen, `inside ${reach.insideCell}, on screen ${reach.onScreen}`);
+  t('pairing: and nothing is sitting on top of it, so it can actually be pressed',
+    reach.hit === 'watch-phone' && !reach.cellScrolls,
+    `point hits ${reach.hit}`);
+
   // ---- reading a code back, which is the half BarcodeDetector would not do ----
   // The offer reaches the phone as a QR and its camera handles that. The reply
   // is the trip that used to be typed, because the browser's own reader is in

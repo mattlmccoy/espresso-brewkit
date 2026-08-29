@@ -41,6 +41,26 @@ const line = (sdp, prefix) =>
  * verbatim rather than dropped: a candidate this does not understand is still
  * a candidate that might be the one that connects.
  */
+/** An IPv6 address as its sixteen bytes, or null if it is not one. */
+function ip6Bytes(addr) {
+  const clean = addr.replace(/%.*$/, '');            // drop any zone index
+  if (!/^[0-9a-f:]+$/i.test(clean) || !clean.includes(':')) return null;
+  const halves = clean.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : null;
+  const groups = tail === null
+    ? head
+    : [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/i.test(g))) return null;
+  const out = [];
+  for (const g of groups) {
+    const v = parseInt(g, 16);
+    out.push((v >> 8) & 255, v & 255);
+  }
+  return out;
+}
+
 export function packCandidate(cand) {
   const m = /^candidate:(\S+) (\d+) (udp|tcp) (\d+) (\S+) (\d+) typ (\w+)/i.exec(cand.trim());
   if (!m) return `r${B64(new TextEncoder().encode(cand.trim()))}`;
@@ -64,6 +84,12 @@ export function packCandidate(cand) {
     bytes.push((p >> 8) & 255, p & 255);
     return `m${B64(Uint8Array.from(bytes))}`;
   }
+  // IPv6, which used to fall through to the verbatim branch below. A real
+  // laptop offers several, and each one carried whole costs about 110
+  // characters against this one's twenty-five — enough of them and the code
+  // stopped fitting in a QR at all, which is exactly what happened.
+  const v6 = ip6Bytes(addr);
+  if (v6) return `6${B64(Uint8Array.from([...v6, (p >> 8) & 255, p & 255]))}`;
   return `r${B64(new TextEncoder().encode(cand.trim()))}`;
 }
 
@@ -76,6 +102,12 @@ export function unpackCandidate(token, index = 0) {
     const addr = `${b[0]}.${b[1]}.${b[2]}.${b[3]}`;
     const port = (b[4] << 8) | b[5];
     return candLine(addr, port, index);
+  }
+  if (kind === '6') {
+    const parts = [];
+    for (let i = 0; i < 16; i += 2) parts.push(((b[i] << 8) | b[i + 1]).toString(16));
+    const port = (b[16] << 8) | b[17];
+    return candLine(parts.join(':'), port, index);
   }
   if (kind === 'm') {
     const hex = [...b.slice(0, 16)].map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -94,6 +126,17 @@ const candLine = (addr, port, index) =>
 
 /* ---------------------------------------------------------------- the whole */
 
+/**
+ * How long the code may get, in characters.
+ *
+ * Chosen from the far end rather than from taste: the code travels inside a
+ * `view.html#p=` URL, the published one of which is 58 characters, and this
+ * project's QR encoder holds 213 bytes at version 10 — a 57-module symbol,
+ * which is about the densest a laptop webcam reads reliably across a worktop.
+ * That leaves 155 for the code, and the fixed part of one is around 79.
+ */
+export const MAX_CODE = 155;
+
 export const PACK_VERSION = 2;
 
 /** An SDP, as the handful of fields that actually differ between two of them. */
@@ -108,13 +151,32 @@ export function pack(sdp) {
   const bytes = hex.split(':').map((h) => parseInt(h, 16));
   if (bytes.length !== 32 || bytes.some((n) => !Number.isFinite(n))) return null;
 
-  const cands = sdp.split(/\r?\n/)
-    .filter((l) => l.startsWith('a=candidate:'))
-    .map((l) => packCandidate(l.slice(2)));
+  const head = [PACK_VERSION, ufrag, pwd, B64(Uint8Array.from(bytes)),
+                setup === 'actpass' ? 'A' : setup === 'active' ? 'a' : 'p'].join('~');
 
-  return [PACK_VERSION, ufrag, pwd, B64(Uint8Array.from(bytes)),
-          setup === 'actpass' ? 'A' : setup === 'active' ? 'a' : 'p',
-          cands.join('.')].join('~');
+  // Not every candidate, and in the browser's own order of preference.
+  //
+  // A laptop offers one per interface per family — Wi-Fi, Ethernet, a VPN tap,
+  // IPv4 and IPv6 of each — and this code has to stay small enough to be a QR a
+  // webcam can read. So they are sorted by the priority ICE itself assigned,
+  // which is the browser saying which interface it expects to work, and taken
+  // until the budget runs out. Dropping the tail costs nothing on a LAN: the
+  // first few are the ones that connect, and the alternative is a code that
+  // cannot be shown as a QR at all, which is what was happening.
+  const cands = [];
+  let used = head.length + 1;
+  for (const cand of sdp.split(/\r?\n/)
+    .filter((l) => l.startsWith('a=candidate:'))
+    .map((l) => l.slice(2))
+    .map((raw) => ({ raw, priority: Number(/^candidate:\S+ \d+ \S+ (\d+)/.exec(raw)?.[1] ?? 0) }))
+    .sort((a, b) => b.priority - a.priority)) {
+    const token = packCandidate(cand.raw);
+    if (cands.length && used + token.length + 1 > MAX_CODE) break;
+    cands.push(token);
+    used += token.length + 1;
+  }
+
+  return `${head}~${cands.join('.')}`;
 }
 
 /** And back again, into something a browser will accept as a description. */
