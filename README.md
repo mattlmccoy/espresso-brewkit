@@ -607,6 +607,64 @@ step, dose, target, coffee, and the last 240 points of the curve. Losing a frame
 therefore costs nothing, and a phone that joins mid-shot is not staring at a
 blank chart.
 
+### The dial, the volume, and a screen that is not a large phone
+
+The viewer started as one number and a curve, on the reasoning that a phone at
+arm's length wants one thing made big. That is right for a phone and wrong for
+an iPad, which has room for the number, the dial and the curve at once and was
+showing a third of what it could.
+
+So above 700 px the number and the dial sit side by side, the strip grows a
+fourth cell, and the curve gets real height. Landscape on a phone gets the same
+treatment in miniature. Below that it is the single column it always was, with
+the dial added underneath the number.
+
+**The dial has the drinks on it.** `core/dial.js` holds the geometry — the same
+half circle the laptop draws for weighing beans — with the three style bands
+from `styles.js` scaled by the dose, so the zones are contiguous and the arc
+answers "which drink am I in" rather than "how many grams". Which zone the cup
+is in is asked of the ratio rather than of the drawn arc: the arc stops at the
+end of the dial, so testing against it would call a shot that ran long "below
+the first band", which is the opposite of what it is.
+
+**And the tile fills.** The number sits over a level that rises as the shot
+lands, with the three marks drawn where they fall in the volume, so passing one
+is visible without reading anything. It is the same fraction of the same scale
+as the dial, from the same call — a screen showing a dial at two thirds beside a
+glass at half is a screen with two opinions.
+
+Drawn the obvious way round it read as draining: tint the poured part and the
+bright region is the empty one, shrinking as coffee arrives. So what is drawn is
+the space *above* the level, washed out, and the coffee is the tile's own colour
+left alone.
+
+### The rest of brewkit, without dropping the link
+
+The phone had exactly one page. Tapping through to the shot log meant navigating
+away from `view.html`, and that destroys the peer connection — a WebRTC
+description is good for one connection, so coming back meant pairing again.
+
+But the log is already on the phone: every frame of the streamed log is written
+into local storage by `core/backup.js`, so Shots, Advisor, Kit and Lab all work
+on that device from data it already holds. The only thing that must not happen
+is this page unloading. So the other pages open in a same-origin iframe over the
+top, and the connection sits in a page that never navigates. The bar across the
+top carries the pour — grams and seconds, still updating — and the link's own
+status badge, because a link quietly dying behind an overlay is the one thing an
+overlay could hide.
+
+Escape or the back button returns to the shot, and the frame keeps its page, so
+going back and forth is instant rather than a reload each way.
+
+### Following the laptop, until you disagree
+
+The viewer had no theme control at all, and no way to inherit one, so a dark
+laptop beside a light phone was the normal case. The theme now rides along in
+the frame — it costs a word ten times a second — and the phone wears it.
+
+Following is not choosing. Pick a theme on the phone and that is a decision
+about the phone: the laptop stops overriding it from then on.
+
 ### On the phone, three views
 
 The job has three parts and each wants something different made big: the number

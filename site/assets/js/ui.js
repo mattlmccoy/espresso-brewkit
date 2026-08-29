@@ -14,10 +14,31 @@ export const THEMES = ['light', 'dark', 'terminal'];
 const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal' };
 
 /** What is on screen right now, whether or not it was chosen. */
-function currentTheme() {
+export function currentTheme() {
   const explicit = document.documentElement.getAttribute('data-theme');
   if (THEMES.includes(explicit)) return explicit;
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+/** Whether a theme was picked here, as opposed to inherited or defaulted. */
+export function themeChosen() {
+  try { return THEMES.includes(localStorage.getItem(THEME_KEY)); } catch { return false; }
+}
+
+/**
+ * Wear a theme without claiming it was chosen.
+ *
+ * The viewer follows the laptop it is watching — one glance at two screens
+ * beside each other should not be one light and one dark. But following is not
+ * choosing: if somebody picks a theme on the phone, that is a decision about
+ * the phone and the laptop stops overriding it.
+ */
+export function applyTheme(name, { remember = false } = {}) {
+  if (!THEMES.includes(name)) return false;
+  document.documentElement.setAttribute('data-theme', name);
+  if (remember) { try { localStorage.setItem(THEME_KEY, name); } catch { /* ignore */ } }
+  document.dispatchEvent(new CustomEvent('brewkit:theme', { detail: { theme: name } }));
+  return true;
 }
 
 export function initTheme() {
@@ -34,11 +55,13 @@ export function initTheme() {
     btn.setAttribute('aria-label', `Switch to the ${LABEL[next].toLowerCase()} theme`);
   };
   btn.addEventListener('click', () => {
-    const next = nextTheme();
-    document.documentElement.setAttribute('data-theme', next);
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* ignore */ }
+    applyTheme(nextTheme(), { remember: true });
     paint();
   });
+  // Repaint when something else changes the theme — the viewer adopts the
+  // laptop's, and a button still offering to switch to the theme you are
+  // already wearing is a button that has stopped telling the truth.
+  document.addEventListener('brewkit:theme', paint);
   paint();
 }
 
