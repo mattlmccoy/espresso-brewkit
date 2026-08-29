@@ -43,6 +43,17 @@
   .capture-line { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .capture-line .val { font-family:var(--disp); font-size:34px; letter-spacing:-.03em; }
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
+  /* The stepper moved into the narrower left column; these are the same
+     concessions the side panel used to make for it. */
+  #cell-now .steps { margin-top:2px; }
+  #cell-now .steps button { min-width:0; padding:6px 4px; }
+  #cell-now .steps .n { font-size:9.5px; }
+  #cell-now .steps .l { font-size:10.5px; margin-top:3px; }
+  #cell-now .steps .sv { font-size:9.5px; margin-top:3px; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; }
+  #setup-fields { margin-top:8px; }
+  #setup-fields .field { margin-bottom:0; }
+  #setup-fields select { font-size:12.5px; }
   /* The dose as a bar, inside the tile the eye is already on. Colours carry the
      state: neutral while filling, live once you are in the window, warm past
      it — so a glance answers "am I there yet" without reading a number. */
@@ -207,14 +218,36 @@
           </div>
           <p class="msg" id="name-msg"></p>
         </div>
+        <div class="steps" id="stepper">
+          <button type="button" data-step="setup"><span class="n">00</span><span class="l">Setup</span>
+            <span class="sv" id="sv-setup">&mdash;</span></button>
+          <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
+            <span class="sv" id="sv-dose">&mdash;</span></button>
+          <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
+            <span class="sv" id="sv-grind">&mdash;</span></button>
+          <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
+            <span class="sv" id="sv-brew">&mdash;</span></button>
+          <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
+            <span class="sv" id="sv-rate">&mdash;</span></button>
+        </div>
+
+        <!-- Step 00 asks for these two, so they belong where the flow is read:
+             top left, before anything else. Everything on the right is
+             reference for a shot already under way. -->
+        <div class="row" id="setup-fields">
+          <div class="field needs-setup" style="margin:0"><label for="p-bag">Coffee</label>
+            <select id="p-bag"></select></div>
+          <div class="field needs-setup" style="margin:0"><label for="p-grinder">Grinder</label>
+            <select id="p-grinder"></select></div>
+        </div>
+
         <div class="state-strip" id="state">Idle</div>
         <div class="btn-row" style="margin:6px 0 2px">
           <button class="ghost" id="watch-phone" type="button"
                   style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
           <span class="badge" id="watch-state" hidden>&mdash;</span>
         </div>
-        <p class="msg" id="nav-note" hidden style="margin:4px 0 0">Other pages open in a new tab
-        while this one is connected, so the scale and the phone stay put.</p>
+
         <p class="hint" id="step-hint"></p>
         <div class="catch" id="catch" hidden>
           <span class="catch-v" id="catch-v">—</span>
@@ -287,18 +320,6 @@
 
       <!-- Everything about what is going into the cup -->
       <section class="bx cell" id="cell-side">
-        <div class="steps" id="stepper">
-          <button type="button" data-step="setup"><span class="n">00</span><span class="l">Setup</span>
-            <span class="sv" id="sv-setup">—</span></button>
-          <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
-            <span class="sv" id="sv-dose">—</span></button>
-          <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
-            <span class="sv" id="sv-grind">—</span></button>
-          <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
-            <span class="sv" id="sv-brew">—</span></button>
-          <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
-            <span class="sv" id="sv-rate">—</span></button>
-        </div>
 
         <div class="coffee-card bx" id="coffee-card">
           <div class="cc-head"><strong id="cc-name">No coffee selected</strong>
@@ -318,11 +339,8 @@
             <div class="field" style="margin:0"><label for="r-yield">Yield</label>
               <input id="r-yield" type="number" step="0.1"></div>
           </div>
-          <div class="field needs-setup"><label for="p-bag">Coffee</label><select id="p-bag"></select></div>
-          <div class="row">
-            <div class="field needs-setup" style="margin:0"><label for="p-grinder">Grinder</label><select id="p-grinder"></select></div>
-            <div class="field" style="margin:0"><label for="p-machine">Machine</label><select id="p-machine"></select></div>
-          </div>
+          <div class="field"><label for="p-machine">Machine</label>
+            <select id="p-machine"></select></div>
           <div class="row tight3">
             <div class="field" style="margin:0"><label for="p-grind">Grind</label>
               <input id="p-grind" type="number" step="0.1"></div>
@@ -394,14 +412,16 @@
      room to spare for something finished after fifteen seconds. -->
 <dialog id="pair-dlg">
   <div class="tag">Watch on a phone</div>
-  <p class="msg" style="margin-top:12px">An iPhone or iPad cannot talk to a Bluetooth scale, so
-  this sends the pour there directly &mdash; no account, nothing hosted, and nothing leaving your
-  Wi-Fi. Two pastes, once per session.</p>
-  <ol class="msg" style="padding-left:20px">
-    <li>Open <strong id="view-url">/view.html</strong> on the phone.</li>
-    <li>Copy the code below and paste it there.</li>
-    <li>Paste its reply back here.</li>
-  </ol>
+  <div id="pair-steps">
+    <p class="msg" style="margin-top:12px">An iPhone or iPad cannot talk to a Bluetooth scale, so
+    this sends the pour there directly &mdash; no account, nothing hosted, and nothing leaving your
+    Wi-Fi. Two pastes, once per session.</p>
+    <ol class="msg" style="padding-left:20px">
+      <li>Open <strong id="view-url">/view.html</strong> on the phone.</li>
+      <li>Copy the code below and paste it there.</li>
+      <li>Paste its reply back here.</li>
+    </ol>
+  </div>
   <p class="msg" style="margin:12px 0 5px"><strong>1 &middot; this laptop&rsquo;s code</strong></p>
   <textarea id="pair-offer" readonly rows="3"
             autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
@@ -1271,7 +1291,7 @@ function paintSession() {
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
   const chosen = kit.bag($('p-bag').value)?.bean_name;
-  $('sv-setup').textContent = chosen ? (chosen.length > 14 ? chosen.slice(0, 13) + '…' : chosen) : '—';
+  $('sv-setup').textContent = chosen ? (chosen.length > 9 ? `${chosen.slice(0, 8)}…` : chosen) : '—';
   $('sv-dose').textContent = show(s.dose, s.auto.dose);
   $('sv-grind').textContent = show(s.grounds, s.auto.grounds);
   $('sv-brew').textContent = Number.isFinite(draft.yield_g)
@@ -1328,13 +1348,35 @@ $('stepper').addEventListener('click', (e) => {
 const watcher = new LiveLink({ role: 'host' });
 let lastSentAt = 0;
 
+// A WebRTC pairing cannot be stored and reused — the descriptions either side
+// exchanged are good for exactly one connection. What can be stored is the fact
+// that you have done it before, which is enough to turn a page of instructions
+// into a single button and a single paste.
+const PAIR_KEY = 'brewkit.paired.v1';
+const pairedBefore = () => { try { return !!localStorage.getItem(PAIR_KEY); } catch { return false; } };
+const notePairing = () => {
+  try { localStorage.setItem(PAIR_KEY, new Date().toISOString()); } catch { /* ignore */ }
+};
+
+// The phone can answer back. A rating tapped beside the machine, seconds after
+// the shot, is a better rating than one typed on a laptop in another room.
+watcher.onMessage = (m) => {
+  if (m?.k !== 'rate' || !Number.isFinite(m.v)) return;
+  draft.rating = Math.max(1, Math.min(10, Math.round(m.v)));
+  buildRateControls();
+  $('live-msg').textContent = `Rated ${draft.rating}/10 from the phone.`;
+  paintSession();
+};
+
 watcher.onState = (state) => {
   const badge = $('watch-state');
   badge.hidden = state === 'idle' || state === 'closed';
   badge.textContent = { waiting: 'Phone: waiting', open: 'Phone: watching',
                         failed: 'Phone: no route' }[state] ?? state;
   badge.className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
-  $('watch-phone').textContent = state === 'open' ? 'Stop watching' : 'Watch on phone';
+  $('watch-phone').textContent = state === 'open' ? 'Stop watching'
+    : pairedBefore() ? 'Reconnect phone' : 'Watch on phone';
+  if (state === 'open') notePairing();
 };
 
 /** Ten a second is plenty for a human reading a number off a phone. */
@@ -1363,10 +1405,20 @@ $('watch-phone').addEventListener('click', async () => {
   $('pair-msg').textContent = 'Making a code…';
   $('pair-offer').value = '';
   $('pair-answer').value = '';
+  $('pair-steps').hidden = pairedBefore();
   $('pair-dlg').showModal();
   try {
+    // A previous link left nothing reusable, so a fresh one is made every time.
+    // Closing the old peer first stops two of them racing for one channel.
+    if (watcher.state !== 'idle') watcher.close();
     $('pair-offer').value = await watcher.offer();
-    $('pair-msg').textContent = 'Copy it, paste it on the phone, then bring back its reply.';
+    // Copied without being asked: the first instruction was always "copy this".
+    let copied = false;
+    try { await navigator.clipboard.writeText($('pair-offer').value); copied = true; } catch { /* blocked */ }
+    $('pair-msg').textContent = copied
+      ? 'Copied. Paste it on the phone, then bring back its reply.'
+      : 'Copy it, paste it on the phone, then bring back its reply.';
+    $('pair-answer').focus();
   } catch (err) {
     $('pair-msg').textContent = err.message;
   }
@@ -1389,6 +1441,7 @@ $('pair-accept').addEventListener('click', async () => {
   if (!code) { $('pair-msg').textContent = 'Paste the phone\u2019s reply first.'; return; }
   try {
     await watcher.accept(code);
+    notePairing();
     $('pair-msg').textContent = 'Linked. The phone follows this page from now on.';
     setTimeout(() => $('pair-dlg').close(), 900);
   } catch (err) {
@@ -1601,16 +1654,46 @@ function buildRateControls() {
 }
 buildRateControls();
 
-$('discard').addEventListener('click', () => {
+/**
+ * Start the next shot from nothing.
+ *
+ * "Reset" used to leave the last pour on the chart, the last diagnosis under
+ * it, and the flow parked on Setup even with a coffee already chosen — it reset
+ * the machines and left the screen showing the shot you had just finished,
+ * which is the opposite of what the button is for. Everything the eye can see
+ * is cleared here, and the flow is put back where the current selections say it
+ * belongs. The scale and the phone are deliberately untouched: they are the
+ * session, not the shot.
+ */
+function resetShot(why = 'Session reset.') {
   draft = blankDraft();
-  brew.reset(); est.reset(lastRaw); sess.reset();
+  brew.reset();
+  est.reset(lastRaw);
+  sess.reset();
+  sess.setTarget(targetDose());
   stopArmed = false; stopSeen = null;
+  ghostCurve = []; ghostFlowCurve = [];
   buildRateControls();
   for (const id of ['r-brix', 'r-yield', 'r-notes', 'd-manual', 'g-manual']) $(id).value = '';
-  $('r-diag').replaceChildren(); $('b-summary').replaceChildren();
-  $('save-msg').textContent = ''; $('live-msg').textContent = 'Session reset.';
-  paintSession();
-});
+  $('r-diag').replaceChildren();
+  $('b-summary').replaceChildren();
+  $('save-msg').textContent = '';
+  // This one is toggled with style.display everywhere else; `hidden` would be
+  // beaten by the inline style and silently do nothing.
+  $('live-warn').style.display = 'none';
+  $('catch').hidden = true;
+  $('fill').hidden = true;
+  for (const [id, v] of [['o-w', '0.0'], ['o-t', '0.0'], ['o-f', '0.00'], ['o-proj', '—'],
+                         ['o-eta', '—'], ['o-trend', '—']]) $(id).textContent = v;
+  drawCurve();
+  refreshGhostPicker();
+  // Back to Dose if the kit is chosen, Setup if it is not — the same rule that
+  // decides it at any other moment.
+  syncReady();
+  $('live-msg').textContent = why;
+}
+
+$('discard').addEventListener('click', () => resetShot());
 
 $('save').addEventListener('click', () => {
   const yieldG = num('r-yield') ?? draft.yield_g;
@@ -1714,7 +1797,7 @@ function paintCoffee() {
   if (bag?.roast_level) facts.push(bag.roast_level.toLowerCase());
   if (fresh?.age?.inFreezer) facts.push('in the freezer');
   facts.push(`${shots.length} shot${shots.length === 1 ? '' : 's'}`);
-  if (st?.known) facts.push(`${fmt(st.remaining, 0)} g left`);
+  if (st?.known) facts.push(st.over ? 'used up' : `${fmt(st.left, 0)} g left`);
   if (st?.known && st.shotsLeft !== null) facts.push(`~${st.shotsLeft} to go`);
   const rated = shots.map((r) => Number(r.rating)).filter(Number.isFinite);
   if (rated.length) {
@@ -1858,10 +1941,17 @@ setPhase('connect');
 function guardNav() {
   const busy = !!link?.connected || watcher.state === 'open';
   for (const a of document.querySelectorAll('.nav a[href$=".html"]')) {
-    if (busy) { a.target = '_blank'; a.rel = 'noopener'; } else { a.removeAttribute('target'); }
+    // The current page is not going anywhere, so it gets neither.
+    if (busy && !a.hasAttribute('aria-current')) {
+      a.target = '_blank';
+      a.rel = 'noopener';
+      // The arrow the CSS draws says a new tab is coming; this says why.
+      a.title = 'Opens in a new tab so this page keeps the scale and the phone';
+    } else {
+      a.removeAttribute('target');
+      a.removeAttribute('title');
+    }
   }
-  const note = $('nav-note');
-  if (note) note.hidden = !busy;
 }
 setInterval(guardNav, 1000);
 guardNav();

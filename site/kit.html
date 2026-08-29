@@ -33,6 +33,39 @@
   .addbox > summary::before { content:'+ '; color:var(--ink-mute); }
   .addbox[open] > summary::before { content:'– '; }
   .addbox .addbody { padding-bottom:16px; }
+  /* The habit pane. A calendar reads at a glance in a way a table of dates
+     never does, which is the only reason it earns the space. */
+  .hstats { display:grid; grid-template-columns:repeat(auto-fit, minmax(112px, 1fr)); gap:10px;
+    margin-bottom:20px; }
+  .hstats .c { border:var(--bw) solid var(--ink); background:var(--panel-2); padding:10px 12px; }
+  .hstats .k { font:700 9.5px/1 var(--mono); letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .hstats .v { font:800 25px/1.05 var(--sans); font-variant-numeric:tabular-nums; margin-top:6px; }
+  .hstats .v small { font-size:.45em; font-weight:700; opacity:.6; margin-left:2px; }
+  .cal-head { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  .cal-key { margin-left:auto; display:flex; align-items:center; gap:5px;
+    font:700 9.5px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .cal-key i { width:11px; height:11px; display:block; border:1px solid var(--hair); }
+  .cal-wrap { overflow-x:auto; padding-bottom:4px; }
+  .cal { display:grid; grid-auto-flow:column; grid-template-rows:repeat(7, 15px); gap:3px;
+    width:max-content; }
+  .cal i { width:15px; height:15px; display:block; border:1px solid var(--hair);
+    background:var(--panel-2); }
+  .cal-months { display:grid; grid-auto-flow:column;
+    grid-auto-columns:18px; width:max-content; margin-bottom:4px;
+    font:700 9.5px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .cal-months span { grid-row:1; white-space:nowrap; }
+  .cal i[data-n="0"] { background:var(--panel-2); }
+  .cal i[data-future="1"] { border-style:dotted; background:transparent; }
+  .hours { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px; align-items:end;
+    height:74px; margin-top:12px; }
+  .hours i { display:block; background:var(--accent); border:1px solid var(--ink);
+    min-height:2px; }
+  .hours i[data-n="0"] { background:var(--panel-2); }
+  .hour-axis { display:grid; grid-template-columns:repeat(24, 1fr); gap:2px; margin-top:5px;
+    font:700 8.5px/1 var(--mono); color:var(--ink-mute); text-align:center; }
 </style>
 </head>
 <body>
@@ -63,6 +96,7 @@
     <button type="button" class="tab" data-kit-tab="grinders" aria-selected="false">Grinders<span class="badge" id="g-count">0</span></button>
     <button type="button" class="tab" data-kit-tab="machines" aria-selected="false">Machines<span class="badge" id="m-count">0</span></button>
     <button type="button" class="tab" data-kit-tab="consumables" aria-selected="false">Supplies<span class="badge" id="c-count">0</span></button>
+    <button type="button" class="tab" data-kit-tab="habits" aria-selected="false">Habit<span class="badge" id="h-count">0</span></button>
   </nav>
 
     <section class="pane bx panel" data-pane="bags" hidden>
@@ -201,6 +235,25 @@
     </section>
 
 
+    <section class="pane bx panel" data-pane="habits" hidden>
+      <p class="msg" style="margin:0 0 14px">A shot log is a diary whether or not you kept it as
+      one. These are the questions the same rows answer for free.</p>
+      <div class="hstats" id="h-stats"></div>
+      <div class="cal-head">
+        <span class="tag" style="margin:0">Last six months</span>
+        <span class="cal-key" id="cal-key"></span>
+      </div>
+      <div class="cal-wrap">
+        <div class="cal-months" id="cal-months"></div>
+        <div class="cal" id="cal"></div>
+      </div>
+      <p class="msg" id="cal-note" style="margin-top:10px"></p>
+      <div class="cell-head" style="margin-top:20px"><span class="tag">When you pull them</span></div>
+      <div class="hours" id="hours"></div>
+      <div class="hour-axis" id="hour-axis"></div>
+      <p class="empty" id="h-empty" hidden>No dated shots yet — pull a few and this fills in.</p>
+    </section>
+
   <footer class="site-foot">
     espresso·brewkit — measurement tools for espresso ·
     <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
@@ -214,6 +267,7 @@ import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
 import * as beans from './assets/js/core/beans.js';
+import * as habits from './assets/js/core/habits.js';
 boot();
 initNotices();
 
@@ -399,7 +453,8 @@ function renderBags() {
       [b.process, `${st.shots} shot${st.shots === 1 ? '' : 's'}`,
        `${fmt(st.byShots, 1)} g pulled`,
        st.manual ? `${fmt(st.manual, 1)} g logged separately` : null,
-       st.known ? `${fmt(st.remaining, 1)} g left` : null,
+       st.known ? (st.over ? `used up, ${fmt(st.over, 1)} g past its weight`
+         : `${fmt(st.left, 1)} g left`) : null,
        st.known && st.shotsLeft !== null ? `about ${st.shotsLeft} more shots` : null,
        b.notes].filter(Boolean).join(' · '));
 
@@ -441,9 +496,11 @@ function renderBags() {
         b.archived ? 'Reopen' : 'Mark finished'),
       el('button', { class: 'danger ghost', type: 'button', style: 'padding:5px 10px;box-shadow:none',
         onclick: () => {
-          if (usage.shots && !confirm(`${usage.shots} shot(s) reference this bag. They keep their `
+          // `st` is the bag's supply status; `usage` was its name two refactors
+          // ago and survived here as a ReferenceError that killed the click.
+          if (st.shots && !confirm(`${st.shots} shot(s) reference this bag. They keep their `
             + 'copy of the roaster, coffee and roast date, but stop linking to it. Delete?')) return;
-          if (!usage.shots && !confirm(`Delete ${b.bean_name}?`)) return;
+          if (!st.shots && !confirm(`Delete ${b.bean_name || 'this bag'}?`)) return;
           kit.removeBag(b.id);
         } }, 'Delete'));
 
@@ -459,11 +516,11 @@ function renderBags() {
       st.known && st.low ? el('p', { class: 'note warn', style: 'margin-top:10px' },
         st.empty ? 'This bag is used up by the log. Mark it finished, or log a correction if there '
           + 'is still coffee in it.'
-          : st.shotsLeft !== null
+          : st.shotsLeft !== null && st.shotsLeft > 0
             ? `Down to about ${st.shotsLeft} shot${st.shotsLeft === 1 ? '' : 's'}.`
             // No dose has been logged against this bag yet, so there is no
             // "shots left" to quote — grams is what is actually known.
-            : `Down to ${fmt(st.remaining, 0)} g. Log a shot from it and this becomes a `
+            : `Down to ${fmt(st.left, 0)} g. Log a shot from it and this becomes a `
               + 'shot count.') : null,
       deduct, ledgerView, row));
   }
@@ -642,7 +699,7 @@ function renderConsumables() {
         el('strong', { style: 'font-size:15px' }, c.name),
         el('span', { class: 'msg', style: 'margin:0' }, st.kindLabel),
         el('span', { class: `badge ${st.low ? 'warn' : 'ok'}`, style: 'margin-left:auto' },
-          st.known ? `${fmt(st.remaining, 0)} ${st.unit} left` : 'no limit set')),
+          st.known ? `${fmt(Math.max(0, st.remaining), 0)} ${st.unit} left` : 'no limit set')),
       el('p', { class: 'msg', style: 'margin-top:6px' },
         `${fmt(st.used, 0)} of ${fmt(st.capacity, 0)} ${st.unit} used since ${c.installed_at}.`),
       !st.known ? null : el('div', { class: `bar${st.low ? ' low' : ''}`, style: 'margin-top:10px' },
@@ -668,8 +725,72 @@ function renderConsumables() {
   }
 }
 
-function render() { renderBags(); renderGrinders(); renderMachines(); renderConsumables(); }
+function render() {
+  renderBags(); renderGrinders(); renderMachines(); renderConsumables(); renderHabits();
+}
 kit.subscribe(render);
+/* ----------------------------------------------------------------- habit */
+// Six months of days at a glance. A table of dates cannot show a gap, a streak
+// or a Sunday habit; a grid shows all three without being read.
+
+/** Ink strength by count, so a busy day is darker rather than differently coloured. */
+function shade(n, peak) {
+  if (!n) return 'var(--panel-2)';
+  const step = Math.min(1, 0.25 + 0.75 * (n / Math.max(1, peak)));
+  return `color-mix(in srgb, var(--accent) ${(step * 100).toFixed(0)}%, var(--panel-2))`;
+}
+
+function renderHabits() {
+  const shots = store.all();
+  const cal = habits.calendar(shots, { weeks: 26 });
+  const sum = habits.summary(shots, { days: 30 });
+  const beat = habits.rhythm(shots);
+  $('h-count').textContent = beat.dated;
+  $('h-empty').hidden = beat.dated > 0;
+
+  const stat = (k, v, u = '') => el('div', { class: 'c' },
+    el('div', { class: 'k' }, k),
+    el('div', { class: 'v' }, String(v), u ? el('small', {}, u) : null));
+  $('h-stats').replaceChildren(
+    stat('Streak', habits.streak(shots), habits.streak(shots) === 1 ? 'day' : 'days'),
+    stat('Last 30 days', sum.shots, 'shots'),
+    stat('On the days you pull', sum.perActiveDay || '—', 'a day'),
+    stat('Beans, 30 days', sum.grams ? fmt(sum.grams / 1000, 2) : '—', 'kg'),
+    stat('Usual day', beat.busiestDay ?? '—'),
+    stat('Usual hour', beat.busiestHour === null ? '—'
+      : `${String(beat.busiestHour).padStart(2, '0')}:00`));
+
+  $('cal').replaceChildren(...cal.cols.flat().map((c) => el('i', {
+    'data-n': c.shots,
+    'data-future': c.future ? '1' : '0',
+    style: c.future ? '' : `background:${shade(c.shots, cal.peak)}`,
+    title: `${c.key}: ${c.shots} shot${c.shots === 1 ? '' : 's'}`
+      + (c.grams ? `, ${c.grams.toFixed(1)} g` : ''),
+  })));
+  // Month labels sit over the column each month starts in, which is what turns
+  // a texture back into a calendar.
+  $('cal-months').replaceChildren(...cal.months.map((m) => el('span', {
+    style: `grid-column:${m.col + 1}`,
+  }, habits.MONTHS[m.month])));
+  $('cal-key').replaceChildren(
+    document.createTextNode('none'),
+    ...[0, 0.34, 0.67, 1].map((f) => el('i', {
+      style: `background:${shade(f * cal.peak, cal.peak)}` })),
+    document.createTextNode(`${cal.peak}/day`));
+  $('cal-note').textContent = beat.dated
+    ? `${cal.peak} shots on the busiest day. Dotted squares have not happened yet.`
+    : '';
+
+  const peakHour = Math.max(1, ...beat.hours);
+  $('hours').replaceChildren(...beat.hours.map((n, h) => el('i', {
+    'data-n': n,
+    style: `height:${Math.max(2, (n / peakHour) * 100).toFixed(0)}%`,
+    title: `${String(h).padStart(2, '0')}:00 — ${n} shot${n === 1 ? '' : 's'}`,
+  })));
+  $('hour-axis').replaceChildren(...Array.from({ length: 24 }, (_, h) =>
+    el('span', {}, h % 6 === 0 ? String(h).padStart(2, '0') : '')));
+}
+
 store.subscribe(render);
 supply.subscribe(render);
 render();

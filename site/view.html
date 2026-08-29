@@ -56,6 +56,26 @@
   .fill.is-in .fill-band { background:color-mix(in srgb, currentColor 52%, transparent); }
   .fill.is-over { color:var(--flag); }
   [hidden] { display:none !important; }
+  /* Brewing: the curve is the thing, so it takes the room the number had. */
+  body.brewing .big { flex:0 0 auto; min-height:0; }
+  body.brewing .big .n { font-size:clamp(38px, 13vw, 84px); }
+  body.brewing .plot { flex:1 1 auto; min-height:34vh; }
+  /* Done: no live number left to watch, so neither the readout nor the curve
+     needs to shout — the summary does. */
+  body.done .big, body.done .strip, body.done .plot { display:none; }
+  #v-done { flex:1 1 auto; display:flex; flex-direction:column; gap:10px; min-height:0; }
+  .grid4 { display:grid; grid-template-columns:repeat(2, 1fr); gap:9px; }
+  .grid4 .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:11px 12px; }
+  .grid4 .k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .grid4 .v { font:800 clamp(23px, 8vw, 36px)/1.1 var(--sans); font-variant-numeric:tabular-nums;
+    margin-top:5px; }
+  .grid4 .v small { font-size:.45em; font-weight:700; opacity:.6; }
+  .rate-q { font:700 14px/1 var(--sans); margin:4px 0 0; }
+  .rate-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; }
+  .rate-row button { padding:16px 0; font:800 19px/1 var(--sans); box-shadow:none;
+    border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink); }
+  .rate-row button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
 </style>
 </head>
 <body>
@@ -69,15 +89,22 @@
 
   <!-- Pairing: two pastes, and only until it is linked. -->
   <section class="bx panel pair" id="pairing">
-    <div class="tag">Watch a shot</div>
-    <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
-    browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
-    peer to peer, with no account and nothing in between. Same Wi-Fi, and it takes two pastes.</p>
-    <ol class="msg" style="margin:0;padding-left:20px">
-      <li>On the laptop’s Live page, press <strong>Watch on phone</strong> and copy the code.</li>
-      <li>Paste it below and press <strong>Link</strong>.</li>
-      <li>Copy the reply this gives you, and paste it back on the laptop.</li>
-    </ol>
+    <div class="tag" id="pair-title">Watch a shot</div>
+    <div id="pair-intro">
+      <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
+      browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
+      peer to peer, with no account and nothing in between. Same Wi-Fi, and it takes two pastes.</p>
+      <ol class="msg" style="margin:0;padding-left:20px">
+        <li>On the laptop’s Live page, press <strong>Watch on phone</strong> and copy the code.</li>
+        <li>Paste it below and press <strong>Link</strong>.</li>
+        <li>Copy the reply this gives you, and paste it back on the laptop.</li>
+      </ol>
+    </div>
+    <p class="msg" id="pair-again" hidden style="margin:0">Press <strong>Reconnect phone</strong> on
+    the laptop, then paste its code here. A pairing is good for one connection only, so this is the
+    short version of the same two pastes.
+    <button class="ghost" id="pair-how" type="button"
+            style="margin-left:6px;padding:3px 8px;box-shadow:none;font-size:11px">Remind me</button></p>
     <textarea id="offer" placeholder="Paste the laptop’s code here"
               autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
     <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
@@ -89,12 +116,15 @@
     </div>
   </section>
 
-  <!-- Watching. -->
+  <!-- Watching. Three views, because the job has three parts and each wants a
+       different thing made big: the number while you weigh, the curve while it
+       pours, the verdict once it is done. -->
   <section id="watching" hidden style="display:contents">
     <div class="head" id="coffee-line"><span class="who" id="coffee">—</span>
       <span class="badge" id="step">—</span></div>
     <p id="hint"></p>
-    <div class="big"><div>
+
+    <div class="big" id="v-big"><div>
       <div class="k" id="big-k">Weight</div>
       <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
       <div class="fill" id="fill" hidden>
@@ -106,12 +136,21 @@
         <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
       </div>
     </div></div>
-    <div class="strip">
+
+    <div class="strip" id="v-strip">
       <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
       <div class="c"><div class="k">Flow</div><div class="v" id="q">0.00<small>g/s</small></div></div>
       <div class="c"><div class="k">Target</div><div class="v" id="target">—</div></div>
     </div>
     <div class="plot" id="plot"></div>
+
+    <!-- The verdict. By the numbers, then the only question left. -->
+    <section id="v-done" hidden>
+      <div class="grid4" id="done-grid"></div>
+      <p class="rate-q">How was it?</p>
+      <div class="rate-row" id="rate-row"></div>
+      <p class="msg" id="rate-msg" style="margin:8px 0 0"></p>
+    </section>
   </section>
 </div>
 
@@ -144,8 +183,24 @@ function setConn(state) {
   }
 }
 
+/**
+ * Which of the three views this frame belongs in. Driven by the step rather
+ * than the brew state, because the step is what the person is doing and the
+ * brew state is only what the puck is doing.
+ */
+function viewFor(f) {
+  if (f.step === 'rate') return 'done';
+  if (f.step === 'brew') return 'brew';
+  return 'weigh';
+}
+
 function paint(f) {
   last = f;
+  const view = viewFor(f);
+  document.body.classList.toggle('brewing', view === 'brew');
+  document.body.classList.toggle('done', view === 'done');
+  $('v-done').hidden = view !== 'done';
+  if (view === 'done') paintDone(f);
   const brewing = f.st === 'extracting' || f.st === 'dripping';
   $('big-k').textContent = brewing ? 'In the cup'
     : f.step === 'dose' ? 'Beans' : f.step === 'grind' ? 'Grounds' : 'Weight';
@@ -160,6 +215,59 @@ function paint(f) {
   paintFill(f);
   drawCurve(f);
 }
+
+const fmt1 = (v) => (Number.isFinite(v) ? v.toFixed(1) : '—');
+
+/** The shot by the numbers, and then the only question left. */
+function paintDone(f) {
+  const ratio = Number.isFinite(f.dose) && f.dose > 0 && Number.isFinite(f.w)
+    ? f.w / f.dose : NaN;
+  const avg = Number.isFinite(f.w) && Number.isFinite(f.t) && f.t > 0 ? f.w / f.t : NaN;
+  const cells = [
+    ['Dose', fmt1(f.dose), 'g'],
+    ['Yield', fmt1(f.w), 'g'],
+    ['Time', fmt1(f.t), 's'],
+    ['Ratio', Number.isFinite(ratio) ? `1:${ratio.toFixed(1)}` : '—', ''],
+    ['Grounds', fmt1(f.grounds), 'g'],
+    ['Avg flow', Number.isFinite(avg) ? avg.toFixed(2) : '—', 'g/s'],
+  ];
+  $('done-grid').replaceChildren(...cells.map(([k, v, u]) => {
+    const c = document.createElement('div');
+    c.className = 'c';
+    c.innerHTML = `<div class="k"></div><div class="v"><span></span><small></small></div>`;
+    c.querySelector('.k').textContent = k;
+    c.querySelector('.v span').textContent = v;
+    c.querySelector('.v small').textContent = u;
+    return c;
+  }));
+}
+
+/**
+ * Rating from the phone. The channel was always two-way; this is the first
+ * thing worth sending back up it, and it is a better rating than one typed on
+ * a laptop in another room minutes later.
+ */
+let rated = null;
+function buildRating() {
+  const row = $('rate-row');
+  row.replaceChildren(...Array.from({ length: 10 }, (_, i) => {
+    const n = i + 1;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = String(n);
+    b.setAttribute('aria-pressed', String(rated === n));
+    b.addEventListener('click', () => {
+      rated = n;
+      buildRating();
+      const sent = link.send({ k: 'rate', v: n });
+      $('rate-msg').textContent = sent
+        ? `Sent ${n}/10 to the laptop.`
+        : 'Not linked, so that went nowhere.';
+    });
+    return b;
+  }));
+}
+buildRating();
 
 /** The laptop's bar, redrawn here from the numbers rather than mirrored. */
 function paintFill(f) {
@@ -194,7 +302,15 @@ function drawCurve(f) {
 }
 
 link.onState = setConn;
-link.onMessage = (m) => { if (m?.k === 'f') paint(m); };
+link.onMessage = (m) => {
+  if (m?.k !== 'f') return;
+  // Back to weighing means a new shot, so the last one's rating is not this
+  // one's — leaving it lit would invite tapping "the same again" by accident.
+  if (m.step === 'dose' || m.step === 'setup') {
+    if (rated !== null) { rated = null; buildRating(); $('rate-msg').textContent = ''; }
+  }
+  paint(m);
+};
 
 $('link').addEventListener('click', async () => {
   const code = $('offer').value.trim();
@@ -202,6 +318,7 @@ $('link').addEventListener('click', async () => {
   $('pair-msg').textContent = 'Linking…';
   try {
     const reply = await link.answer(code);
+    try { localStorage.setItem(PAIRED_KEY, new Date().toISOString()); } catch { /* ignore */ }
     $('reply').value = reply;
     $('reply-wrap').hidden = false;
     $('pair-msg').textContent = 'Almost there — paste the reply back on the laptop.';
@@ -228,6 +345,7 @@ $('unpair').addEventListener('click', () => {
   $('offer').value = '';
   $('reply-wrap').hidden = true;
   $('pair-msg').textContent = '';
+  paintPairHelp();
 });
 
 // Keep the screen awake while watching: a phone that sleeps mid-shot is a
@@ -244,8 +362,26 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && link.state === 'open') keepAwake(true);
 });
 
+/**
+ * Whether this device has been through the pairing before. The pairing itself
+ * cannot be kept — a WebRTC description is good for one connection — but the
+ * knowledge that you have done it can be, and that is the difference between a
+ * page of instructions and a single paste.
+ */
+const PAIRED_KEY = 'brewkit.view.paired';
+const seenBefore = () => { try { return !!localStorage.getItem(PAIRED_KEY); } catch { return false; } };
+function paintPairHelp(force = false) {
+  const known = seenBefore() && !force;
+  $('pair-intro').hidden = known;
+  $('pair-again').hidden = !known;
+  $('pair-title').textContent = known ? 'Reconnect' : 'Watch a shot';
+  $('link').textContent = known ? 'Reconnect' : 'Link';
+}
+$('pair-how').addEventListener('click', () => paintPairHelp(true));
+paintPairHelp();
+
 setConn('idle');
-window.__view = { link, paint, last: () => last };
+window.__view = { link, paint, last: () => last, viewFor };
 </script>
 </body>
 </html>

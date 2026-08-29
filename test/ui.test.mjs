@@ -1138,8 +1138,8 @@ try {
     selected: [...document.querySelectorAll('[data-kit-tab]')]
       .filter((b) => b.getAttribute('aria-selected') === 'true').map((b) => b.dataset.kitTab),
   }));
-  t('kit: one pane is on screen, not four',
-    panes.total === 4 && panes.visible.length === 1 && panes.selected.length === 1
+  t('kit: one pane is on screen, not five',
+    panes.total === 5 && panes.visible.length === 1 && panes.selected.length === 1
     && panes.visible[0] === panes.selected[0], `${panes.visible.join()} of ${panes.total}`);
 
   await page.click('[data-kit-tab="machines"]');
@@ -1629,6 +1629,35 @@ try {
     const said = await page.textContent('#watch-state');
     t('link: and the laptop says a phone is watching',
       /watching/i.test(said), said);
+
+    // The job has three parts and each wants a different thing made big.
+    const views = {};
+    for (const step of ['dose', 'brew', 'rate']) {
+      await page.evaluate((st) => window.__sess.goto(st), step);
+      await phone.waitForFunction(
+        (st) => window.__view.last()?.step === st, step, { timeout: 8000 }).catch(() => {});
+      views[step] = await phone.evaluate(() => ({
+        view: window.__view.viewFor(window.__view.last() ?? {}),
+        big: !getComputedStyle(document.getElementById('v-big')).display.includes('none'),
+        done: !document.getElementById('v-done').hidden,
+      }));
+    }
+    t('link: the phone shows the weight while weighing and the summary once done',
+      views.dose.view === 'weigh' && views.dose.big === true
+      && views.brew.view === 'brew' && views.brew.big === true
+      && views.rate.view === 'done' && views.rate.done === true
+      && views.rate.big === false,
+      Object.entries(views).map(([k, v]) => `${k}:${v.view}`).join(' '));
+
+    // The channel was always two-way. A rating tapped beside the machine is a
+    // better rating than one typed on a laptop in another room.
+    await phone.evaluate(() => [...document.querySelectorAll('#rate-row button')]
+      .find((b) => b.textContent === '8')?.click());
+    const landed = await page.waitForFunction(
+      () => /Rated 8\/10 from the phone/.test(document.getElementById('live-msg').textContent),
+      { timeout: 8000 }).then(() => true).catch(() => false);
+    t('link: and a rating tapped on the phone arrives on the laptop',
+      landed, landed ? 'draft rated 8/10' : await page.textContent('#live-msg'));
   }
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
@@ -1684,15 +1713,20 @@ try {
     connected: window.__mock.connected,
     targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
       .map((a) => a.getAttribute('target') ?? '').join(','),
-    rels: [...document.querySelectorAll('.nav a[href$=".html"]')]
+    rels: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
       .every((a) => a.rel === 'noopener'),
-    note: document.getElementById('nav-note').hidden,
+    // The page you are already on is not going anywhere, so it is left alone.
+    here: document.querySelector('.nav a[aria-current]')?.getAttribute('target') ?? '-',
+    titled: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
+      .every((a) => /new tab/.test(a.title)),
   }));
   t('nav guard: while the scale is connected, the other pages open in their own tab',
-    guarded.connected === true && /^_blank(,_blank)*$/.test(guarded.targets)
+    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 5
     && guarded.rels === true, guarded.targets.slice(0, 40));
-  t('nav guard: and the page says why, rather than surprising you with a tab',
-    guarded.note === false, 'note shown');
+  t('nav guard: except the one you are on, which is not going anywhere',
+    guarded.here === '-', `Live target: ${guarded.here}`);
+  t('nav guard: and each link says why, rather than surprising you with a tab',
+    guarded.titled === true, 'reason on every guarded link');
 
   // Which scale this tab had open, so returning to Live picks it up with no
   // click. Session-scoped: a tab opened tomorrow should not go hunting for a
@@ -1709,10 +1743,10 @@ try {
     held: sessionStorage.getItem('brewkit.live.connected'),
     targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
       .map((a) => a.getAttribute('target') ?? '-').join(','),
-    note: document.getElementById('nav-note').hidden,
+    titled: [...document.querySelectorAll('.nav a[href$=".html"]')].some((a) => a.title),
   }));
   t('nav guard: and it lets go the moment there is nothing to protect',
-    /^-(,-)*$/.test(afterDrop.targets) && afterDrop.note === true,
+    /^-(,-)*$/.test(afterDrop.targets) && afterDrop.titled === false,
     afterDrop.targets.slice(0, 20));
   t('nav guard: a dropout is not a decision, so the scale stays remembered',
     afterDrop.held === 'mock:lefu', String(afterDrop.held));
@@ -1722,6 +1756,213 @@ try {
   t('nav guard: pressing Disconnect is a decision, and clears it',
     await page.evaluate(() => sessionStorage.getItem('brewkit.live.connected')) === null,
     'forgotten');
+
+  // ---- the destructive buttons actually destroy ----
+  // Delete on a bag threw a ReferenceError on every click: `usage` had been
+  // renamed two refactors earlier and survived only inside that handler, where
+  // nothing but a click would ever evaluate it.
+  await page.goto(B + '/kit.html');
+  // Everything Kit holds is fixture for later tests, so it is put back
+  // afterwards — wiping it here is what broke three unrelated tests last time.
+  const kept = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const supply = await import('./assets/js/core/supply.js');
+    const snap = {
+      bags: kit.bags().map((r) => ({ ...r })),
+      grinders: kit.grinders().map((r) => ({ ...r })),
+      machines: kit.machines().map((r) => ({ ...r })),
+      consumables: supply.consumables().map((r) => ({ ...r })),
+    };
+    for (const b of snap.bags) kit.removeBag(b.id);
+    for (const g of snap.grinders) kit.removeGrinder(g.id);
+    for (const m of snap.machines) kit.removeMachine(m.id);
+    for (const c of snap.consumables) supply.removeConsumable(c.id);
+    kit.saveBag({ id: null, bean_name: 'Doomed Bag', roast_date: '2026-08-20', weight_g: 250 });
+    kit.saveGrinder({ id: null, name: 'Doomed Grinder', min: 0, max: 40, step: 0.5 });
+    kit.saveMachine({ id: null, name: 'Doomed Machine' });
+    supply.saveConsumable({ id: null, name: 'Doomed Filter', kind: 'shots', capacity: 3 });
+    return snap;
+  });
+  // A dialog handler is already registered at the top of the suite; a second
+  // one races it and throws "already handled".
+  const gone = {};
+  for (const [tab, holder, kind] of [['bags', '#bags', 'bag'], ['grinders', '#grinders', 'grinder'],
+                                     ['machines', '#machines', 'machine'],
+                                     ['consumables', '#consumables', 'consumable']]) {
+    await page.reload();
+    await kitTab(tab);
+    await page.waitForSelector(`${holder} .bx`, { timeout: 4000 });
+    await page.evaluate((sel) => [...document.querySelectorAll(`${sel} button`)]
+      .find((b) => /^(delete|stop tracking)$/i.test(b.textContent.trim()))?.click(), holder);
+    await page.waitForTimeout(350);
+    gone[kind] = await page.evaluate((sel) => document.querySelectorAll(`${sel} .bx`).length, holder);
+  }
+  t('kit: Delete deletes, on every kind of thing Kit holds',
+    Object.values(gone).every((n) => n === 0), JSON.stringify(gone));
+
+  await page.evaluate(async (snap) => {
+    const kit = await import('./assets/js/core/kit.js');
+    const supply = await import('./assets/js/core/supply.js');
+    for (const b of snap.bags) kit.saveBag(b);
+    for (const g of snap.grinders) kit.saveGrinder(g);
+    for (const m of snap.machines) kit.saveMachine(m);
+    for (const c of snap.consumables) supply.saveConsumable(c);
+  }, kept);
+  t('kit: and the fixture the rest of the suite runs on is put back',
+    await page.evaluate(async () =>
+      (await import('./assets/js/core/kit.js')).bags().length) === kept.bags.length,
+    `${kept.bags.length} bags restored`);
+
+  // ---- Reset clears the screen, not just the machines ----
+  // Nothing streaming afterwards, so what the reset leaves behind is what stays
+  // on screen — with a live scale the readout rightly goes back to whatever is
+  // sitting on the platform.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+  await page.evaluate(() => { window.__sess.goto('brew'); window.__mock.grams = 0; });
+  await page.waitForTimeout(400);
+  await page.click('#arm');
+  await page.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
+  await page.waitForFunction(
+    () => document.getElementById('curve').querySelector('.weightline'), { timeout: 20000 });
+  await page.waitForTimeout(2500);
+  const preReset = await page.evaluate(() => ({
+    curve: document.getElementById('curve').querySelectorAll('.weightline').length,
+    points: window.__brew.curve.length,
+  }));
+  await page.click('#discard');
+  await page.waitForTimeout(300);
+  // The scale is deliberately left connected — it is the session, not the shot
+  // — so the readout goes back to whatever is on the platform rather than to
+  // zero. What must go is everything belonging to the pour just finished.
+  const postReset = await page.evaluate(() => ({
+    curve: document.getElementById('curve').querySelectorAll('.weightline').length,
+    points: window.__brew.curve.length,
+    diag: document.getElementById('r-diag').childElementCount,
+    summary: document.getElementById('b-summary').childElementCount,
+    msg: document.getElementById('live-msg').textContent,
+    step: window.__sess.step,
+    yield: document.getElementById('r-yield').value,
+  }));
+  t('live: Reset takes the last pour off the chart',
+    preReset.curve > 0 && preReset.points > 0
+    && postReset.curve === 0 && postReset.points === 0,
+    `${preReset.points} points → ${postReset.points}`);
+  t('live: and clears what the pour left behind, not just the machines',
+    postReset.diag === 0 && postReset.summary === 0 && postReset.yield === '',
+    `diag ${postReset.diag}, summary ${postReset.summary}, yield "${postReset.yield}"`);
+  t('live: and puts the flow back where the current kit says it belongs',
+    ['setup', 'dose'].includes(postReset.step) && /reset/i.test(postReset.msg),
+    `${postReset.step} — ${postReset.msg}`);
+
+  // ---- what the log says about the habit ----
+  // A shot log is a diary whether or not it was kept as one, and once there are
+  // a few hundred rows the interesting question stops being "how was that shot".
+  const habit = await page.evaluate(async () => {
+    const h = await import('./assets/js/core/habits.js');
+    const today = new Date(2026, 7, 29, 10, 0, 0);          // Sat 29 Aug 2026
+    const at = (y, m, d, hh = 8) =>
+      `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')} `
+      + `${String(hh).padStart(2, '0')}:30:00`;
+    const shots = [
+      // Three days running, ending today.
+      { timestamp: at(2026, 8, 27), dose_g: 18, rating: 8 },
+      { timestamp: at(2026, 8, 28), dose_g: 18.2, rating: 7 },
+      { timestamp: at(2026, 8, 28, 15), dose_g: 18.1 },
+      { timestamp: at(2026, 8, 29), dose_g: 17.9, rating: 9 },
+      // A gap, then an older cluster.
+      { timestamp: at(2026, 8, 20), dose_g: 18 },
+      { timestamp: at(2026, 8, 20, 9), dose_g: 18 },
+      { timestamp: at(2026, 8, 20, 16), dose_g: 18 },
+      // Rows from before timestamps were kept must not crash anything.
+      { dose_g: 18 }, { timestamp: 'not a date', dose_g: 18 },
+    ];
+    const cal = h.calendar(shots, { weeks: 6, today });
+    const flat = cal.cols.flat();
+    return {
+      days: [...h.byDay(shots).entries()].map(([k, v]) => `${k}:${v.shots}`).sort().join(' '),
+      streak: h.streak(shots, today),
+      peak: cal.peak,
+      cells: flat.length,
+      lastCol: cal.cols.at(-1).map((c) => c.shots).join(','),
+      future: flat.filter((c) => c.future).length,
+      busiest: h.rhythm(shots).busiestDay,
+      hour: h.rhythm(shots).busiestHour,
+      dated: h.rhythm(shots).dated,
+      recent: h.summary(shots, { days: 30, today }),
+      // Safari returns Invalid Date for 'YYYY-MM-DD HH:MM:SS' without the T.
+      parsed: h.shotDate({ timestamp: at(2026, 8, 29, 7) })?.getHours() ?? null,
+    };
+  });
+  t('habits: shots are counted by the local day they were pulled on',
+    habit.days === '2026-08-20:3 2026-08-27:1 2026-08-28:2 2026-08-29:1', habit.days);
+  t('habits: an undated row is skipped rather than filed under 1970',
+    habit.dated === 7, `${habit.dated} of 9 rows had a usable date`);
+  t('habits: a timestamp without a T still parses to the right hour',
+    habit.parsed === 7, `hour ${habit.parsed}`);
+  t('habits: the streak counts back from today',
+    habit.streak === 3, `${habit.streak} days`);
+  t('habits: the calendar is weeks by weekdays, Monday first',
+    habit.cells === 42 && habit.peak === 3 && habit.lastCol === '0,0,0,1,2,1,0',
+    `${habit.cells} cells, peak ${habit.peak}, this week ${habit.lastCol}`);
+  t('habits: days after today are marked, not drawn as empty ones',
+    habit.future === 1, `${habit.future} future cell (Sunday)`);
+  t('habits: it knows which day and hour you actually pull coffee',
+    habit.busiest === 'Thursday' && habit.hour === 8,
+    `${habit.busiest}s around ${habit.hour}:00`);
+  t('habits: and totals the recent window without counting a day twice',
+    habit.recent.shots === 7 && habit.recent.activeDays === 4
+    && Math.abs(habit.recent.perActiveDay - 1.75) < 1e-9
+    && Math.abs(habit.recent.rating - 8) < 1e-9,
+    `${habit.recent.shots} shots over ${habit.recent.activeDays} days, `
+      + `${habit.recent.grams} g, rated ${habit.recent.rating}`);
+
+  // ---- the habit pane draws the log as a calendar ----
+  await page.goto(B + '/kit.html');
+  await page.click('[data-kit-tab="habits"]');
+  await page.waitForTimeout(400);
+  const pane = await page.evaluate(() => ({
+    cells: document.querySelectorAll('#cal i').length,
+    shaded: [...document.querySelectorAll('#cal i')].filter((i) => i.dataset.n !== '0').length,
+    months: document.querySelectorAll('#cal-months span').length,
+    hours: document.querySelectorAll('#hours i').length,
+    axis: [...document.querySelectorAll('#hour-axis span')].map((x) => x.textContent)
+      .filter(Boolean).join(','),
+    stats: document.querySelectorAll('#h-stats .c').length,
+    titled: document.querySelector('#cal i')?.title ?? '',
+  }));
+  t('habits: six months of days, drawn as a calendar',
+    pane.cells === 182 && pane.months >= 6 && pane.stats === 6,
+    `${pane.cells} cells, ${pane.months} month labels, ${pane.stats} stats`);
+  t('habits: with the hours under it, and an axis you can read',
+    pane.hours === 24 && pane.axis === '00,06,12,18', pane.axis);
+  t('habits: every day says what it was, not just how dark it is',
+    /^\d{4}-\d{2}-\d{2}: \d+ shot/.test(pane.titled), pane.titled);
+
+  // ---- a bag drawn past empty says so, rather than printing a negative ----
+  const overdrawn = await page.evaluate(async () => {
+    const supply = await import('./assets/js/core/supply.js');
+    const bag = { id: 'over-1', weight_g: 100 };
+    const shots = Array.from({ length: 10 }, (_, i) => ({ shot_id: `o${i}`, bag_id: 'over-1', dose_g: 18 }));
+    const st = supply.bagStatus(bag, shots);
+    return { remaining: st.remaining, left: st.left, over: st.over, empty: st.empty };
+  });
+  t('supply: over-drawing a bag is recorded exactly and printed as used up',
+    overdrawn.remaining === -80 && overdrawn.left === 0 && overdrawn.over === 80
+    && overdrawn.empty === true,
+    `${overdrawn.remaining} g exact, ${overdrawn.left} g shown, ${overdrawn.over} g over`);
+
+  // ---- the flow reads left to right ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  const where = await page.evaluate(() => {
+    const inNow = (id) => !!document.getElementById('cell-now').querySelector(`#${id}`);
+    return { stepper: inNow('stepper'), bag: inNow('p-bag'), grinder: inNow('p-grinder'),
+             machine: inNow('p-machine') };
+  });
+  t('setup: the step you are on and the two choices it wants are the first things on the page',
+    where.stepper && where.bag && where.grinder && !where.machine,
+    'stepper, coffee and grinder on the left; machine stays with the shot settings');
 
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');

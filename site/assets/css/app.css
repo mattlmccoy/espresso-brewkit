@@ -123,6 +123,9 @@ a { color: var(--accent); }
   border: 2px solid var(--ink); background: var(--panel);
 }
 .nav a:hover { background: var(--flag); color: #100f0d; }
+/* A link that is about to open a new tab says so, in the two characters it
+   takes, rather than in a paragraph that costs a line of the dashboard. */
+.nav a[target="_blank"]::after { content: ' \2197'; opacity: .7; }
 .nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
 
 /* The signed-in account, on every page. Signed out it is an ordinary nav item
@@ -343,7 +346,9 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
    phone a fixed-height grid would just squeeze everything into illegibility. */
 .stage {
   display: grid;
-  grid-template-columns: minmax(230px, 285px) minmax(0, 1fr) minmax(280px, 350px);
+  /* The left column carries the flow now — stepper, prompt, the two setup
+     choices, the readout — so it takes the width the side panel used to need. */
+  grid-template-columns: minmax(268px, 330px) minmax(0, 1fr) minmax(255px, 320px);
   /* An auto row sizes to its tallest cell's content, which defeats the whole
      point: the stage would grow to fit the side panel instead of the side panel
      scrolling inside a stage that fits the screen. */
@@ -361,8 +366,15 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .dash-page .wrap { max-width: 1720px; padding-left: 18px; padding-right: 18px; }
 
 /* The footer lives outside .wrap, so a 100dvh wrap plus a footer overflows by
-   exactly the footer's height. The body is the flex column instead. */
-body.dash-page { min-height: 100dvh; display: flex; flex-direction: column; }
+   exactly the footer's height. The body is the flex column instead.
+   `height`, not `min-height`: a minimum lets the body grow to its content, so
+   one tall column pushes the whole page down and the dashboard scrolls — which
+   is the thing it is not supposed to do. A fixed height caps it and makes the
+   stage shrink, and the columns scroll inside themselves instead. */
+body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
+/* Which only works if the columns can actually scroll: `.cell` clips by
+   default, and a clipped column loses its bottom rather than reaching it. */
+.dash-page .cell { overflow-y: auto; }
 .dash-page .wrap { flex: 1 1 auto; display: flex; flex-direction: column;
   /* An auto-margined flex item sizes to its content on the cross axis, not to
      the container — without an explicit width the wrap shrinks and squeezes the
