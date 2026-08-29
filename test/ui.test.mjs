@@ -1264,6 +1264,603 @@ try {
     `bags ${boxes.bags}, consumables ${boxes.consumables}`);
   await page.click('[data-kit-tab="bags"]');
 
+  // ---- the scale as a button ----
+  // The gesture layer is pure, so it can be driven with exact signals rather
+  // than by waiting on a mock. What matters is not that it detects taps; it is
+  // that it detects nothing else, because a scale beside a machine gets knocked
+  // and a false capture loses a dose.
+  const gest = await page.evaluate(async () => {
+    const { TapListener } = await import('./assets/js/core/tap.js');
+    const play = (samples, hz = 10) => {
+      const L = new TapListener();
+      const out = [];
+      let t = 0;
+      for (const w of samples) {
+        const g = L.push(t, w + (Math.random() - 0.5) * 0.1);
+        if (g) out.push(g.type);
+        t += 1 / hz;
+      }
+      return out.join(',') || 'nothing';
+    };
+    const flat = (v, secs, hz = 10) => Array(Math.round(secs * hz)).fill(v);
+    const tap = (base, peak = 60) => [base + peak, base + peak * 0.6];
+    const shot = [];
+    for (let i = 0; i < 280; i++) shot.push(Math.min(36, Math.max(0, (i / 10 - 6) * 1.7)));
+
+    return {
+      double: play([...flat(0, 2), ...tap(0), ...flat(0, 0.2), ...tap(0), ...flat(0, 1.5)]),
+      triple: play([...flat(0, 2), ...tap(0), ...flat(0, 0.2), ...tap(0), ...flat(0, 0.2),
+                    ...tap(0), ...flat(0, 1.5)]),
+      hold: play([...flat(0, 2), ...tap(0), ...flat(0, 0.2), ...tap(0), ...flat(0, 0.2),
+                  ...flat(70, 0.9), ...flat(0, 1.5)]),
+      // After a real lift the baseline has to catch up fast, or the first tap
+      // lands at a level it does not recognise and is thrown away — which is
+      // exactly the moment someone reaches over to undo.
+      afterLift: play([...flat(70, 2), ...flat(0, 1.5), ...tap(0), ...flat(0, 0.2),
+                       ...tap(0), ...flat(0, 1.5)]),
+      lonepress: play([...flat(0, 2), ...flat(70, 0.9), ...flat(0, 1.5)]),
+      scaleTare: play([...flat(0, 2), ...flat(52, 0.9), ...flat(0, 2)]),
+      single: play([...flat(0, 2), ...tap(0), ...flat(0, 2)]),
+      cup: play([...flat(0, 2), 20, 45, ...flat(52, 4)]),
+      portafilter: play([...flat(0, 2), 180, 400, ...flat(469, 5)]),
+      pour: play([...flat(0, 2), ...shot, ...flat(36, 2)]),
+      lifted: play([...flat(52, 3), 30, ...flat(0, 3)]),
+      slowKnocks: play([...flat(0, 2), ...tap(0), ...flat(0, 3), ...tap(0), ...flat(0, 2)]),
+      feeble: play([...flat(0, 2), ...tap(0, 6), ...flat(0, 0.2), ...tap(0, 6), ...flat(0, 2)]),
+      onTop: play([...flat(469, 3), ...tap(469), ...flat(469, 0.2), ...tap(469), ...flat(469, 1.5)]),
+      coarse: (() => {
+        const L = new TapListener();
+        const out = [];
+        let t = 0;
+        for (const w of [...flat(0, 2), ...tap(0), ...flat(0, 0.2), ...tap(0), ...flat(0, 1.5)]) {
+          const g = L.push(t, w + (Math.random() - 0.5) * 2);   // a 1 g scale
+          if (g) out.push(g.type);
+          t += 0.1;
+        }
+        return out.join(',') || 'nothing';
+      })(),
+    };
+  });
+  t('taps: two taps on the platter are a command',
+    gest.double === 'double', gest.double);
+  t('taps: three are a different one', gest.triple === 'triple', gest.triple);
+  // The one that bit: a cup set down and lifted a second later, and a
+  // scale-side tare, are both exactly a long press released. Neither may be a
+  // gesture, which is why the hold has to be announced by taps first.
+  t('taps: a lone long press is not a hold — that is just a cup being lifted',
+    gest.lonepress === 'nothing', gest.lonepress);
+  t('taps: which is why the hold has to be announced by two taps first',
+    gest.hold === 'hold', gest.hold);
+  t('taps: and a scale-side tare, which looks identical, is not one either',
+    gest.scaleTare === 'nothing', gest.scaleTare);
+  t('taps: one tap is never a command — a scale on a counter gets knocked',
+    gest.single === 'nothing', gest.single);
+  t('taps: a dosing cup landing is not a gesture', gest.cup === 'nothing', gest.cup);
+  t('taps: nor is a portafilter', gest.portafilter === 'nothing', gest.portafilter);
+  t('taps: nor is a whole shot pouring', gest.pour === 'nothing', gest.pour);
+  t('taps: nor is lifting the cup off', gest.lifted === 'nothing', gest.lifted);
+  t('taps: two knocks three seconds apart are not a chord',
+    gest.slowKnocks === 'nothing', gest.slowKnocks);
+  t('taps: a touch too light to mean it does nothing', gest.feeble === 'nothing', gest.feeble);
+  t('taps: and it still works with a portafilter already on the scale',
+    gest.onTop === 'double', gest.onTop);
+  t('taps: a 1 g-resolution scale is still readable', gest.coarse === 'double', gest.coarse);
+  t('taps: and a tap lands straight after a cup has been lifted off',
+    gest.afterLift === 'double', gest.afterLift);
+
+  // A tap is a rise and a fall of exactly the size the session reads as "the
+  // vessel came off". Before the lift test waited for the platform to STAY
+  // down, tapping the scale committed the step whatever the tap meant.
+  const lift = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const run = (samples) => {
+      const m = new SessionMachine();
+      m.setReady(true);
+      m.begin();
+      let tare = 0, t = 0, committed = null;
+      for (const raw of samples) {
+        t += 0.1;
+        m._t = t;
+        const r = m.step_(t, raw, raw - tare, true);
+        if (r.tareTo !== null) tare = r.tareTo;
+        if (r.committed) committed = r.committed;
+      }
+      return { committed, step: m.step, dose: m.dose };
+    };
+    const flat = (v, secs) => Array(Math.round(secs * 10)).fill(v);
+    return {
+      // cup on, tares, filled to 18, then TAPPED twice — must not commit
+      tapped: run([...flat(0, 1), ...flat(52, 1.5), ...flat(70, 2),
+                   130, 130, ...flat(70, 0.3), 130, 130, ...flat(70, 1.5)]),
+      // the same, but actually lifted off — must commit
+      lifted: run([...flat(0, 1), ...flat(52, 1.5), ...flat(70, 2), ...flat(0, 1.5)]),
+    };
+  });
+  t('lift: a tap on the platter no longer commits the step',
+    lift.tapped.committed === null && lift.tapped.step === 'dose',
+    `${lift.tapped.committed} → ${lift.tapped.step}`);
+  t('lift: an actual lift still does',
+    lift.lifted.committed === 'dose' && lift.lifted.step === 'grind',
+    `${lift.lifted.committed} ${lift.lifted.dose} g → ${lift.lifted.step}`);
+
+  // ---- who owns the choice of coffee ----
+  // A hopper holds one bag until it runs out, so what is in it is a property of
+  // the grinder. A single doser is fed per shot, and the coffee genuinely can
+  // differ between consecutive shots — which is the whole point of single
+  // dosing — so it has to be asked every time.
+  const hopper = await page.evaluate(async () => {
+    const supply = await import('./assets/js/core/supply.js');
+    const kit = await import('./assets/js/core/kit.js');
+    const bag = { id: 'b1', bean_name: 'Guji', weight_g: 250 };
+    const shots = (n) => Array.from({ length: n },
+      (_, i) => ({ shot_id: `s${i}`, bag_id: 'b1', dose_g: 18 }));
+    const ask = (g, bags, sh) => supply.hopperAssumption(g, bags, sh);
+    const single = { id: 'g1', name: 'Niche', feed: 'single-dose', hopper_bag_id: 'b1' };
+    const loaded = { id: 'g2', name: 'Mazzer', feed: 'hopper', hopper_bag_id: 'b1' };
+    const bare = { id: 'g3', name: 'Mazzer', feed: 'hopper', hopper_bag_id: '' };
+
+    // Saving a grinder as single dose must forget any hopper contents, or the
+    // stale id would come back if it were ever switched to hopper again.
+    const saved = kit.saveGrinder({ name: 'Feed Test', feed: 'hopper', hopper_bag_id: 'b1' });
+    const flipped = kit.saveGrinder({ id: saved.id, feed: 'single-dose' });
+    const defaulted = kit.saveGrinder({ name: 'Feed Default' });
+    const loadedBack = kit.loadHopper(defaulted.id, 'b1');
+    kit.removeGrinder(saved.id);
+    kit.removeGrinder(defaulted.id);
+
+    return {
+      single: ask(single, [bag], shots(3)),
+      half: ask(loaded, [bag], shots(3)),
+      empty: ask(loaded, [bag], shots(14)),
+      bare: ask(bare, [bag], shots(0)),
+      archived: ask(loaded, [{ ...bag, archived: true }], shots(1)),
+      flippedHopper: flipped.hopper_bag_id,
+      defaultFeed: defaulted.feed,
+      loadRefused: loadedBack,
+    };
+  });
+  t('feed: a hopper that still has coffee in it is taken as read',
+    hopper.half.assume === true && hopper.half.bagId === 'b1' && hopper.half.left === 196,
+    hopper.half.reason);
+  t('feed: a single doser is never assumed, however well remembered',
+    hopper.single.assume === false && /single dosed/.test(hopper.single.reason),
+    hopper.single.reason);
+  t('feed: the assumption expires when the log says that bag is finished',
+    hopper.empty.assume === false && /finished/.test(hopper.empty.reason), hopper.empty.reason);
+  t('feed: a hopper nothing has been loaded into is asked about, not guessed at',
+    hopper.bare.assume === false && /nothing recorded/.test(hopper.bare.reason),
+    hopper.bare.reason);
+  t('feed: an archived bag is not still in the hopper',
+    hopper.archived.assume === false && /archived/.test(hopper.archived.reason),
+    hopper.archived.reason);
+  t('feed: grinders default to single dose — the answer that never assumes',
+    hopper.defaultFeed === 'single-dose', hopper.defaultFeed);
+  t('feed: switching a grinder to single dose forgets what was in its hopper',
+    hopper.flippedHopper === '', `"${hopper.flippedHopper}"`);
+  t('feed: and a single doser cannot be loaded with a hopper bag at all',
+    hopper.loadRefused === null, String(hopper.loadRefused));
+
+  // On the page: the gate is skipped only where the assumption holds, it always
+  // says so, and it can be taken back.
+  //
+  // This block rewrites grinders, shots and the remembered session, all of
+  // which are shared fixture for tests further down. Snapshot the lot and put
+  // it back: a test that leaves the shot log empty fails a supply assertion
+  // three hundred lines later, and the failure names the wrong culprit.
+  const fixtureBefore = await page.evaluate(() => ({
+    grinders: localStorage.getItem('brewkit.grinders.v1'),
+    shots: localStorage.getItem('brewkit.shots.v1'),
+    session: localStorage.getItem('brewkit.session.v1'),
+  }));
+  const gateSeen = [];
+  for (const [label, feed, hopperBag, shotCount] of [
+    ['hopper, half full', 'hopper', 'bag-1', 3],
+    ['hopper, run out', 'hopper', 'bag-1', 14],
+    ['single dose', 'single-dose', '', 3],
+    ['hopper, not loaded', 'hopper', '', 0],
+  ]) {
+    await page.evaluate(([feed, hopperBag, n, ids]) => {
+      const gs = JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]');
+      const g = gs.find((x) => x.id === ids.grinder);
+      if (g) { g.feed = feed; g.hopper_bag_id = hopperBag ? ids.bag : ''; }
+      localStorage.setItem('brewkit.grinders.v1', JSON.stringify(gs));
+      localStorage.setItem('brewkit.session.v1',
+        JSON.stringify({ bag_id: ids.bag, grinder_id: ids.grinder }));
+      localStorage.setItem('brewkit.shots.v1', JSON.stringify(Array.from({ length: n },
+        (_, i) => ({ shot_id: `hop-${i}`, bag_id: ids.bag, grinder_id: ids.grinder, dose_g: 18 }))));
+    }, [feed, hopperBag, shotCount, kitIds]);
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(
+      () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+    await page.waitForTimeout(700);
+    gateSeen.push({ label, ...(await page.evaluate(() => ({
+      step: window.__sess.step,
+      gate: !document.getElementById('begin-box').hidden,
+      told: !document.getElementById('assumed').hidden,
+    }))) });
+  }
+  const seen = Object.fromEntries(gateSeen.map((r) => [r.label, r]));
+  t('feed: Live skips step 00 only for a hopper that still has that coffee in it',
+    seen['hopper, half full'].step === 'dose' && seen['hopper, half full'].gate === false,
+    gateSeen.map((r) => `${r.label}=${r.step}`).join(', '));
+  t('feed: and when it does, it says so rather than skipping silently',
+    seen['hopper, half full'].told === true, 'banner shown');
+  t('feed: every other case still stops at 00',
+    ['hopper, run out', 'single dose', 'hopper, not loaded']
+      .every((k) => seen[k].step === 'setup' && seen[k].gate === true),
+    ['hopper, run out', 'single dose', 'hopper, not loaded']
+      .map((k) => `${k}=${seen[k].step}`).join(', '));
+
+  // Refilling the hopper with something else has to be sayable.
+  await page.evaluate(([ids]) => {
+    const gs = JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]');
+    const g = gs.find((x) => x.id === ids.grinder);
+    if (g) { g.feed = 'hopper'; g.hopper_bag_id = ids.bag; }
+    localStorage.setItem('brewkit.grinders.v1', JSON.stringify(gs));
+    localStorage.setItem('brewkit.shots.v1', '[]');
+  }, [kitIds]);
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.waitForTimeout(700);
+  await page.click('#assumed-no');
+  await page.waitForTimeout(300);
+  const refilled = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    return { step: window.__sess.step,
+             gate: !document.getElementById('begin-box').hidden,
+             stillLoaded: kit.grinders().some((g) => g.hopper_bag_id) };
+  });
+  t('feed: "changed the hopper?" empties it and asks again',
+    refilled.step === 'setup' && refilled.gate === true && refilled.stillLoaded === false,
+    `${refilled.step}, loaded=${refilled.stillLoaded}`);
+
+  // Put the shared fixture back, exactly as it was.
+  const fixtureAfter = await page.evaluate((was) => {
+    for (const [key, val] of [['brewkit.grinders.v1', was.grinders],
+                              ['brewkit.shots.v1', was.shots],
+                              ['brewkit.session.v1', was.session]]) {
+      if (val === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, val);
+    }
+    return {
+      shots: JSON.parse(localStorage.getItem('brewkit.shots.v1') ?? '[]').length,
+      feeds: JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]')
+        .filter((g) => g.hopper_bag_id).length,
+    };
+  }, fixtureBefore);
+  t('feed: the fixture the rest of the suite runs on is put back',
+    fixtureAfter.feeds === 0 && fixtureAfter.shots === JSON.parse(fixtureBefore.shots ?? '[]').length,
+    `${fixtureAfter.shots} shots, ${fixtureAfter.feeds} loaded hoppers`);
+
+  // ---- gestures live in the gaps, never inside a measurement ----
+  // This is a correctness rule rather than a preference: a tap is a sixty-gram
+  // excursion, and driven through the real filter a two-tap gesture during a
+  // shot takes the reported flow from 1.5 g/s to over 150. It would trip the
+  // predictive stop and poison the stored curve.
+  const harm = await page.evaluate(async () => {
+    const { FlowEstimator, BrewMachine } = await import('./assets/js/core/filter.js');
+    const run = (withTaps) => {
+      const est = new FlowEstimator();
+      const brew = new BrewMachine();
+      brew.arm();
+      let w = 0, peak = 0;
+      const rate = (x) => (x < 6 ? 0 : 2.0 * (1 - Math.exp(-(x - 6) / 2)) * Math.exp(-(x - 6) / 30));
+      const tapping = (x) => [14.0, 14.1, 14.4, 14.5].some((k) => Math.abs(x - k) < 0.06);
+      for (let i = 0; i <= 300; i++) {
+        const x = i / 10;
+        w += rate(x) * 0.1;
+        const e = est.step(x, withTaps && tapping(x) ? w + 60 : w);
+        const snap = brew.step(x, e.weight, e.flow);
+        if (Number.isFinite(snap.flow)) peak = Math.max(peak, snap.flow);
+      }
+      return +peak.toFixed(2);
+    };
+    return { clean: run(false), tapped: run(true) };
+  });
+  t('gestures: a tap during a pour would wreck the flow reading',
+    harm.tapped > harm.clean * 10,
+    `${harm.clean} g/s clean vs ${harm.tapped} g/s tapped — which is why nothing is bound there`);
+
+  const bound = await page.evaluate(async () => {
+    const T = await import('./assets/js/core/tap.js');
+    const at = (step, phase) => T.actionFor(step, 'double', phase);
+    return {
+      setup: at('setup', 'vessel'),
+      doseVessel: at('dose', 'vessel'),
+      doseFill: at('dose', 'fill'),
+      doseReady: at('dose', 'ready'),
+      brew: at('brew', null),
+      brewTriple: T.actionFor('brew', 'triple', null),
+      brewHold: T.actionFor('brew', 'hold', null),
+      rate: at('rate', null),
+      rateTriple: T.actionFor('rate', 'triple', null),
+      brewHint: T.gestureHint('brew', null),
+      fillHint: T.gestureHint('dose', 'fill'),
+    };
+  });
+  t('gestures: nothing at all is bound while the shot is pouring',
+    bound.brew === null && bound.brewTriple === null && bound.brewHold === null
+    && /pouring/i.test(bound.brewHint), bound.brewHint);
+  t('gestures: nor while a weight is being taken',
+    bound.doseFill === null && bound.doseReady === null && /weight is being taken/i.test(bound.fillHint),
+    bound.fillHint);
+  t('gestures: they are bound where the scale is idle and the person is not',
+    bound.setup === 'begin' && bound.doseVessel === 'undo' && bound.rate === 'next-shot'
+    && bound.rateTriple === 'discard',
+    `${bound.setup} / ${bound.doseVessel} / ${bound.rate} / ${bound.rateTriple}`);
+
+  // Undo is the one thing automation cannot do: "that was wrong" is information
+  // only the person holding the portafilter has.
+  const undo = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const m = new SessionMachine();
+    m._t = 0;
+    m.setReady(true);
+    m.begin();
+    m.dose = 18.2;
+    m.auto.dose = true;
+    m.step = 'grind';
+    const first = m.undo();
+    const second = m.undo();
+    const g = new SessionMachine({ method: 'milk' });
+    g._t = 0;
+    g.setReady(true);
+    g.begin();
+    g.dose = 18; g.grounds = 17.9; g.step = 'brew';
+    const fromBrew = g.undo();
+    return { first, afterFirst: { step: m.step, dose: m.dose, auto: m.auto.dose },
+             second, fromBrew, gStep: g.step, gGrounds: g.grounds };
+  });
+  t('undo: it takes back the last weight and returns to the step that made it',
+    undo.first?.was === 18.2 && undo.afterFirst.step === 'dose'
+    && undo.afterFirst.dose === null && undo.afterFirst.auto === false,
+    JSON.stringify(undo.first));
+  t('undo: with nothing left to take back it does nothing rather than unwinding',
+    undo.second === null, String(undo.second));
+  t('undo: and it follows the method\u2019s own order backwards',
+    undo.fromBrew?.key === 'grounds' && undo.gStep === 'grind' && undo.gGrounds === null,
+    `${undo.fromBrew?.key} \u2192 ${undo.gStep}`);
+
+  // ---- what you are making decides what you are asked for ----
+  const methods = await page.evaluate(async () => {
+    const M = await import('./assets/js/core/method.js');
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const orders = {};
+    for (const id of M.METHOD_ORDER) orders[id] = M.METHODS[id].order.join(',');
+
+    // A method switch mid-session must not un-weigh what is already weighed.
+    const s = new SessionMachine();
+    s._t = 0;
+    s.setReady(true);
+    s.begin();
+    s.dose = 18.2;
+    s.step = 'grind';
+    s.setMethod('pourover');
+    const afterSwitch = { step: s.step, dose: s.dose };
+    // The fallback only fires when the current step does not exist in the new
+    // method. Going the other way — off milk's own step, into a method with no
+    // milk in it — is the case that needs one.
+    const milk = new SessionMachine({ method: 'milk' });
+    milk._t = 0;
+    milk.setReady(true);
+    milk.begin();
+    milk.dose = 18;
+    milk.grounds = 18;
+    milk.step = 'milk';
+    milk.setMethod('espresso');
+
+    return {
+      offMilk: milk.step,
+      orders,
+      cycle: [M.nextMethod('espresso').id, M.nextMethod('pourover').id, M.nextMethod('milk').id]
+        .join(','),
+      espressoTarget: M.brewTarget('espresso', 18, 2),
+      pouroverTarget: M.brewTarget('pourover', 22, 16),
+      afterSwitch,
+      keptStep: (() => { s.setMethod('milk'); return s.step; })(),
+      milkVessel: M.METHODS.milk.weigh.milk.vessel,
+      pourNoun: M.METHODS.pourover.brew.noun,
+      pourDiagnoses: M.METHODS.pourover.diagnose,
+      numbering: `${M.stepNumber('pourover', 'brew')}/${M.stepNumber('espresso', 'brew')}`,
+    };
+  });
+  t('method: a pour over has no portafilter step, a flat white has one more',
+    methods.orders.pourover === 'setup,dose,brew,rate'
+    && methods.orders.milk === 'setup,dose,grind,brew,milk,rate',
+    `${methods.orders.pourover} | ${methods.orders.milk}`);
+  t('method: holding the scale cycles through all three',
+    methods.cycle === 'pourover,milk,espresso', methods.cycle);
+  t('method: the brew target follows the drink, not the code',
+    methods.espressoTarget === 36 && methods.pouroverTarget === 352,
+    `${methods.espressoTarget} g out vs ${methods.pouroverTarget} g in`);
+  t('method: switching mid-session keeps what is already weighed',
+    methods.afterSwitch.dose === 18.2 && methods.afterSwitch.step === 'brew',
+    `${methods.afterSwitch.dose} g, now on ${methods.afterSwitch.step}`);
+  t('method: a step the new method still has is kept, not restarted',
+    methods.keptStep === 'brew', methods.keptStep);
+  t('method: and a step it does not have falls through to what is left',
+    methods.offMilk === 'rate', methods.offMilk);
+  t('method: a pour over weighs water in, and is not judged by espresso rules',
+    methods.pourNoun === 'water' && methods.pourDiagnoses === false,
+    `${methods.pourNoun}, diagnose=${methods.pourDiagnoses}`);
+  t('method: the step numbering follows the method that owns it',
+    methods.numbering === '02/03', methods.numbering);
+
+  // ---- flow as a bar, not only as digits ----
+  const flowbar = await page.evaluate(async () => {
+    const M = await import('./assets/js/core/method.js');
+    const at = (m, q) => M.flowBar(m, q);
+    return {
+      slow: at('espresso', 0.6)?.state,
+      good: at('espresso', 1.8)?.state,
+      fast: at('espresso', 2.9)?.state,
+      // A pour is poured an order of magnitude faster; espresso's scale would
+      // pin the bar at full for the whole brew.
+      pourGood: at('pourover', 5)?.state,
+      pourOnEspressoScale: at('espresso', 5)?.frac,
+      none: at('espresso', NaN),
+      band: `${at('espresso', 1.8).lo.toFixed(2)}-${at('espresso', 1.8).hi.toFixed(2)}`,
+    };
+  });
+  t('flow: the bar names slow, right and fast rather than leaving it to arithmetic',
+    flowbar.slow === 'low' && flowbar.good === 'good' && flowbar.fast === 'high',
+    `${flowbar.slow}/${flowbar.good}/${flowbar.fast}`);
+  t('flow: a pour over gets its own scale, not espresso\u2019s',
+    flowbar.pourGood === 'good' && flowbar.pourOnEspressoScale === 1,
+    `5 g/s is ${flowbar.pourGood} pouring, and pins an espresso bar at ${flowbar.pourOnEspressoScale}`);
+  t('flow: no reading draws no bar', flowbar.none === null, String(flowbar.none));
+
+  // ---- the gap between grinding and brewing ----
+  const prep = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const { diagnose } = await import('./assets/js/core/diagnose.js');
+    const s = new SessionMachine();
+    s.at = { dose: Date.now() - 400000, grounds: Date.now() - 300000 };
+    const long = s.puckPrep(Date.now());
+    const s2 = new SessionMachine();
+    s2.at = { grounds: Date.now() - 25000 };
+    const short = s2.puckPrep(Date.now());
+    const none = new SessionMachine().puckPrep(Date.now());
+    return {
+      long, short, none,
+      flagsLong: diagnose({ puck_prep_s: 600 }).map((f) => f.code).join(','),
+      quietShort: diagnose({ puck_prep_s: 45 }).map((f) => f.code).join(',') || 'nothing',
+    };
+  });
+  t('prep: the grind-to-brew gap is measured from timestamps the app already had',
+    Math.abs(prep.long - 300) < 3 && Math.abs(prep.short - 25) < 3,
+    `${prep.long} s and ${prep.short} s`);
+  t('prep: with nothing ground there is nothing to measure', prep.none === null,
+    String(prep.none));
+  t('prep: a five-minute-old puck is called out; a fresh one is not',
+    prep.flagsLong === 'puck_stale' && prep.quietShort === 'nothing',
+    `${prep.flagsLong} vs ${prep.quietShort}`);
+
+  // ---- this shot against the one you actually liked ----
+  // The comparison exists only because ratings and curves live in the same
+  // rows. A scale that stores curves and a notebook that stores ratings cannot
+  // be joined afterwards, which is why no scale app does this.
+  const cmp = await page.evaluate(async () => {
+    const C = await import('./assets/js/core/compare.js');
+    const { encodeCurve } = await import('./assets/js/core/schema.js');
+    const build = (flow, dur = 28) => {
+      const pts = [];
+      let w = 0;
+      for (let x = 0; x <= dur; x += 0.1) { w += flow(x) * 0.1; pts.push([+x.toFixed(2), +w.toFixed(2)]); }
+      return encodeCurve(pts);
+    };
+    const normal = (x) => (x < 6 ? 0 : 2.7 * (1 - Math.exp(-(x - 6) / 2)) * Math.exp(-(x - 6) / 26));
+    const gusher = (x) => (x < 4 ? 0 : 3.4 * (1 - Math.exp(-(x - 4) / 1.2)) * Math.exp(-(x - 4) / 30));
+    const ref = { shot_id: 'ref', bag_id: 'b1', rating: 9, timestamp: '2026-08-01 09:00:00',
+                  curve: build(normal) };
+    const twin = { shot_id: 'twin', bag_id: 'b1', curve: build(normal) };
+    const fast = { shot_id: 'fast', bag_id: 'b1', curve: build(gusher) };
+    const otherBag = { shot_id: 'other', bag_id: 'b2', rating: 10, curve: build(normal) };
+
+    const same = C.compareToBest(twin, [ref, twin]);
+    const diff = C.compareToBest(fast, [ref, fast]);
+    return {
+      sameScore: same?.percent, sameClose: same?.close,
+      diffScore: diff?.percent, diffAhead: diff?.divergence.ahead,
+      diffAt: diff?.divergence.atSeconds,
+      unrated: C.compareToBest(twin, [{ ...ref, rating: 3 }, twin]),
+      // A ten out of ten on a different coffee is not a reference for this one.
+      wrongBag: C.compareToBest(twin, [otherBag, twin], { bagId: 'b1' }),
+      picksBest: C.bestOn([ref, { ...ref, shot_id: 'r2', rating: 10 }], { bagId: 'b1' })?.shot_id,
+      // A curve too short to have a shape is not compared, it is refused.
+      stub: C.normalise([[0, 0], [1, 1]]),
+    };
+  });
+  t('compare: the same curve twice scores as the same curve',
+    cmp.sameScore === 100 && cmp.sameClose === true, `${cmp.sameScore}%`);
+  t('compare: a faster shot is scored lower and the divergence is located',
+    cmp.diffScore < 80 && cmp.diffAhead === true && cmp.diffAt > 4 && cmp.diffAt < 20,
+    `${cmp.diffScore}%, ran ahead at ${cmp.diffAt} s`);
+  t('compare: with nothing well rated to compare against, it says nothing',
+    cmp.unrated === null, String(cmp.unrated));
+  t('compare: a great shot on a different coffee is not a reference for this one',
+    cmp.wrongBag === null, String(cmp.wrongBag));
+  t('compare: the reference is your highest rating on that coffee',
+    cmp.picksBest === 'r2', cmp.picksBest);
+  t('compare: a curve with no shape in it is refused rather than scored',
+    cmp.stub === null, String(cmp.stub));
+
+  // ---- the drip lag belongs to the machine, not to the app ----
+  // The machines store is shared fixture for tests further down, so snapshot it
+  // and put it back: a test that leaves a machine behind fails four unrelated
+  // ones two hundred lines later, and the failure names the wrong culprit.
+  const lag = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const saved = localStorage.getItem('brewkit.machines.v1');
+    const m = kit.saveMachine({ name: 'Lag Test Machine', kind: 'Lever' });
+    const before = kit.stopLag(m.id);
+    // Five shots that each overshot by about 1.4 s worth of flow.
+    for (let i = 0; i < 5; i++) {
+      kit.learnStopLag(m.id, { weightAtSignal: 33, finalWeight: 35.8, flowAtSignal: 2.0 });
+    }
+    const after = kit.stopLag(m.id);
+    // Rubbish observations must not move it.
+    kit.learnStopLag(m.id, { weightAtSignal: 33, finalWeight: 20, flowAtSignal: 2.0 });  // negative
+    kit.learnStopLag(m.id, { weightAtSignal: 33, finalWeight: 99, flowAtSignal: 2.0 });  // absurd
+    kit.learnStopLag(m.id, { weightAtSignal: 33, finalWeight: 35, flowAtSignal: 0 });    // no flow
+    const guarded = kit.stopLag(m.id);
+    const other = kit.stopLag(kit.saveMachine({ name: 'Another Machine' }).id);
+    if (saved === null) localStorage.removeItem('brewkit.machines.v1');
+    else localStorage.setItem('brewkit.machines.v1', saved);
+    return { before, after, guarded, other,
+             restored: JSON.parse(localStorage.getItem('brewkit.machines.v1') ?? '[]').length };
+  });
+  t('lag: an unmeasured machine falls back rather than inventing a number',
+    lag.before.learned === false && lag.before.seconds === 1, JSON.stringify(lag.before));
+  t('lag: it learns the real drip from the shots that machine actually pulled',
+    lag.after.learned === true && Math.abs(lag.after.seconds - 1.4) < 0.25 && lag.after.n === 5,
+    `${lag.after.seconds} s from ${lag.after.n} shots`);
+  t('lag: an impossible observation is refused, not averaged in',
+    lag.guarded.n === 5 && lag.guarded.seconds === lag.after.seconds,
+    `still ${lag.guarded.seconds} s from ${lag.guarded.n}`);
+  t('lag: and a second machine does not inherit the first one\u2019s plumbing',
+    lag.other.learned === false, JSON.stringify(lag.other));
+  t('lag: the machines the rest of the suite runs on are put back',
+    lag.restored === 0, `${lag.restored} left behind`);
+
+  // ---- a file another program can actually read ----
+  const open = await page.evaluate(async () => {
+    const backup = await import('./assets/js/core/backup.js');
+    const { encodeCurve, decodeCurve } = await import('./assets/js/core/schema.js');
+    const out = backup.interchange({
+      shots: [{ shot_id: 'shot-1', timestamp: '2026-08-20 09:00:00', bag_id: 'bag-1',
+                grinder_id: 'g1', dose_g: 18, yield_g: 36, time_s: 28, rating: 8,
+                tags: 'sweet balanced', puck_prep_s: 42, method: 'espresso',
+                curve: encodeCurve([[0, 0], [1, 2], [2, 6], [3, 11]]) }],
+      bags: [{ id: 'bag-1', bean_name: 'Guji', roaster: 'Onyx' }],
+      grinders: [{ id: 'g1', name: 'Niche' }],
+      decodeCurve,
+    });
+    const brew = out.brews[0];
+    return {
+      hasUnits: !!out.units && typeof out.units.curve === 'string',
+      // Names, not ids: the whole point is that a reader has never seen this app.
+      noIds: !JSON.stringify(brew).includes('bag-1') && !JSON.stringify(brew).includes('g1'),
+      coffee: brew.coffee.name, roaster: brew.coffee.roaster, grinder: brew.grinder.name,
+      curveIsPairs: Array.isArray(brew.curve) && Array.isArray(brew.curve[0])
+        && brew.curve[0].length === 2,
+      curveLen: brew.curve.length,
+      tags: brew.tags.join('|'),
+      prep: brew.puck_prep_s,
+      format: `${out.format}/${out.version}`,
+    };
+  });
+  t('open export: the units are written into the file, not assumed',
+    open.hasUnits && open.format === 'brewkit.interchange/1', open.format);
+  t('open export: names travel, internal ids do not',
+    open.noIds && open.coffee === 'Guji' && open.roaster === 'Onyx' && open.grinder === 'Niche',
+    `${open.coffee} / ${open.grinder}`);
+  t('open export: the curve is expanded into plain pairs a stranger can read',
+    open.curveIsPairs && open.curveLen === 4, `${open.curveLen} points`);
+  t('open export: tags become a list and the new fields come along',
+    open.tags === 'sweet|balanced' && open.prep === 42, `${open.tags}, prep ${open.prep} s`);
+
   // ---- the session steps itself, driven by the scale ----
   // The whole point: weighing beans, grinding and pulling should advance the
   // session on their own. No clicks below except the rating at the end.
@@ -1273,6 +1870,48 @@ try {
   await page.selectOption('#p-bag', kitIds.bag);
   await page.selectOption('#p-grinder', kitIds.grinder);
   await page.fill('#p-grind', '12.5');
+  // Step 00 no longer advances itself: choosing a coffee is a proposal, and
+  // starting is a deliberate act. This click is that act, and it is the only
+  // one in the whole hands-free sequence below.
+  await page.click('#begin');
+
+  // ---- step 00 is a step, not a formality ----
+  // The selects are prefilled from the last session, so "a coffee is chosen"
+  // was true before anyone looked at the screen, and setup was over before it
+  // was seen. The bag is the field most likely to be stale — you finish one and
+  // open another — and the one that quietly poisons the most downstream.
+  const gate = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const m = new SessionMachine();
+    const afterReady = (m.setReady(true), m.step);
+    const moved = m.begin();
+    const notReady = new SessionMachine();
+    notReady.setReady(false);
+    return { afterReady, moved, step: m.step,
+             refused: notReady.begin(), refusedStep: notReady.step,
+             twice: m.begin() };
+  });
+  t('setup: choosing a coffee does not by itself leave setup',
+    gate.afterReady === 'setup', gate.afterReady);
+  t('setup: starting is its own deliberate act',
+    gate.moved === 'dose' && gate.step === 'dose', `${gate.moved}`);
+  t('setup: and it refuses when there is nothing chosen to start with',
+    gate.refused === null && gate.refusedStep === 'setup', String(gate.refused));
+  t('setup: starting twice is not a way to skip a step',
+    gate.twice === null, String(gate.twice));
+
+  // On the page itself: a returning user with everything remembered still lands
+  // on 00, with enough on screen to notice that the bag is last week's.
+  const landing = await page.evaluate(() => ({
+    step: window.__sess.step,
+    shown: !document.getElementById('begin-box').hidden,
+    what: document.getElementById('begin-what').textContent,
+  }));
+  t('setup: a connected scale with a remembered coffee still lands on 00',
+    landing.step === 'dose', `${landing.step} (after the explicit start above)`);
+  t('setup: and confirming shows what is being confirmed, not just a name',
+    /days|left|window/i.test(landing.what) || landing.what.length > 0,
+    landing.what || '(empty)');
 
   // Drive the mock through the real sequence: cup on, tare, beans, lift off,
   // portafilter on, tare, grind in, carry away. `grams` is what the scale
@@ -1338,6 +1977,7 @@ try {
 
     const m = new SessionMachine();
     m.setReady(true);
+    m.begin();
     m.setTarget(18);
     const st = { t: 0, tare: 0, log: [] };
     const seen = {};
@@ -1419,8 +2059,8 @@ try {
       }
       return tare;
     };
-    const start = () => { const m = new SessionMachine(); m.setReady(true); m.setTarget(18);
-                          m.step_(0, 0, 0, true); return m; };
+    const start = () => { const m = new SessionMachine(); m.setReady(true); m.begin();
+                          m.setTarget(18); m.step_(0, 0, 0, true); return m; };
 
     // 30 g arriving all at once: a cup.
     const cup = start();
@@ -1487,6 +2127,7 @@ try {
     const ready = (target) => {
       const m = new SessionMachine();
       m.setReady(true);
+      m.begin();
       m.setTarget(target);
       // Straight to filling: these are about what happens after a vessel.
       m.step_(0, 0, 0, true);
@@ -1638,13 +2279,37 @@ try {
     hint: document.getElementById('step-hint').textContent,
     wanted: document.querySelectorAll('.needs-setup.wanted').length,
     tile: document.getElementById('sv-setup').textContent,
+    canStart: !document.getElementById('begin').disabled,
+    what: document.getElementById('begin-what').textContent,
+    beginWanted: document.getElementById('begin-box').classList.contains('wanted'),
   }));
-  t('setup: choosing both advances it with no click',
-    afterPick.step === 'dose' && /dosing cup on the scale/i.test(afterPick.hint),
-    afterPick.hint);
-  t('setup: the highlight comes off, and the tile says what was chosen',
+  // Choosing is not starting. The selects arrive prefilled from the last
+  // session, so if choosing advanced the step, setup would be over before it
+  // was seen and the bag would never be re-confirmed.
+  t('setup: choosing a coffee arms the start rather than taking it',
+    afterPick.step === 'setup' && afterPick.canStart === true,
+    `${afterPick.step}, start ${afterPick.canStart ? 'enabled' : 'disabled'}`);
+  t('setup: and it shows what confirming would confirm, not just a name',
+    /Guji/.test(afterPick.what) && /(day|left|window)/i.test(afterPick.what),
+    afterPick.what);
+  // The highlight moves rather than disappearing: it marks whatever the flow is
+  // waiting on, and once both selects are filled that is the start button.
+  t('setup: the highlight leaves the fields once they are filled',
     afterPick.wanted === 0 && /Guji/.test(afterPick.tile),
     `${afterPick.wanted} flagged, tile "${afterPick.tile}"`);
+  t('setup: and moves to the thing actually being waited on',
+    afterPick.beginWanted === true, `start highlighted: ${afterPick.beginWanted}`);
+
+  await page.click('#begin');
+  const afterStart = await page.evaluate(() => ({
+    step: window.__sess.step,
+    hint: document.getElementById('step-hint').textContent,
+    boxGone: document.getElementById('begin-box').hidden,
+  }));
+  t('setup: starting is the one deliberate act, and then the flow takes over',
+    afterStart.step === 'dose' && /dosing cup on the scale/i.test(afterStart.hint)
+    && afterStart.boxGone,
+    afterStart.hint);
 
   // With an empty Kit the answer is not "use the select", it is "go to Kit".
   const emptyKit = await page.evaluate(async () => {
@@ -1774,6 +2439,7 @@ try {
     const kit = await import('./assets/js/core/kit.js');
     window.__sess.reset();
     window.__sess.setReady(true);
+    window.__sess.begin();
     window.__sess.setTarget(18);
     void kit;
     window.__mock.grams = 0;

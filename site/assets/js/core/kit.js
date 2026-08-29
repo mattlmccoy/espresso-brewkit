@@ -150,20 +150,53 @@ export function removeBag(id) {
 export const grinders = () => readJSON(GRINDER_KEY, []);
 export const grinder = (id) => grinders().find((g) => g.id === id) ?? null;
 
+/**
+ * How the beans get in, which decides who owns the choice of coffee.
+ *
+ * A hopper holds a bag until it is empty, so what is in it is a property of the
+ * grinder — you fill it once and it stays filled across days and dozens of
+ * shots. A single-dose grinder is fed a weighed dose per shot, which is the
+ * whole reason people buy them: the coffee can change between consecutive
+ * shots, so it has to be chosen every time.
+ *
+ * Defaulting to single dose is deliberate. It is the answer that never assumes,
+ * and a wrong assumption here does not announce itself — it silently files
+ * shots against the wrong bag, which corrupts roast age, the per-bag model and
+ * what the supply page thinks is left.
+ */
+export const FEEDS = [
+  { id: 'single-dose', label: 'Single dose', blurb: 'Weighed in per shot, so the coffee is chosen every time.' },
+  { id: 'hopper', label: 'Hopper', blurb: 'Filled with a bag that stays in until it runs out.' },
+];
+export const isHopper = (g) => g?.feed === 'hopper';
+
 export function saveGrinder(patch) {
   const list = grinders();
   const i = list.findIndex((g) => g.id === patch.id);
   const rec = {
     name: '', burr: '', min: 0, max: 40, step: 1, notes: '',
+    feed: 'single-dose',
+    // Which bag is in the hopper right now. Meaningless on a single-dose
+    // grinder, and cleared when the feed changes to one.
+    hopper_bag_id: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
     updated_at: new Date().toISOString(),
     id: patch.id || list[i]?.id || nextId(list, 'grinder'),
   };
+  if (rec.feed !== 'hopper') rec.hopper_bag_id = '';
   if (i >= 0) list[i] = rec; else list.push(rec);
   writeJSON(GRINDER_KEY, list);
   emit();
   return rec;
+}
+
+/** Record what has just been tipped into a hopper. A no-op on a single-doser. */
+export function loadHopper(grinderId, bagId) {
+  const g = grinder(grinderId);
+  if (!isHopper(g)) return null;
+  if (g.hopper_bag_id === bagId) return g;
+  return saveGrinder({ id: g.id, hopper_bag_id: bagId || '' });
 }
 
 export function removeGrinder(id) {
@@ -204,6 +237,11 @@ export function saveMachine(patch) {
   const rec = {
     name: '', kind: 'Dual boiler', basket: '',
     default_temp_c: null, default_pressure_bar: null, default_preinfusion_s: null,
+    // How long this machine keeps dripping after the pump stops, learned from
+    // its own shots. Every machine and basket differs, and a shared number is
+    // wrong for all but one of them. Null until there is anything to learn
+    // from, so the caller can tell "not measured" from "measured as 1.0".
+    stop_lag_s: null, stop_lag_n: 0,
     notes: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
@@ -214,6 +252,49 @@ export function saveMachine(patch) {
   writeJSON(MACHINE_KEY, list);
   emit();
   return rec;
+}
+
+/**
+ * Fold one shot's observed drip lag into a machine's running estimate.
+ *
+ * The observation is free: the app already knows what the cup read when it
+ * called the stop, what it finally settled at, and how fast it was flowing at
+ * the time. The gap divided by the flow is the lag, in seconds, measured rather
+ * than assumed — and it is per machine because a lever and a pump-driven
+ * machine with a bottomless basket do not drip alike.
+ *
+ * Exponentially weighted rather than averaged: a basket change or a new puck
+ * screen moves the true lag, and a mean over sixty shots would take months to
+ * notice. The weight is generous early, when there is little to lose, and
+ * settles down once there is a history worth trusting.
+ */
+export function learnStopLag(machineId, { weightAtSignal, finalWeight, flowAtSignal } = {}) {
+  const m = machineId ? machine(machineId) : null;
+  if (!m) return null;
+  if (!(flowAtSignal > 0.05)) return null;
+  const observed = (finalWeight - weightAtSignal) / flowAtSignal;
+  // A negative lag means the cup weighed less at the end than when the stop was
+  // called — a knocked scale, or the cup lifted early. Three seconds of drip is
+  // already implausible. Neither is data.
+  if (!Number.isFinite(observed) || observed < 0 || observed > 3.5) return null;
+  const n = Number(m.stop_lag_n) || 0;
+  const prev = Number.isFinite(Number(m.stop_lag_s)) ? Number(m.stop_lag_s) : observed;
+  const alpha = Math.max(0.12, 1 / (n + 1));
+  const next = prev * (1 - alpha) + observed * alpha;
+  return saveMachine({ id: m.id, stop_lag_s: +next.toFixed(2), stop_lag_n: n + 1 });
+}
+
+/**
+ * The lag to use when calling a stop: this machine's if it has learned one,
+ * otherwise the conservative default. `n` is how much of a history it rests on,
+ * which is what makes it honest to display.
+ */
+export function stopLag(machineId, fallback = 1.0) {
+  const m = machineId ? machine(machineId) : null;
+  const learned = Number(m?.stop_lag_s);
+  const n = Number(m?.stop_lag_n) || 0;
+  if (Number.isFinite(learned) && n >= 3) return { seconds: learned, n, learned: true };
+  return { seconds: fallback, n, learned: false };
 }
 
 export function removeMachine(id) {

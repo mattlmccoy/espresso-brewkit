@@ -586,3 +586,24 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
   0% { background: color-mix(in srgb, var(--accent) 34%, transparent); }
   100% { background: transparent; }
 }
+
+
+/* ---------- flow rate as a bar ----------
+   Every scale worth the money draws this, and for a reason: "1.87 g/s" is a
+   fact, while a bar two thirds along a marked band is an answer. The band is
+   where a healthy shot lives, so the question "is this pouring right" is
+   answered by position rather than by arithmetic done in your head at arm's
+   length from the screen. */
+.qbar { position: relative; height: 12px; border: 2px solid currentColor;
+  background: var(--panel-2); overflow: hidden; color: var(--ink-mute);
+  transition: color var(--t) var(--ease-out); }
+.qbar .band { position: absolute; top: 0; bottom: 0;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.qbar .now { position: absolute; top: 0; bottom: 0; left: 0; background: currentColor;
+  transition: width 110ms linear; }
+.qbar.is-good { color: var(--accent); }
+.qbar.is-high { color: var(--fit); }
+.qbar.is-low { color: var(--ink-mute); }
+.qrow { display: flex; align-items: center; gap: 10px; }
+.qrow .qbar { flex: 1; }
+.qrow .qv { font: 700 13px/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }

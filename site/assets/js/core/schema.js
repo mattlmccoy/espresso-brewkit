@@ -55,6 +55,16 @@ export const FIELDS = [
   { key: 'rating',        label: 'Rating',         unit: '/10', type: 'number', group: 'taste', step: 1 },
   { key: 'tags',          label: 'Tags',           type: 'text', group: 'taste' },
 
+  // how it was made, beyond the numbers
+  { key: 'method',        label: 'Brew method',    type: 'text', group: 'meta' },
+  { key: 'milk_g',        label: 'Milk',           unit: 'g',   type: 'number', group: 'result', step: 1 },
+  // Seconds between the grind finishing and the pump starting. Ground coffee
+  // degasses and cools from the moment it leaves the burrs, so two otherwise
+  // identical shots pulled thirty seconds and five minutes after grinding are
+  // not the same shot. Nothing else logs this because nothing else knows both
+  // timestamps; this app captures the grounds and starts the clock itself.
+  { key: 'puck_prep_s',   label: 'Grind to brew',  unit: 's',   type: 'number', group: 'result' },
+
   // provenance
   { key: 'curve',         label: 'Flow curve',     type: 'text', group: 'meta' },
   { key: 'defaulted',     label: 'Assumed fields', type: 'text', group: 'meta' },
@@ -67,7 +77,8 @@ export const COLUMNS = FIELDS.map((f) => f.key);
 
 /** Fields that make sense as a regression predictor. */
 export const PREDICTORS = ['grind_setting', 'temp_c', 'pressure_bar', 'time_s', 'dose_g', 'ratio',
-  'flow_gs', 'days_off_roast', 'steady_flow_gs', 'peak_flow_gs', 't_first_drip_s', 'preinfusion_s'];
+  'flow_gs', 'days_off_roast', 'steady_flow_gs', 'peak_flow_gs', 't_first_drip_s', 'preinfusion_s',
+  'puck_prep_s'];
 /** Fields that make sense as a regression response. */
 export const RESPONSES = ['ey_pct', 'tds_pct', 'time_s', 'flow_gs', 'ratio', 'yield_g',
   'steady_flow_gs', 't_first_drip_s', 'rating', 'retention_g'];

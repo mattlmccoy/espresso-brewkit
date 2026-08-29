@@ -388,9 +388,7 @@ export function stopSignalWeight(target, flow, lagSeconds = 1.0) {
   return target - flow * Math.max(0, lagSeconds);
 }
 
-export function updateStopLag(prev, weightAtSignal, finalWeight, flowAtSignal, alpha = 0.25) {
-  if (!(flowAtSignal > 0.05)) return prev;
-  const observed = (finalWeight - weightAtSignal) / flowAtSignal;
-  if (!Number.isFinite(observed)) return prev;
-  return Math.min(3, Math.max(0.2, prev * (1 - alpha) + observed * alpha));
-}
+// The drip lag used to be learned here, as one number for the whole app. It is
+// a property of a machine and its basket, so it moved to kit.learnStopLag,
+// where it lives on the machine's own record. Two machines no longer share one
+// estimate, and the estimate says how many shots it rests on.

@@ -1,6 +1,7 @@
 // Shared chrome: theme toggle, current-page nav marking, and the backup nudge.
 
 import { config as backupConfig, persist } from './core/backup.js';
+import { flowBar } from './core/method.js';
 
 const THEME_KEY = 'brewkit.theme';
 
@@ -127,4 +128,35 @@ export function boot() {
   // Ask once, in the background: a granted persistent bucket is the difference
   // between a log that survives a full disk and one that quietly does not.
   persist().catch(() => {});
+}
+
+
+/**
+ * Paint a flow bar. Shared, because the laptop and the phone must not disagree
+ * about what "too fast" looks like — the whole point of the phone is that it is
+ * the one you are actually looking at.
+ *
+ * @param root an element containing .qbar > .band + .now, and optionally .qv
+ */
+export function paintFlow(root, flow, method = 'espresso') {
+  if (!root) return null;
+  const bar = root.querySelector('.qbar') ?? root;
+  const p = flowBar(method, flow);
+  const now = bar.querySelector('.now');
+  const band = bar.querySelector('.band');
+  const val = root.querySelector('.qv');
+  if (!p) {
+    bar.className = 'qbar';
+    if (now) now.style.width = '0%';
+    if (val) val.textContent = '—';
+    return null;
+  }
+  bar.className = `qbar is-${p.state}`;
+  if (now) now.style.width = `${(p.frac * 100).toFixed(1)}%`;
+  if (band) {
+    band.style.left = `${(p.lo * 100).toFixed(1)}%`;
+    band.style.width = `${((p.hi - p.lo) * 100).toFixed(1)}%`;
+  }
+  if (val) val.textContent = `${flow.toFixed(2)} g/s`;
+  return p;
 }

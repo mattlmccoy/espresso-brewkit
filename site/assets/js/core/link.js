@@ -93,6 +93,10 @@ export class LiveLink {
     this._make = rtc ?? (() => new RTCPeerConnection({ iceServers: [] }));
     this.pc = null;
     this.ch = null;
+    this.log = null;      // the reliable channel, for things that must arrive
+    this._inbox = new Map();
+    this.onLog = null;    // (payload, meta) => void
+    this.onLogProgress = null;
   }
 
   _set(state) {
@@ -112,6 +116,69 @@ export class LiveLink {
     };
   }
 
+  /**
+   * The second channel: ordered and reliable, for the stored log.
+   *
+   * The pour channel is deliberately lossy — every frame carries the whole
+   * current state, so a dropped one costs nothing and waiting for a retransmit
+   * would cost latency. A shot log is the opposite in every respect: it is sent
+   * once, a dropped chunk loses shots, and nobody cares whether it takes an
+   * extra 40 ms. Two channels rather than a compromise between them.
+   */
+  _wireLog(ch) {
+    this.log = ch;
+    ch.onmessage = (e) => {
+      let msg = null;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg?.k === 'chunk') { this._chunk(msg); return; }
+      this.onMessage?.(msg);
+    };
+  }
+
+  /** Reassemble a chunked payload, and hand it over once it is whole. */
+  _chunk(msg) {
+    const { id, i, n, s: part, kind } = msg;
+    if (!id || !Number.isFinite(n)) return;
+    let box = this._inbox.get(id);
+    if (!box) { box = { parts: new Array(n).fill(null), got: 0, kind }; this._inbox.set(id, box); }
+    if (box.parts[i] === null) { box.parts[i] = part; box.got += 1; }
+    this.onLogProgress?.({ got: box.got, of: n, kind: box.kind });
+    if (box.got < n) return;
+    this._inbox.delete(id);
+    let payload = null;
+    try { payload = JSON.parse(box.parts.join('')); } catch { return; }
+    this.onLog?.(payload, { kind: box.kind, chunks: n });
+  }
+
+  /**
+   * Send something that has to arrive whole, in slices the transport will take.
+   *
+   * SCTP will carry a large message, but browsers disagree about how large, and
+   * a message that is refused is refused silently. Twelve kilobytes is well
+   * inside every implementation's floor, and a hundred round trips on a LAN is
+   * still imperceptible.
+   */
+  sendWhole(payload, { kind = 'log', chunkBytes = 12000 } = {}) {
+    if (this.log?.readyState !== 'open') return 0;
+    const json = JSON.stringify(payload);
+    const id = Math.random().toString(36).slice(2, 10);
+    const n = Math.max(1, Math.ceil(json.length / chunkBytes));
+    for (let i = 0; i < n; i++) {
+      const part = json.slice(i * chunkBytes, (i + 1) * chunkBytes);
+      try { this.log.send(JSON.stringify({ k: 'chunk', kind, id, i, n, s: part })); }
+      catch { return 0; }
+    }
+    return n;
+  }
+
+  /** Ask the other end for its log. */
+  requestLog() {
+    if (this.log?.readyState !== 'open') return false;
+    try { this.log.send(JSON.stringify({ k: 'want-log' })); return true; } catch { return false; }
+  }
+
+  get logReady() { return this.log?.readyState === 'open'; }
+
   _watch(pc) {
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === 'failed') this._set('failed');
@@ -127,6 +194,9 @@ export class LiveLink {
     // arrives late is worse than one that never arrives, because every frame
     // carries the whole current state rather than a delta.
     this._wire(this.pc.createDataChannel('pour', { ordered: false, maxRetransmits: 0 }));
+    // Ordered and reliable, and negotiated in the same offer so pairing does
+    // not become two exchanges.
+    this._wireLog(this.pc.createDataChannel('log'));
     const offer = await this.pc.createOffer();
     await this.pc.setLocalDescription(offer);
     await gathered(this.pc);
@@ -140,7 +210,10 @@ export class LiveLink {
     if (!read.ok) throw new Error(read.error);
     this.pc = this._make();
     this._watch(this.pc);
-    this.pc.ondatachannel = (e) => this._wire(e.channel);
+    this.pc.ondatachannel = (e) => {
+      if (e.channel.label === 'log') this._wireLog(e.channel);
+      else this._wire(e.channel);
+    };
     await this.pc.setRemoteDescription(read.sdp);
     const answer = await this.pc.createAnswer();
     await this.pc.setLocalDescription(answer);
@@ -165,8 +238,11 @@ export class LiveLink {
   close() {
     try { this.ch?.close(); } catch { /* already gone */ }
     try { this.pc?.close(); } catch { /* already gone */ }
+    try { this.log?.close(); } catch { /* already gone */ }
     this.ch = null;
+    this.log = null;
     this.pc = null;
+    this._inbox.clear();
     this._set('closed');
   }
 }
@@ -185,6 +261,10 @@ export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve }) {
     st: snap?.state ?? null,
     step: sess?.step ?? null,
     phase: sess?.phase ?? null,
+    // What is being made. The phone draws the flow band from this, and an
+    // espresso band on a pour over would sit pinned at full all the way through.
+    method: sess?.method ?? 'espresso',
+    milk: sess?.milk ?? null,
     hint: sess?.hint ?? null,
     dose: sess?.dose ?? null,
     grounds: sess?.grounds ?? null,

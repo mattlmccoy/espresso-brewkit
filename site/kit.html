@@ -166,6 +166,12 @@
         </div>
         <div class="field"><label for="g-step">Smallest step you can dial</label>
           <input id="g-step" type="number" step="0.05" value="0.5"></div>
+        <!-- This decides who owns the choice of coffee. A hopper holds a bag
+             until it runs out, so it is a property of the grinder; a single
+             doser is fed per shot, so it is chosen every time. -->
+        <div class="field"><label for="g-feed">How it is fed</label>
+          <select id="g-feed"></select>
+          <p class="msg" id="g-feed-note" style="margin-top:6px"></p></div>
         <div class="btn-row">
           <button class="primary" id="g-save" type="button">Save grinder</button>
           <button class="ghost" id="g-cancel" type="button" style="display:none">Cancel edit</button>
@@ -546,13 +552,22 @@ $('b-level').replaceChildren(...beans.ROAST_LEVELS.map((r) => el('option', { val
 $('b-level').value = 'Medium';
 
 /* --------------------------------------------------------------- grinders */
+$('g-feed').replaceChildren(...kit.FEEDS.map((f) => el('option', { value: f.id }, f.label)));
+function paintFeedNote() {
+  const f = kit.FEEDS.find((x) => x.id === $('g-feed').value);
+  $('g-feed-note').textContent = f?.blurb ?? '';
+}
+$('g-feed').addEventListener('change', paintFeedNote);
+paintFeedNote();
+
 $('g-save').addEventListener('click', () => {
   const name = $('g-name').value.trim();
   if (!name) { $('g-msg').textContent = 'Give the grinder a name.'; return; }
   const min = num('g-min') ?? 0, max = num('g-max') ?? 40, step = num('g-step') ?? 0.5;
   if (!(max > min)) { $('g-msg').textContent = 'Dial max has to be above dial min.'; return; }
   if (!(step > 0)) { $('g-msg').textContent = 'The step has to be positive.'; return; }
-  const g = kit.saveGrinder({ id: editingGrinder, name, burr: $('g-burr').value.trim(), min, max, step });
+  const g = kit.saveGrinder({ id: editingGrinder, name, burr: $('g-burr').value.trim(),
+                              min, max, step, feed: $('g-feed').value });
   $('g-msg').textContent = `${editingGrinder ? 'Updated' : 'Added'} ${g.name}.`;
   clearGrinderForm();
 });
@@ -562,6 +577,7 @@ function clearGrinderForm() {
   editingGrinder = null;
   $('g-name').value = ''; $('g-burr').value = '';
   $('g-min').value = '0'; $('g-max').value = '40'; $('g-step').value = '0.5';
+  $('g-feed').value = 'single-dose'; paintFeedNote();
   $('g-cancel').style.display = 'none'; $('g-save').textContent = 'Save grinder';
 }
 
@@ -581,17 +597,27 @@ function renderGrinders() {
       el('div', { style: 'display:flex;align-items:baseline;gap:10px;flex-wrap:wrap' },
         el('strong', { style: 'font-size:15px' }, g.name),
         g.burr ? el('span', { class: 'msg', style: 'margin:0' }, g.burr) : null,
+        el('span', { class: 'badge' }, kit.isHopper(g) ? 'hopper' : 'single dose'),
         el('span', { class: 'badge', style: 'margin-left:auto' },
           `${g.min}–${g.max} · step ${g.step}`)),
       el('p', { class: 'msg', style: 'margin-top:6px' },
         settings.length
           ? `${used.length} shots · dialled ${Math.min(...settings)}–${Math.max(...settings)}`
           : `${used.length} shots logged`),
+      // What a hopper grinder is currently loaded with, and how long that
+      // assumption has left to run.
+      kit.isHopper(g) ? (() => {
+        const a = supply.hopperAssumption(g, kit.bags(), shots);
+        return el('p', { class: `msg${a.assume ? '' : ' warn'}`, style: 'margin-top:4px' },
+          a.assume ? `In the hopper: ${a.reason}.`
+            : `Hopper: ${a.reason} — Live will ask which coffee it is.`);
+      })() : null,
       el('div', { class: 'btn-row', style: 'margin-top:10px' },
         el('button', { type: 'button', style: 'padding:5px 10px;box-shadow:none', onclick: () => {
           editingGrinder = g.id;
           $('g-name').value = g.name; $('g-burr').value = g.burr ?? '';
           $('g-min').value = g.min; $('g-max').value = g.max; $('g-step').value = g.step;
+          $('g-feed').value = g.feed || 'single-dose'; paintFeedNote();
           $('g-cancel').style.display = ''; $('g-save').textContent = 'Update grinder';
         } }, 'Edit'),
         el('button', { class: 'danger ghost', type: 'button', style: 'padding:5px 10px;box-shadow:none',

@@ -242,3 +242,53 @@ if (typeof window !== 'undefined') {
     if ([ADJ_KEY, CONS_KEY].includes(e.key)) emit();
   });
 }
+
+
+/* ------------------------------------------------- what is in the hopper */
+
+/**
+ * Can step 00 be taken as read, or does the coffee have to be chosen again?
+ *
+ * The answer is a property of the grinder, not of the app's patience. A hopper
+ * holds one bag until it runs out, so re-asking every session is asking someone
+ * to retype a fact that has not changed. A single-dose grinder is fed per shot
+ * and the coffee genuinely can be different from the last one, so assuming is
+ * how a log ends up attributing a Kenyan to a bag of decaf.
+ *
+ * The assumption also expires. A hopper bag that the log says is empty is not
+ * in the hopper any more — something else is — and that is the one moment the
+ * question is worth asking a hopper user, because it is the one moment the
+ * answer has changed.
+ *
+ * @returns {{assume: boolean, bagId: string|null, reason: string}}
+ */
+export function hopperAssumption(grinder, bags, shots, { lowGrams = 5 } = {}) {
+  if (!grinder) return { assume: false, bagId: null, reason: 'no grinder chosen' };
+  if (grinder.feed !== 'hopper') {
+    return { assume: false, bagId: null,
+             reason: `${grinder.name || 'This grinder'} is single dosed, so the coffee is `
+               + 'chosen per shot' };
+  }
+  const bagId = grinder.hopper_bag_id || '';
+  const bag = (bags ?? []).find((b) => b.id === bagId) ?? null;
+  if (!bag) {
+    return { assume: false, bagId: null, reason: 'nothing recorded as being in the hopper yet' };
+  }
+  if (bag.archived) {
+    return { assume: false, bagId, reason: `${bag.bean_name || 'that bag'} has been archived` };
+  }
+  const st = bagStatus(bag, shots ?? []);
+  if (st.known && st.left <= lowGrams) {
+    return { assume: false, bagId,
+             reason: `${bag.bean_name || 'that bag'} is finished, so something else is in the `
+               + 'hopper now' };
+  }
+  return {
+    assume: true,
+    bagId,
+    bag,
+    left: st.known ? st.left : null,
+    reason: `${bag.bean_name || 'that bag'} is in the hopper`
+      + (st.known ? `, ${st.left.toFixed(0)} g left` : ''),
+  };
+}
