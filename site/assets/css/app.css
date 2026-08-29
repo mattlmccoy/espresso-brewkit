@@ -116,6 +116,62 @@
   :root[data-theme="terminal"] h1::after { animation: none; }
 }
 
+/* Machined: the espresso machine on the counter rather than the terminal
+   beside it.
+
+   Drawn from the Meraki: three matte cylinders and one circular display on
+   top, in black or white, with the interface reviewers describe as clean and
+   functional rather than animated — time, weight and flow, and nothing else
+   asking for attention.
+
+   What that means here is monochrome and one warm signal. Everything is
+   aluminium grey or off-white except the things the shot is actually doing,
+   which are the colour of the coffee. Hairlines instead of marker outlines,
+   corners instead of edges, and none of the offset shadow the rest of the app
+   uses — brushed metal is machined out of one piece, it is not stacked paper.
+
+   It is designed from the machine's character, not sampled from its screen:
+   every review site carrying a close photograph of the display is unreachable
+   from here, so the palette is an interpretation and is not claimed to match.
+   Explicit only, like terminal. */
+:root[data-theme="machined"] {
+  --bg:#0b0b0c; --panel:#151517; --panel-2:#1e1e21;
+  --ink:#ededec; --ink-dim:#b6b6b3; --ink-mute:#8a8a85; --hair:#34343a;
+  /* --flag is the highlighter, not the error colour: it backs a hovered row,
+     a hovered nav item, and the ring around a dose that has landed in its
+     window. So it is the accent lit up rather than a second hue — near enough
+     to read as the same signal, far enough that a hovered row is visibly
+     brighter than a button. */
+  --accent:#e3a24a; --accent-ink:#0b0b0c; --fit:#7fb6cc; --flag:#f5c26b;
+  --tag-fg:#0b0b0c;
+  --band-a:.10;
+  --warn:#e3a24a; --warn-bg:#2a2015;
+  /* One weight of one typeface. A display face would be the flashiness the
+     machine deliberately does not have. */
+  --disp: var(--sans);
+  --bw: 1.5px;
+  --sh: 0px;
+}
+:root[data-theme="machined"] :is(.bx, button, input, select, textarea, .tag) {
+  border-radius: 10px;
+}
+:root[data-theme="machined"] :is(button, input, select, textarea) {
+  border-width: var(--bw);
+}
+/* The offset shadow is drawn by a hardcoded rule rather than by --sh, so
+   zeroing the token is not enough to take it off a button. */
+:root[data-theme="machined"] button,
+:root[data-theme="machined"] button:active { box-shadow: none; }
+/* A pressed button on a machine travels; it does not slide sideways out from
+   under a shadow that is not there. */
+:root[data-theme="machined"] button:active { transform: scale(.975); }
+:root[data-theme="machined"] button:hover:not(:disabled):not([aria-pressed="true"]) {
+  transform: none; box-shadow: none; background: var(--panel-2); color: var(--ink);
+}
+:root[data-theme="machined"] button.primary:hover:not(:disabled) {
+  background: var(--accent); color: var(--accent-ink); filter: brightness(1.12);
+}
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {

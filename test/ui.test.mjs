@@ -279,23 +279,26 @@ try {
   const themeAfter = await page.getAttribute('html', 'data-theme');
   t('theme: toggles and persists across pages', themeAttr === themeAfter && !!themeAttr, themeAttr);
 
-  // Three palettes, cycled. The button is named for where it takes you.
+  // Every palette, cycled. The button is named for where it takes you, and it
+  // is asked of THEMES rather than of a list written here, so adding one to
+  // the app cannot leave the button half-wired without the suite noticing.
   const cycle = await page.evaluate(async () => {
     const { THEMES } = await import('./assets/js/ui.js');
     const btn = document.querySelector('[data-theme-toggle]');
     const seen = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i <= THEMES.length; i++) {
       seen.push(`${document.documentElement.getAttribute('data-theme')}>${btn.textContent}`);
       btn.click();
     }
-    return { seen, order: THEMES.join(','), at: document.documentElement.getAttribute('data-theme') };
+    return { seen, themes: THEMES, order: THEMES.join(','),
+             at: document.documentElement.getAttribute('data-theme') };
   });
-  t('theme: three of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal'
+  t('theme: four of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal,machined'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
-      const order = ['light', 'dark', 'terminal'];
-      return order[(order.indexOf(now) + 1) % 3].toLowerCase() === next.toLowerCase();
+      const order = cycle.themes;
+      return order[(order.indexOf(now) + 1) % order.length].toLowerCase() === next.toLowerCase();
     }), cycle.seen.join(' · '));
   const term = await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'terminal');
@@ -309,6 +312,33 @@ try {
   t('theme: terminal is one typeface for everything, which is the whole idea',
     term.sans === term.disp && /Space Mono|monospace/i.test(term.font),
     `${term.font.slice(0, 40)} · ink ${term.ink}`);
+
+  // Machined is the machine on the counter: monochrome metal, one warm signal,
+  // hairlines and corners rather than marker outlines and stacked paper.
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
+  // Buttons transition their shadow, and a computed style read mid-transition
+  // is a half-interpolated value that says nothing about either theme.
+  await page.waitForTimeout(250);
+  const mach = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n) => cs.getPropertyValue(n).trim();
+    const btn = getComputedStyle(document.querySelector('button'));
+    // How far a colour is from grey, on a 0-255 scale.
+    const chroma = (c) => { const [r, g, b] = c.replace('#', '').match(/../g)
+      .map((h) => parseInt(h, 16)); return Math.max(r, g, b) - Math.min(r, g, b); };
+    return { bg: v('--bg'), ink: v('--ink'), accent: v('--accent'),
+             bw: parseFloat(v('--bw')), sh: parseFloat(v('--sh')),
+             radius: parseFloat(btn.borderTopLeftRadius),
+             shadow: btn.boxShadow,
+             greys: [chroma(v('--bg')), chroma(v('--ink')), chroma(v('--panel'))],
+             warm: chroma(v('--accent')) };
+  });
+  t('theme: machined keeps the chrome grey and spends colour only on the shot',
+    Math.max(...mach.greys) <= 6 && mach.warm >= 60,
+    `chrome chroma ${mach.greys.join('/')}, accent ${mach.accent} at ${mach.warm}`);
+  t('theme: hairlines and corners, and none of the stacked-paper shadow',
+    mach.bw < 2 && mach.sh === 0 && mach.radius >= 8 && mach.shadow === 'none',
+    `${mach.bw}px rules, ${mach.radius}px corners, shadow ${mach.shadow}`);
   await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('brewkit.theme', 'light');
@@ -4827,14 +4857,16 @@ try {
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'machined']) {
+    const system = scheme === 'light' || scheme === 'dark';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
-      colorScheme: scheme === 'terminal' ? 'dark' : scheme });
+      colorScheme: system ? scheme : 'dark' });
     const p2 = await c2.newPage();
     await p2.goto(B + '/explore.html');
-    // Terminal is never reached by a system preference, so it is asked for.
-    if (scheme === 'terminal') {
-      await p2.evaluate(() => document.documentElement.setAttribute('data-theme', 'terminal'));
+    // The other two are never reached by a system preference, so they are
+    // asked for by name.
+    if (!system) {
+      await p2.evaluate((th) => document.documentElement.setAttribute('data-theme', th), scheme);
     }
     await p2.waitForTimeout(250);
     const worst = await p2.evaluate(() => {

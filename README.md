@@ -1243,7 +1243,7 @@ into a Playwright run is six and a half minutes too late.
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-Nearly five hundred assertions across the site in all three themes: the analysis
+Nearly six hundred assertions across the site in every theme: the analysis
 results, the legacy CSV import path, the 3D drag interaction, theme persistence,
 font loading, WCAG contrast on chrome pairs, grid alignment, horizontal overflow,
 chart sizing, and the absence of rhetorical-question headings.
@@ -1294,9 +1294,28 @@ dependency on a host outside the project, and the pages render identically offli
 Hard edges and offset shadows, no border radius anywhere, Archivo Black for display
 type, Space Mono for every number. One accent for chrome and data points, one for the
 fitted line, one for anything flagged — so no colour has to mean two things at once.
-Both themes are defined in `site/assets/css/app.css` as custom properties; the chart
+Every theme is defined in `site/assets/css/app.css` as custom properties; the chart
 module reads those properties and knows nothing about the palette, which is why
 restyling the site does not touch the maths.
+
+**Four palettes.** Light and dark follow the system preference until you pick one.
+Terminal is green phosphor on black and one typeface for everything — not a novelty,
+but the condition these pages are actually read in: almost entirely numbers, at arm's
+length, beside a machine, often in a dark kitchen.
+
+**Machined** is the fourth, and it is the machine on the counter rather than the
+terminal beside it. It came from the Meraki: three matte cylinders and one circular
+display on top, black or white, with an interface reviewers describe as clean and
+functional rather than animated — time, weight and flow, and nothing else asking for
+attention. So the chrome is monochrome aluminium and the only colour in the app is
+warm, and it is spent on the shot. Hairlines instead of marker outlines, corners
+instead of edges, and none of the offset shadow the rest of the app uses: brushed
+metal is machined out of one piece, it is not stacked paper.
+
+It is designed from the machine's character, not sampled from its screen. Every
+review page carrying a close photograph of the display is unreachable from this
+sandbox, so the palette is an interpretation and the code says so rather than
+claiming a match.
 
 Page headings state the tool's name. No rhetorical questions, no taglines.
 
