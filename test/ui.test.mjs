@@ -1648,8 +1648,11 @@ try {
     let fmtA = 0; let fmtB = 0;
     for (let i = 0; i < 15; i++) {
       const a = i < 6 ? m[8][i] : i === 6 ? m[8][7] : i === 7 ? m[8][8] : i === 8 ? m[7][8] : m[14 - i][8];
-      fmtA |= (a & 1) << i;
-      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << i;
+      // Most significant bit first. Reading these back least-significant-first
+      // is what let this check pass over a symbol no real decoder would take:
+      // it agreed with the encoder because the encoder had the same mistake.
+      fmtA |= (a & 1) << (14 - i);
+      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << (14 - i);
     }
     const raw = (fmtA ^ 0x5412) >> 10;
 
@@ -1781,6 +1784,73 @@ try {
   t('pairing: and nothing is sitting on top of it, so it can actually be pressed',
     reach.hit === 'watch-phone' && !reach.cellScrolls,
     `point hits ${reach.hit}`);
+
+  // ---- read by something that is not us ----
+  // The gap that let a broken encoder ship. Every QR check in here fed our own
+  // encoder to our own reader, and the two shared a bug: the format information
+  // was written least-significant-bit first, and read back the same way. Self
+  // consistent, and invalid to every real decoder — a phone pointed at one
+  // showed nothing at all, because a camera that cannot parse the format block
+  // never reports finding a code.
+  //
+  // So this is a symbol made by a different encoder entirely, with the modules
+  // written out literally. If our reader can take this, the format block and
+  // the walk agree with the standard rather than merely with themselves.
+  const foreign = await page.evaluate(async (rows) => {
+    const S = await import('./assets/js/core/qrscan.js');
+    const Q = await import('./assets/js/core/qr.js');
+    const mod = rows.map((r) => Int8Array.from([...r].map(Number)));
+    const read = S.decodeMatrix(mod);
+
+    // And the other direction: our own format block, at the cells and in the
+    // order the standard puts them. Level M is 00, so for mask 3 the published
+    // fifteen bits are 101101101001011, most significant first at (8,0).
+    const ours = Q.encode('hello');
+    const bit = (r, c) => (ours.dark(r, c) ? 1 : 0);
+    const copy = [];
+    for (let i = 0; i < 6; i++) copy.push(bit(8, i));
+    copy.push(bit(8, 7), bit(8, 8), bit(7, 8));
+    for (let i = 9; i < 15; i++) copy.push(bit(14 - i, 8));
+    const msbFirst = copy.reduce((a, b, i) => a | (b << (14 - i)), 0) >>> 0;
+    // Recompute what it should be for the mask this symbol actually used.
+    let data = ours.mask;
+    let rem = data;
+    for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    const want = (((data << 10) | rem) ^ 0x5412) >>> 0;
+    return { read, msbFirst, want, mask: ours.mask,
+             bits: msbFirst.toString(2).padStart(15, '0') };
+  }, [
+      '1111111010011000001111111',
+      '1000001011010110101000001',
+      '1011101010011101101011101',
+      '1011101001110101101011101',
+      '1011101011110000101011101',
+      '1000001000111010101000001',
+      '1111111010101010101111111',
+      '0000000001000111100000000',
+      '1001111110110011110010111',
+      '0010000001011001000111100',
+      '0011001111011001101000001',
+      '0100000101110010001001110',
+      '1000101110101000101000011',
+      '1000110101100101000011010',
+      '1101001011011001101010011',
+      '1010010111110011111101100',
+      '1000111111000101111111111',
+      '0000000011011001100010010',
+      '1111111010010100101010001',
+      '1000001011101101100011000',
+      '1011101011101101111111011',
+      '1011101011100011111000011',
+      '1011101000101010010010011',
+      '1000001001100000001001111',
+      '1111111011001110111010001',
+  ]);
+  t('qr: a symbol from a different encoder reads, so we match the standard',
+    foreign.read === 'brewkit/reader-fixture', JSON.stringify(foreign.read));
+  t('qr: and our own format block is written most-significant-bit first',
+    foreign.msbFirst === foreign.want,
+    `mask ${foreign.mask}: ${foreign.bits} vs ${foreign.want.toString(2).padStart(15, '0')}`);
 
   // ---- reading a code back, which is the half BarcodeDetector would not do ----
   // The offer reaches the phone as a QR and its camera handles that. The reply

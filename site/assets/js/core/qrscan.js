@@ -168,7 +168,8 @@ export function decodeMatrix(mod) {
   const copyB = [];
   for (let i = 0; i < 7; i++) copyB.push(mod[n - 1 - i][8] & 1);
   for (let i = 7; i < 15; i++) copyB.push(mod[8][n - 15 + i] & 1);
-  const pack = (arr) => arr.reduce((acc, bit, i) => acc | (bit << i), 0) >>> 0;
+  // Most significant bit first: the first cell of the run carries bit 14.
+  const pack = (arr) => arr.reduce((acc, bit, i) => acc | (bit << (14 - i)), 0) >>> 0;
   const fmt = readFormat(pack(copyA)) ?? readFormat(pack(copyB));
   if (!fmt) return null;
 

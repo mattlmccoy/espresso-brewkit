@@ -264,8 +264,14 @@ function placeFormat(m, mask) {
   let rem = data;
   for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
   const bits = ((data << 10) | rem) ^ 0x5412;
+  // MOST SIGNIFICANT BIT FIRST, which is the whole of a bug that made every
+  // symbol this ever drew invalid. Written the other way round the code still
+  // decodes — with the reader in core/qrscan.js, which read it back in the
+  // same wrong order. No real decoder would take it, and none did: a phone
+  // pointed at one of these showed nothing at all, because a camera that
+  // cannot parse the format block never reports finding a code.
   for (let i = 0; i < 15; i++) {
-    const bit = (bits >> i) & 1;
+    const bit = (bits >> (14 - i)) & 1;
     // Top-left, in two runs that skip the timing row and column.
     if (i < 6) m.mod[8][i] = bit;
     else if (i === 6) m.mod[8][7] = bit;
