@@ -100,7 +100,9 @@ import * as kit from './assets/js/core/kit.js';
 import { beanAge } from './assets/js/core/beans.js';
 import * as chart from './assets/js/core/chart.js';
 import { diagnose } from './assets/js/core/diagnose.js';
-import { recommendGrind, suggestByTaste, resistanceRows, fitResistance } from './assets/js/core/advisor.js';
+import { recommendGrind, suggestByTaste, resistanceRows, fitResistance, finerDirection,
+  describeMove }
+  from './assets/js/core/advisor.js';
 boot();
 
 const $ = (id) => document.getElementById(id);
@@ -137,6 +139,14 @@ function why(fit, grinderName) {
     ? `Staleness is in the model at ${fit.c.toFixed(4)} log-flow per day.`
     : 'Days off roast is not in the model — too few distinct ages to separate it from grind.');
   bits.push(`Residual scatter ${(fit.sigma * 100).toFixed(1)}% in flow.`);
+  // Which way the dial runs is measured, not assumed, so it is worth saying so
+  // — and worth admitting when the data cannot tell.
+  const finer = finerDirection(fit);
+  bits.push(finer
+    ? `On your shots, turning the dial ${finer} grinds finer.`
+    : 'Which way this dial runs is not readable yet — the grind coefficient is '
+      + 'smaller than its own uncertainty, so directions here are dial steps, not finer '
+      + 'and coarser.');
   // Shots ground straight from the freezer are held out of the fit, so say so
   // rather than leaving the shot count quietly short of the log.
   if (fit.frozen) {
@@ -167,11 +177,14 @@ function renderRec(shots, bagId, grinderId, g) {
     return;
   }
   holder.appendChild(el('div', { class: 'huge', style: 'margin:6px 0 4px' }, String(r.setting)));
+  // "Three steps up" is not advice unless you already know which way your dial
+  // runs; "three steps finer" is. The direction comes from the fit, not from a
+  // guess about grinders in general.
   holder.appendChild(el('p', { class: 'msg', style: 'margin-top:0' },
     (r.delta === null ? 'No current setting entered. '
       : r.delta === 0 ? 'That is where you already are. '
-      : `${Math.abs(r.delta)} step${Math.abs(r.delta) === 1 ? '' : 's'} `
-        + `${r.delta > 0 ? 'up' : 'down'} from ${num('cur')}. `)
+      : `${r.move.text} from ${num('cur')}`
+        + (r.move.word ? ` (${r.delta > 0 ? 'up' : 'down'} the dial). ` : '. '))
     + `Plausible range ${r.lo}–${r.hi}. Target steady flow ${fmt(r.targetFlow, 2)} g/s.`));
   holder.appendChild(el('span', { class: `badge ${r.confidence === 'good' ? 'ok' : r.confidence === 'rough' ? 'flag' : 'warn'}` },
     `${r.confidence} fit`));
@@ -197,8 +210,16 @@ function renderTaste(shots, bagId, grinderId, g) {
     return;
   }
   holder.appendChild(el('div', { class: 'huge', style: 'margin:6px 0 4px' }, String(t.setting)));
+  // Same courtesy as the flow model: name the direction in the word people use.
+  // The physics fit is what knows which way the dial runs, so borrow it — taste
+  // has no opinion about burr gaps.
+  const cur = num('cur');
+  const move = Number.isFinite(cur)
+    ? describeMove(+(t.setting - cur).toFixed(2), fitResistance(shots, { grinderId, bagId }))
+    : null;
   holder.appendChild(el('p', { class: 'msg', style: 'margin-top:0' },
-    `Predicted ${fmt(t.predicted, 1)} ± ${fmt(t.predictedSd, 1)} out of 10, against your best so `
+    (move ? `${move.text} from ${cur}. ` : '')
+    + `Predicted ${fmt(t.predicted, 1)} ± ${fmt(t.predictedSd, 1)} out of 10, against your best so `
     + `far of ${t.bestSeen}. From ${t.n} rated shots.`));
   holder.appendChild(el('span', { class: `badge ${t.exploring ? 'flag' : 'ok'}` },
     t.exploring ? 'exploring' : 'refining'));

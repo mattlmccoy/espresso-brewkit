@@ -19,7 +19,7 @@ plain CSV you own.
 |---|---|
 | **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session, driven by the scale. Weigh, grind, pull, rate — it steps itself. |
 | **[Shots](https://mattlmccoy.github.io/espresso-brewkit/shots.html)** | Every shot you have pulled, with its flow curve, its diagnosis, and how it sits against the rest. |
-| **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
+| **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. It says *finer* and *coarser*, not *up* and *down*: the sign of the fitted grind coefficient tells it which way your dial actually runs, measured on your shots rather than assumed about grinders in general. When that coefficient is smaller than its own uncertainty it says so and falls back to dial steps. |
 | **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders, machines and consumables. What a shot was made with, how stale it was, and what is running out. |
 | **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
 | **[Backup](https://mattlmccoy.github.io/espresso-brewkit/backup.html)** | The whole log to a file, and back again. Restoring merges rather than overwrites. |
@@ -85,6 +85,141 @@ Motion here is meant to answer a question, not to decorate:
 - **Findings arrive in order.** The diagnosis is ranked most severe first and
   staggers in, because five things appearing at once is a wall rather than a
   list.
+
+## The scale is also the button
+
+Both hands are full, the portafilter is in one of them, and the laptop is two
+metres away. The scale is already under your fingers and already streaming ten
+times a second, which makes it the only control surface in the room you can
+actually reach.
+
+**Two taps** capture the weight and move on, **three** tare, and **two taps then
+a press** cycle the brew method. Every gesture says out loud and in writing what
+it just did, because a control nobody can see firing is a control nobody trusts.
+
+A tap is unmistakable in the raw stream: tens of grams for a couple of hundred
+milliseconds, returning to exactly the level it started from. Nothing else a
+scale sees does that — a cup steps up and *stays* up, coffee climbs at a couple
+of grams a second, a drip lands and stays. The signature is not the size of the
+excursion, it is the return. `core/tap.js` reads the **raw** stream deliberately:
+the Kalman filter's whole job is to treat a 40 g spike lasting 150 ms as noise
+and delete it, which is right for weighing and fatal for this.
+
+Two things fell out of building it, both of which were bugs rather than tuning:
+
+- **A tap looked exactly like lifting the vessel off** — a rise and then a fall
+  of the same size — so tapping the scale committed the step whatever the tap
+  meant. The session now requires a fall to *stay* fallen for a fifth of a
+  second, measured against where the platter was resting 0.6 s ago rather than
+  against the previous sample. A rolling average would have been wrong here:
+  averages converge on the new level, so a real lift stops looking like a fall
+  within a few frames. A fixed lag does not converge. This also rules out
+  knocks, which were always a false positive.
+- **A lone long press is indistinguishable from a scale-side tare.** Both are
+  "weight appears, then returns to baseline with nothing having moved". The
+  first version fired the method switch on the app's own normal dosing sequence.
+  So the hold is a compound gesture: nothing anyone does with a cup taps the
+  platter twice first.
+
+A single tap is never a command. A scale on a counter beside a machine gets
+knocked, and a one-tap vocabulary would fire the moment someone set a spoon
+down.
+
+## Espresso is not the only thing a scale can weigh
+
+The session used to be espresso-shaped, with a portafilter hardcoded into the
+middle of it. But the machinery underneath — tare when a vessel lands, aim a
+weight at a target, plot weight against time — is not espresso machinery. It is
+brewing machinery. A pour over is the same three phases with a different vessel
+and a target ten times larger; a flat white is espresso with one more weighing
+after it.
+
+So `core/method.js` holds the step order, the vessel names, the targets, the
+flow bands and the vocabulary as data, and the session machine reads them.
+
+| | Espresso | Pour over | Milk drink |
+|---|---|---|---|
+| Steps | dose, grind, brew, rate | dose, brew, rate | dose, grind, brew, milk, rate |
+| Brew weighs | yield **out** | water **in** | yield out |
+| Default target | 18 g at 1:2 → 36 g | 22 g at 1:16 → 352 g | 18 g at 1:2, then 200 g milk |
+| Flow band | 1.1–2.2 g/s | 3–7 g/s | 1.1–2.2 g/s |
+| Curve diagnosis | yes | no | yes |
+
+A pour over is exempt from the diagnosis on purpose: channelling, a fast puck
+and a slow puck are espresso physics read off an espresso curve, and running
+them over a pour would produce a confident wrong answer rather than no answer.
+
+Switching method mid-session keeps whatever is already weighed — realising
+halfway through that this is going to be a flat white does not un-weigh the
+beans — and lands on the next step the new method shares with the old one.
+That matters more than it sounds, because the switch is reachable from the
+scale, and an accidental one must never cost a weighing.
+
+## Flow, as a bar
+
+The one thing every expensive scale draws that this only printed as digits.
+"1.87 g/s" is a fact; a bar two thirds of the way along a marked band is an
+answer, and across a kitchen only one of those works. The band is per method,
+which is the whole reason it lives in `method.js` — a pour is poured an order of
+magnitude faster than espresso flows, and espresso's scale would leave the bar
+pinned at full for three minutes.
+
+The laptop and the phone draw it from the same function, because the phone is
+the one you are actually looking at and the two must not disagree about what
+"too fast" means.
+
+## The gap between grinding and brewing
+
+Ground coffee starts degassing and cooling the moment it leaves the burrs, and
+picks up moisture from the air. Two otherwise identical shots pulled thirty
+seconds and five minutes after grinding are not the same shot.
+
+It costs nothing to record — both timestamps already exist, because the app
+captures the grounds and starts the clock itself — and **nothing else logs it**,
+because nothing else owns both ends of the gap. It goes on the shot as
+`puck_prep_s`, it is a regression predictor like any other, and past four
+minutes the diagnosis says so rather than leaving you to wonder why that shot
+was unlike its neighbours.
+
+## This shot against the one you actually liked
+
+Every scale with an app will draw a reference curve behind the live one. Two
+curves on one chart is a picture, not an answer: you still have to look at it,
+work out where they part company, and remember what that meant.
+
+`core/compare.js` does the looking. Both curves are resampled onto fractional
+time and normalised by final yield, so a 32 s shot and a 26 s shot can be
+compared as shapes rather than as clocks. Similarity is mean absolute deviation
+rather than correlation — two curves that both rise monotonically correlate at
+nearly 1 however differently they rise, which would call every espresso ever
+pulled a match. Then it finds the largest gap and reports its sign:
+
+> **66% like your 9/10 shot.** They part company around 9.1 s, where this one
+> was 12% of the yield ahead: it was running faster than the shot you liked, so
+> more of the cup arrived early.
+
+"Best" is your own best on that coffee, not an ideal curve. There is no ideal
+curve; there is the one you liked. And this can only exist because the ratings
+and the curves are in the same rows — a scale that stores curves and a notebook
+that stores ratings cannot be joined afterwards, which is why no scale app does
+this.
+
+## The drip lag belongs to the machine
+
+After the pump stops, the puck keeps dripping, so cutting when the cup reads the
+target overshoots it by that much every single time. The app has always learned
+that lag from its own shots — the gap between the stop-press weight and the
+final settled weight, divided by the flow at the time, is the lag in seconds,
+measured rather than assumed.
+
+What was wrong is that it was **one number for the whole app**. A lever and a
+pump-driven machine with a bottomless basket do not drip alike, and a shared
+estimate is wrong for all but one of them. It now lives on the machine's own Kit
+record with a count of the shots behind it, so the page can say *"this machine
+drips for about 1.40 s after the pump stops, from 5 shots"* rather than quietly
+being confident. Below three shots it falls back rather than pretending, and an
+impossible observation — a negative lag, or more than 3.5 s — is refused rather
+than averaged in.
 
 ## The session steps itself
 
@@ -249,6 +384,23 @@ was always two-way and a rating tapped beside the machine seconds after the shot
 is a better rating than one typed on a laptop in another room. It arrives on the
 laptop as an ordinary session edit.
 
+**The phone can now see the log, not only the pour.** It used to be a live
+viewer and nothing else: the shots behind the shot needed an account on both
+devices, which on an iPad meant the whole viewer was one failed sign-in away
+from a blank page. The peer link already carries ten frames a second, and a year
+of shots is smaller than a minute of that — so the phone asks, and the laptop
+answers.
+
+That goes down a **second data channel**, ordered and reliable, negotiated in
+the same offer so pairing stays one exchange. The pour channel is deliberately
+lossy: every frame carries the whole current state, so a dropped one costs
+nothing and waiting for a retransmit would cost latency. A log is the opposite
+in every respect — sent once, a dropped chunk loses shots, and nobody minds an
+extra 40 ms. Two channels rather than a compromise between them. It is chunked
+at 12 KB because browsers disagree about how large an SCTP message they will
+carry and a refused one is refused silently, and the phone merges it with the
+same union the Backup page uses, so asking twice can never cost a shot.
+
 A pairing cannot be stored and reused — a WebRTC description is good for exactly
 one connection. What can be stored is the fact that you have done it before,
 which is the difference between a page of instructions and a single paste: both
@@ -283,6 +435,20 @@ custom domain. Trading an account system for a file was the better trade.
 whole dataset — shots, bags, grinders, machines, supplies, adjustments — to one
 dated JSON file, and reads one back. Shots alone still export as CSV from the
 Shots page, which is the format to open in a spreadsheet.
+
+There is a third file, for taking the log somewhere else entirely. The backup is
+this app's internal state — storage keys as object keys, ids that mean nothing
+outside it, curves packed into strings to keep the file small — which is right
+for coming back here and wrong for going anywhere else. **Export for other
+tools** writes flat records instead: coffee and grinder *names* rather than ids,
+the units written into the file, and every curve expanded into plain
+`[seconds, grams]` pairs. Nothing in it requires a reader to have seen this
+project.
+
+It is deliberately not labelled as any particular app's import format. Claiming
+compatibility this project cannot verify against a real file from that app would
+be worse than offering an honest open one — an import that silently drops half
+your shots is not interoperability.
 
 Restoring **merges rather than overwrites**. Shots are unioned by id, so pulling
 shots on the laptop and rating them on the phone loses neither, and importing a
@@ -702,7 +868,8 @@ will connect through, so building this is not throwaway work.
 site/       the GitHub Pages app — plain HTML + ES modules, no build step
   assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters,
                      bags and grinders, curve diagnosis, the two advisor models,
-                     the file backup and its merge, the home-page walkthrough
+                     the file backup and its merge, the home-page walkthrough,
+                     brew methods, scale gestures, curve-to-curve comparison
   assets/js/ble/     Web Bluetooth transport, protocol auto-decoder, mock scale
 data/       shots.csv (canonical dataset) + the original per-shot files
 design/     specification for the scale hardware and firmware

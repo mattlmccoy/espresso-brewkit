@@ -222,6 +222,37 @@ export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
  * describes flow once the bed is saturated, and pre-infusion time is not part
  * of that.
  */
+/**
+ * Which way is finer on this dial, worked out from the shots rather than asked.
+ *
+ * "Three steps up" is only advice if you already know which way your grinder
+ * runs, and grinders disagree — most number finer downwards, some do the
+ * opposite, and a stepless collar numbered by a sticker can be either. The fit
+ * already answers it: `b` is the change in log flow per dial step, so a
+ * positive `b` means turning the dial up flows faster, which means up is
+ * coarser. It is measured on this grinder with these beans, and it costs
+ * nothing because the coefficient was needed anyway.
+ *
+ * @returns 'up' | 'down' | null — the direction that grinds finer, or null when
+ *          the coefficient is too small or too uncertain to read a sign from.
+ */
+export function finerDirection(fit) {
+  if (!fit?.ok || !Number.isFinite(fit.b) || fit.b === 0) return null;
+  // A sign is only worth reporting if it is bigger than its own uncertainty.
+  if (Number.isFinite(fit.seB) && Math.abs(fit.b) < Math.abs(fit.seB)) return null;
+  return fit.b > 0 ? 'down' : 'up';
+}
+
+/** What a move of `delta` steps does to the grind, in the word people use. */
+export function describeMove(delta, fit) {
+  if (!Number.isFinite(delta) || delta === 0) return null;
+  const finer = finerDirection(fit);
+  const steps = `${Math.abs(delta)} step${Math.abs(delta) === 1 ? '' : 's'}`;
+  if (!finer) return { steps, word: null, text: `${steps} ${delta > 0 ? 'up' : 'down'}` };
+  const word = (delta < 0) === (finer === 'down') ? 'finer' : 'coarser';
+  return { steps, word, text: `${steps} ${word}` };
+}
+
 export function recommendGrind(shots, { grinderId, bagId, grinder, targetTimeS = 28,
                                         targetDoseG = 18, targetRatio = 2, days = 0,
                                         preinfusionS = 0, currentSetting = null } = {}) {
@@ -249,6 +280,9 @@ export function recommendGrind(shots, { grinderId, bagId, grinder, targetTimeS =
     hi: snapSetting(grinder, raw + spanFactor),
     targetFlow: +targetFlow.toFixed(3),
     delta: Number.isFinite(F(currentSetting)) ? +(setting - F(currentSetting)).toFixed(2) : null,
+    move: Number.isFinite(F(currentSetting))
+      ? describeMove(+(setting - F(currentSetting)).toFixed(2), fit) : null,
+    finer: finerDirection(fit),
     extrapolating: Number.isFinite(F(currentSetting)) && Math.abs(setting - F(currentSetting)) > 4,
     confidence: relSe < 0.2 && fit.n >= 6 ? 'good' : relSe < 0.5 ? 'rough' : 'weak',
     fit,

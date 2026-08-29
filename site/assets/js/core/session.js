@@ -41,23 +41,14 @@
 // every step stays reachable by hand — the auto-tare bug was not caused by
 // automation, it was caused by automation you could not see.
 
-export const STEP = {
-  SETUP: 'setup',
-  DOSE: 'dose',
-  GRIND: 'grind',
-  BREW: 'brew',
-  RATE: 'rate',
-};
+// The steps, the orders and the vessel names live in method.js: what the
+// session asks you for depends on what you are making, and a machine with an
+// espresso-shaped step list baked into it can only ever make espresso.
+export { STEP, STEP_HINT } from './method.js';
+import { STEP, METHODS, methodOf, stepHint } from './method.js';
 
-export const STEP_ORDER = [STEP.SETUP, STEP.DOSE, STEP.GRIND, STEP.BREW, STEP.RATE];
-
-export const STEP_HINT = {
-  setup: 'Choose your coffee and grinder first — a shot records what it was made with.',
-  dose: 'Put your beans on the scale. Tare a dosing cup first if you use one.',
-  grind: 'Grind into the portafilter and set it on the scale.',
-  brew: 'Lock in and put your cup on the scale. It will tare and time itself.',
-  rate: 'How was it?',
-};
+/** Espresso's order, for the callers that predate methods. */
+export const STEP_ORDER = METHODS.espresso.order;
 
 /**
  * Each weighing step is three phases, because that is how the job is actually
@@ -68,8 +59,9 @@ export const STEP_HINT = {
  */
 export const PHASE = { VESSEL: 'vessel', FILL: 'fill', READY: 'ready' };
 
-export const VESSEL_NAME = { dose: 'dosing cup', grind: 'portafilter' };
-const NEXT_NAME = { dose: 'the grind', grind: 'brewing' };
+/** Espresso's vessels, for the callers that predate methods. */
+export const VESSEL_NAME = Object.fromEntries(
+  Object.entries(METHODS.espresso.weigh).map(([k, v]) => [k, v.vessel]));
 
 /**
  * How far off a target still counts as hitting it. A fraction, with a floor so
@@ -107,20 +99,19 @@ export function fillProgress(net, target, tol = tolerance(target)) {
 }
 
 /** The line under the step name: one instruction, for right now. */
-export function prompt(s) {
-  if (s.step !== STEP.DOSE && s.step !== STEP.GRIND) return STEP_HINT[s.step];
-  const vessel = VESSEL_NAME[s.step];
+export function prompt(s, method = 'espresso') {
+  const m = methodOf(method);
+  const w = m.weigh[s.step];
+  if (!w) return stepHint(m.id, s.step);
   if (s.phase === PHASE.VESSEL) {
-    return `Put your ${vessel} on the scale — it tares itself once it settles.`;
+    return `Put your ${w.vessel} on the scale — it tares itself once it settles.`;
   }
   if (s.phase === PHASE.FILL) {
     const to = Number.isFinite(s.target) && s.target > 0 ? ` to ${s.target.toFixed(1)} g` : '';
-    return s.step === STEP.DOSE
-      ? `Tared. Dose your beans${to}.`
-      : `Tared. Grind into it${to}.`;
+    return `Tared. ${w.fill}${to}.`;
   }
   const g = Number.isFinite(s.candidate) ? `${s.candidate.toFixed(1)} g` : 'That';
-  return `${g} — lift the ${vessel} off to move on to ${NEXT_NAME[s.step]}.`;
+  return `${g} — lift the ${w.vessel} off to move on to ${w.next}.`;
 }
 
 export class SessionMachine {
@@ -137,10 +128,15 @@ export class SessionMachine {
    *                 without pausing, short enough not to feel stuck. Any change
    *                 over 0.3 g restarts it, so adding more never trips it
    */
-  constructor({ minMass = 1, maxMass = 45, dropG = 3, settleFor = 0.6, holdFor = 5,
+  constructor({ method = 'espresso',
+                minMass = 1, maxMass = 45, dropG = 3, liftFor = 0.25, settleFor = 0.6, holdFor = 5,
                 vesselMin = 20, vesselFor = 0.5, vesselBand = 1.0, vesselWithin = 2,
                 nearFrac = 0.12, nearMin = 1.5 } = {}) {
-    this.o = { minMass, maxMass, dropG, settleFor, holdFor,
+    this.o = { minMass, maxMass, dropG,
+               // How long the platform has to stay down before a fall counts as
+               // a lift rather than a tap or a knock. Two or three frames.
+               liftFor,
+               settleFor, holdFor,
                // A dosing cup is ~50 g and a portafilter ~470 g; the heaviest
                // dose anyone pulls is under 30. Twenty grams sits between them
                // with room on both sides.
@@ -151,9 +147,47 @@ export class SessionMachine {
                // "Near enough to your target to call it done." A fraction, with
                // a floor so an 8 g single is not held to ±1 g.
                nearFrac, nearMin };
-    this.target = 18;
+    this.m = methodOf(method);
+    this.target = this.m.defaults.dose;
     this.reset();
   }
+
+  /** What is being made. Everything the machine asks for follows from this. */
+  get method() { return this.m.id; }
+
+  /**
+   * Switch method mid-session.
+   *
+   * Deliberately keeps what has already been weighed. Realising halfway through
+   * that this is going to be a flat white does not un-weigh the beans, and
+   * throwing away a dose because the drink changed would make the control
+   * unusable — which matters, because it is reachable from the scale itself.
+   */
+  setMethod(id) {
+    const next = methodOf(id);
+    if (next.id === this.m.id) return this.m;
+    const prev = this.m;
+    this.m = next;
+    if (!Number.isFinite(this.target) || this.target <= 0) this.target = next.defaults.dose;
+    // The current step may not exist in the new method — a pour over has no
+    // grind step. Land on the next thing you would have done anyway that the
+    // new method also does: walk forward through the OLD order until a step
+    // both methods share. Anything cleverer risks going backwards over work
+    // already finished, which matters because this is reachable from the scale
+    // and an accidental switch should never cost a weighing.
+    if (!next.order.includes(this.step)) {
+      const was = prev.order;
+      const from = was.indexOf(this.step);
+      this.step = was.slice(from + 1).find((x) => next.order.includes(x))
+        ?? next.order[next.order.length - 1];
+      this._enterVessel(true);
+    }
+    this._log(this._t, `Brew method: ${next.label}.`);
+    return next;
+  }
+
+  /** The weighing config for a step, or null if that step is not a weighing. */
+  weighFor(step = this.step) { return this.m.weigh[step] ?? null; }
 
   /** The dose you are aiming for, which is what makes "done" knowable. */
   setTarget(g) {
@@ -166,8 +200,21 @@ export class SessionMachine {
    * less whatever the grinder keeps.
    */
   targetFor() {
-    if (this.step === STEP.GRIND && Number.isFinite(this.dose)) return this.dose;
+    const w = this.weighFor();
+    if (!w) return this.target;
+    // Grounds are aimed at the dose that was actually weighed, not at the dial
+    // setting — you ground 18.2 g of beans, so 18.2 g is what should come out.
+    if (w.targetFrom && Number.isFinite(this[w.targetFrom])) return this[w.targetFrom];
+    // A milk target is its own number, not a fraction of the coffee.
+    if (Number.isFinite(w.target)) return this.targets?.[this.step] ?? w.target;
     return this.target;
+  }
+
+  /** Override the target for one step — milk, mostly, where 200 g is a guess. */
+  setStepTarget(step, g) {
+    this.targets = { ...(this.targets ?? {}) };
+    if (Number.isFinite(g) && g > 0) this.targets[step] = g;
+    else delete this.targets[step];
   }
 
   /** How far off the target still counts as hitting it. */
@@ -187,8 +234,10 @@ export class SessionMachine {
     this.phase = PHASE.VESSEL;
     this.dose = null;
     this.grounds = null;
+    this.milk = null;
     this.candidate = null;      // the settled reading we would commit right now
-    this.auto = { dose: false, grounds: false };  // was it captured, or typed?
+    this.at = {};               // wall-clock ms when each weighing was captured
+    this.auto = { dose: false, grounds: false, milk: false };  // captured, or typed?
     this._lastRaw = null;
     this._settledSince = null;
     this._settledAt = null;
@@ -198,6 +247,8 @@ export class SessionMachine {
     this._sawEmpty = false;
     this._needTare = false;
     this._roseAt = null;
+    this._fellAt = null;
+    this._rest = [];
     this._recent = [];
     this._t = 0;
     this.holdLeft = null;       // seconds until an unattended capture, or null
@@ -213,7 +264,7 @@ export class SessionMachine {
   setReady(ready) {
     this.ready = !!ready;
     if (this.ready && this.step === STEP.SETUP) {
-      this.step = STEP.DOSE;
+      this.step = this.m.order[1];
       // Nothing preceded this step, so whatever is on the scale is the cup you
       // meant to put there.
       this._enterVessel(true);
@@ -225,7 +276,7 @@ export class SessionMachine {
 
   /** Jump to a step by hand. Automation continues from wherever you land. */
   goto(step) {
-    if (!STEP_ORDER.includes(step)) return;
+    if (!this.m.order.includes(step)) return;
     this.step = step;
     this.candidate = null;
     this._enterVessel(true);
@@ -251,6 +302,22 @@ export class SessionMachine {
    * Has the raw reading stopped moving? Independent of the flow estimator,
    * which is answering a different question and answers it slowly after a step.
    */
+  /**
+   * What the platform read a moment ago — a fixed lag, not a smoothing.
+   *
+   * A rolling average or median is exactly wrong here: both converge on the new
+   * level, so a real lift stops looking like a fall within a few frames. A
+   * lagged sample does not converge. Against a reading from 0.6 s ago, a cup
+   * lifted is a large fall for the whole 0.6 s it takes the window to refill,
+   * and a tap — up and back inside 300 ms — is no fall at all, because 0.6 s
+   * ago the platter was resting at exactly the weight it has returned to.
+   */
+  _laggedRaw(t, raw) {
+    this._rest.push([t, raw]);
+    while (this._rest.length > 1 && t - this._rest[0][0] > 0.6) this._rest.shift();
+    return this._rest[0][1];
+  }
+
   _stableRaw(t, raw, seconds, band) {
     this._recent.push([t, raw]);
     while (this._recent.length && t - this._recent[0][0] > seconds) this._recent.shift();
@@ -331,7 +398,7 @@ export class SessionMachine {
         out.tareTo = +raw.toFixed(2);
         this.phase = PHASE.FILL;
         this._restartPlateau();
-        this._log(t, `Tared the ${VESSEL_NAME[this.step]} at ${raw.toFixed(1)} g.`);
+        this._log(t, `Tared the ${this.weighFor().vessel} at ${raw.toFixed(1)} g.`);
         return out;
       }
       // Still, and at a weight a dose could be: beans straight onto a scale you
@@ -370,9 +437,30 @@ export class SessionMachine {
 
     // Raw falling away is the thing leaving the platform — never a tare, which
     // leaves raw exactly where it was.
-    if (prevRaw - raw > this.o.dropG) {
+    //
+    // But a fall has to STAY fallen before it means anything. A finger tapped
+    // on the platter is a rise and then a fall of exactly this size, and read
+    // one sample at a time it is indistinguishable from a cup being lifted —
+    // which meant tapping the scale committed the step, whatever the tap was
+    // meant to do. Waiting a fifth of a second for the platform to still be
+    // empty costs nothing anyone can feel and makes the signal mean what it
+    // says. It also rules out a knock, which was always a false positive.
+    //
+    // The comparison is against where the platform was RESTING, not against the
+    // previous sample. A tap peaks and falls back, so sample-to-sample it looks
+    // like a lift from the peak; against the resting level it is not a fall at
+    // all. Half a second of history is enough to hold that level, and it is the
+    // same history the vessel detector already keeps.
+    const ref = this._laggedRaw(t, raw);
+    if (ref - raw > this.o.dropG) {
+      if (this._fellAt === null) this._fellAt = t;
+    } else {
+      this._fellAt = null;
+    }
+    if (this._fellAt !== null && t - this._fellAt >= this.o.liftFor) {
+      this._fellAt = null;
       if (this.candidate !== null) {
-        return this._commit(t, `when the ${VESSEL_NAME[this.step]} came off`, out);
+        return this._commit(t, `when the ${this.weighFor()?.vessel ?? 'vessel'} came off`, out);
       }
       // A drop with no candidate is a tare, or a vessel going on and off. It is
       // not the end of a step, and advancing on it would skip the weighing the
@@ -401,21 +489,18 @@ export class SessionMachine {
    */
   _commit(t, why, out = { committed: null, advancedTo: null, tareTo: null }) {
     if (this.candidate === null) return out;
-    if (this.step === STEP.DOSE) {
-      this.dose = this.candidate;
-      this.auto.dose = true;
-      out.committed = 'dose';
-      this._log(t, `Dose ${this.dose} g captured ${why}.`);
-      this.step = STEP.GRIND;
-    } else if (this.step === STEP.GRIND) {
-      this.grounds = this.candidate;
-      this.auto.grounds = true;
-      out.committed = 'grounds';
-      this._log(t, `Grounds ${this.grounds} g captured ${why}.`);
-      this.step = STEP.BREW;
-    } else {
-      return out;
-    }
+    const w = this.weighFor();
+    if (!w) return out;
+    this[w.key] = this.candidate;
+    this.auto[w.key] = true;
+    // Wall-clock, not scale time: the gap this is for can be minutes, and the
+    // scale's clock is only monotonic within a connection.
+    this.at = { ...(this.at ?? {}), [w.key]: Date.now() };
+    out.committed = w.key;
+    const name = w.key === 'grounds' ? 'Grounds' : w.key[0].toUpperCase() + w.key.slice(1);
+    this._log(t, `${name} ${this[w.key]} g captured ${why}.`);
+    const i = this.m.order.indexOf(this.step);
+    this.step = this.m.order[Math.min(this.m.order.length - 1, i + 1)];
     out.advancedTo = this.step;
     this._clearCandidate();
     // The next step starts by looking for its own container, from a platform
@@ -431,6 +516,24 @@ export class SessionMachine {
     return this._commit(this._t, 'because you said so');
   }
 
+  /**
+   * Seconds between the grind finishing and the pump starting.
+   *
+   * Ground coffee starts degassing and cooling the moment it leaves the burrs,
+   * so two otherwise identical shots pulled thirty seconds and five minutes
+   * after grinding are not the same shot. It is free to record — both
+   * timestamps already exist — and nothing else logs it, because nothing else
+   * owns both ends of the gap.
+   */
+  puckPrep(startedAt = Date.now()) {
+    const ground = this.at?.grounds ?? this.at?.dose ?? null;
+    if (!ground) return null;
+    const secs = (startedAt - ground) / 1000;
+    // A negative gap means the clock moved or the steps were driven by hand out
+    // of order; an enormous one means the session was left open overnight.
+    return secs >= 0 && secs < 3600 ? +secs.toFixed(1) : null;
+  }
+
   /** Retention, once both ends are known. */
   get retention() {
     return Number.isFinite(this.dose) && Number.isFinite(this.grounds)
@@ -441,12 +544,16 @@ export class SessionMachine {
     return {
       step: this.step,
       phase: this.phase,
-      vessel: VESSEL_NAME[this.step] ?? null,
+      method: this.m.id,
+      methodLabel: this.m.label,
+      order: this.m.order,
+      vessel: this.weighFor()?.vessel ?? null,
       target: this.targetFor(),
       hint: prompt({ step: this.step, phase: this.phase, candidate: this.candidate,
-                     target: this.targetFor() }),
+                     target: this.targetFor() }, this.m.id),
       dose: this.dose,
       grounds: this.grounds,
+      milk: this.milk,
       candidate: this.candidate,
       holdLeft: this.candidate === null ? null : this.holdLeft,
       retention: this.retention,

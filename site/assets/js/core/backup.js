@@ -207,3 +207,92 @@ export function parseBackup(text) {
   }
   return obj;
 }
+
+/* ------------------------------------------------------- taking it elsewhere */
+
+/**
+ * The log in a shape another program can read without knowing this one.
+ *
+ * The backup file above is this app's internal state: storage keys as object
+ * keys, ids that mean nothing outside it, a curve packed into a string to keep
+ * the file small. That is the right format for coming back here and the wrong
+ * one for going anywhere else.
+ *
+ * So this is the other file: flat records, resolved names instead of ids,
+ * SI units named in the field, and the curve expanded into arrays of numbers.
+ * Nothing here needs a reader to have seen this project. It is deliberately
+ * not any particular app's import format — see the note on the Backup page
+ * about why claiming compatibility this app cannot verify would be worse than
+ * offering an honest open one.
+ */
+export function interchange({ shots = [], bags = [], grinders = [], machines = [],
+                              decodeCurve = null } = {}) {
+  const byId = (list) => Object.fromEntries((list ?? []).map((r) => [r.id, r]));
+  const bag = byId(bags);
+  const grinder = byId(grinders);
+  const machine = byId(machines);
+  const num = (v) => (Number.isFinite(Number(v)) && v !== '' && v !== null ? Number(v) : null);
+
+  return {
+    format: 'brewkit.interchange',
+    version: 1,
+    exported_at: new Date().toISOString(),
+    // Written down rather than assumed: a file of bare numbers is a file of
+    // guesses six months later.
+    units: {
+      dose_g: 'grams', yield_g: 'grams', water_g: 'grams', milk_g: 'grams',
+      time_s: 'seconds', puck_prep_s: 'seconds', temperature_c: 'celsius',
+      pressure_bar: 'bar', flow_g_per_s: 'grams per second',
+      curve: 'array of [seconds, grams] pairs, cumulative weight',
+    },
+    brews: (shots ?? []).map((r) => ({
+      id: r.shot_id ?? null,
+      at: r.timestamp ?? null,
+      method: r.method || 'espresso',
+      coffee: {
+        name: bag[r.bag_id]?.bean_name ?? null,
+        roaster: bag[r.bag_id]?.roaster ?? null,
+        process: bag[r.bag_id]?.process ?? null,
+        roast_level: bag[r.bag_id]?.roast_level ?? null,
+        roasted_on: bag[r.bag_id]?.roast_date ?? null,
+        days_off_roast: num(r.days_off_roast),
+      },
+      grinder: {
+        name: grinder[r.grinder_id]?.name ?? null,
+        burr: grinder[r.grinder_id]?.burr ?? null,
+        setting: num(r.grind_setting),
+      },
+      machine: {
+        name: machine[r.machine_id]?.name ?? null,
+        kind: machine[r.machine_id]?.kind ?? null,
+        basket: r.basket || null,
+      },
+      dose_g: num(r.dose_g),
+      grounds_g: num(r.grounds_out_g),
+      yield_g: num(r.yield_g),
+      milk_g: num(r.milk_g),
+      ratio: num(r.ratio),
+      time_s: num(r.time_s),
+      preinfusion_s: num(r.preinfusion_s),
+      puck_prep_s: num(r.puck_prep_s),
+      temperature_c: num(r.temp_c),
+      pressure_bar: num(r.pressure_bar),
+      first_drip_s: num(r.t_first_drip_s),
+      flow: {
+        average_g_per_s: num(r.flow_gs),
+        peak_g_per_s: num(r.peak_flow_gs),
+        steady_g_per_s: num(r.steady_flow_gs),
+        late_slope_g_per_s2: num(r.flow_slope_late),
+      },
+      refractometry: { brix: num(r.brix), tds_pct: num(r.tds_pct), extraction_yield_pct: num(r.ey_pct) },
+      rating_out_of_10: num(r.rating),
+      tags: String(r.tags ?? '').split(/\s+/).filter(Boolean),
+      notes: r.notes || null,
+      // Expanded, because a reader that has to be told how to unpack a string
+      // is a reader that has to have read this project's source.
+      curve: typeof decodeCurve === 'function'
+        ? decodeCurve(r.curve).map((p) => [p[0], p[1]])
+        : [],
+    })),
+  };
+}

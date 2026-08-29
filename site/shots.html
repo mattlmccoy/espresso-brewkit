@@ -86,6 +86,7 @@ import * as kit from './assets/js/core/kit.js';
 import * as chart from './assets/js/core/chart.js';
 import { decodeCurve, label } from './assets/js/core/schema.js';
 import { diagnose } from './assets/js/core/diagnose.js';
+import { compareToBest } from './assets/js/core/compare.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { download } from './assets/js/core/csv.js';
 import { median, mad, mean, sd, clean } from './assets/js/core/stats.js';
@@ -229,6 +230,19 @@ function renderDetail() {
   } else {
     holder.appendChild(el('p', { class: 'note', style: 'margin-top:18px' },
       'No flow curve on this shot — it was entered by hand, or logged before curves were stored.'));
+  }
+
+  // The shape against the one you liked, before the shape on its own terms.
+  const best = compareToBest(shot, all, { bagId: shot.bag_id || null });
+  if (best) {
+    holder.appendChild(el('div', { class: 'tag', style: 'margin-top:18px' },
+      'Against your best on this coffee'));
+    holder.appendChild(el('div', { class: `finding ${best.close ? 'low' : 'medium'}` },
+      el('h4', {}, best.title),
+      el('p', {}, best.detail),
+      el('p', { class: 'do' }, best.sameNumbers
+        ? 'Same dose, yield and time as that one — any difference in the cup is in the shape.'
+        : `Reference: ${best.ref.shot_id.replace('shot-', '#')}, rated ${best.ref.rating}/10.`)));
   }
 
   holder.appendChild(el('div', { class: 'tag', style: 'margin-top:18px' }, 'What the curve says'));

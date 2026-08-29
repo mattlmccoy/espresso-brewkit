@@ -54,6 +54,13 @@
   .chips { display:flex; gap:8px; flex-wrap:wrap; }
   .chips button { padding:7px 12px; box-shadow:none; font-size:12.5px; }
   .chips button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
+  /* What you are making. Three buttons rather than a select, because this is
+     also reachable from the scale and a select cannot show you what it cycles
+     through. */
+  .methods { display:flex; gap:6px; margin-top:8px; }
+  .methods button { flex:1 1 0; padding:7px 6px; box-shadow:none; font-size:10.5px;
+    letter-spacing:.05em; }
+  .methods button[aria-pressed="true"] { background:var(--ink); color:var(--tag-fg); }
   .rate { display:flex; gap:5px; flex-wrap:wrap; }
   .rate button { width:44px; padding:10px 0; box-shadow:none; font-family:var(--mono); }
   .rate button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
@@ -200,6 +207,16 @@
   .catch-bar span { display:block; height:100%; width:0; background:var(--accent);
     transition:width .12s linear; }
   .catch button { padding:5px 11px; box-shadow:none; font-size:11.5px; }
+  /* What the platter will do right now, and what it just did. The second one
+     matters more: a gesture nobody can see firing is a gesture nobody trusts,
+     so every one of them says so out loud and in writing. */
+  .tap-hint { font-size:11.5px; color:var(--ink-mute); margin-top:4px; }
+  .gesture { margin:8px 0 2px; padding:9px 12px; border-left:var(--bw) solid var(--accent);
+    background:var(--panel-2); font:700 12.5px/1.35 var(--sans); color:var(--ink); }
+  .gesture.warn { border-left-color:var(--fit); }
+  .gesture[hidden] { display:none; }
+  .gesture.flash { animation:gesturein var(--t-slow) var(--spring); }
+  @keyframes gesturein { 0% { opacity:0; transform:translateX(-14px) scale(.97); } }
 </style>
 </head>
 <body class="dash-page">
@@ -313,18 +330,10 @@
           </div>
           <p class="msg" id="name-msg"></p>
         </div>
-        <div class="steps" id="stepper">
-          <button type="button" data-step="setup"><span class="n">00</span><span class="l">Setup</span>
-            <span class="sv" id="sv-setup">&mdash;</span></button>
-          <button type="button" data-step="dose"><span class="n">01</span><span class="l">Dose</span>
-            <span class="sv" id="sv-dose">&mdash;</span></button>
-          <button type="button" data-step="grind"><span class="n">02</span><span class="l">Grind</span>
-            <span class="sv" id="sv-grind">&mdash;</span></button>
-          <button type="button" data-step="brew"><span class="n">03</span><span class="l">Brew</span>
-            <span class="sv" id="sv-brew">&mdash;</span></button>
-          <button type="button" data-step="rate"><span class="n">04</span><span class="l">Rate</span>
-            <span class="sv" id="sv-rate">&mdash;</span></button>
-        </div>
+        <!-- Built from the method rather than written out: a pour over has no
+             grind step and a flat white has one more, and a stepper that
+             disagrees with the session is worse than no stepper. -->
+        <div class="steps" id="stepper"></div>
 
         <!-- Step 00 asks for these two, so they belong where the flow is read:
              top left, before anything else. Everything on the right is
@@ -335,10 +344,13 @@
           <div class="field needs-setup" style="margin:0"><label for="p-grinder">Grinder</label>
             <select id="p-grinder"></select></div>
         </div>
+        <div class="methods" id="methods" role="group" aria-label="Brew method"></div>
 
         <div class="state-strip" id="state">Idle</div>
 
         <p class="hint" id="step-hint"></p>
+        <p class="hint tap-hint" id="gesture-hint"></p>
+        <div class="gesture" id="gesture" hidden></div>
         <div class="catch" id="catch" hidden>
           <span class="catch-v" id="catch-v">—</span>
           <span class="catch-bar" id="catch-bar"><span id="catch-fill"></span></span>
@@ -357,6 +369,13 @@
             </div>
             <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
           </div></div>
+        <!-- Flow, as a position rather than as digits. The band is where a
+             healthy pour lives, so this answers "is it running right" from
+             across the kitchen without any arithmetic. -->
+        <div class="qrow" id="flowrow" style="margin-top:9px">
+          <span class="qbar"><span class="band"></span><span class="now"></span></span>
+          <span class="qv">—</span>
+        </div>
         <div class="mini">
           <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
           <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
@@ -371,8 +390,13 @@
                   style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
           <button class="ghost" id="cues" type="button" aria-pressed="false"
                   style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
+          <button class="ghost" id="gestures" type="button" aria-pressed="true"
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Taps on</button>
+          <button class="ghost" id="send-log" type="button" hidden
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Send log to phone</button>
           <span class="badge" id="watch-state" hidden>&mdash;</span>
         </div>
+        <p class="msg" id="watch-msg" style="margin:4px 0 0"></p>
 
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
@@ -386,6 +410,7 @@
         <p class="msg" id="decoder-note" style="margin:8px 0 0"></p>
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
+        <p class="msg" id="lag-note" hidden></p>
       </section>
 
       <!-- The pour, against a reference -->
@@ -573,7 +598,7 @@
 </footer>
 
 <script type="module">
-import { boot, fmt, el } from './assets/js/ui.js';
+import { boot, fmt, el, paintFlow } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
@@ -582,11 +607,16 @@ import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
+import { compareToBest } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
-import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
+import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
 import { SessionMachine, STEP_ORDER, fillProgress } from './assets/js/core/session.js';
+import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, brewTarget }
+  from './assets/js/core/method.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
 import * as cue from './assets/js/core/cue.js';
+import * as backup from './assets/js/core/backup.js';
+import { TapListener, actionFor, gestureHint } from './assets/js/core/tap.js';
 import { decodeCurve } from './assets/js/core/schema.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { initNotices, restoreControl, isDismissed } from './assets/js/core/notice.js';
@@ -670,10 +700,15 @@ const brew = new BrewMachine();
 // session should leave nothing behind.
 let draft = blankDraft();
 let stopArmed = false, stopSeen = null;   // predictive-stop bookkeeping
+// Wall-clock when the pump actually started, which is the far end of the
+// grind-to-brew gap. The brew machine's own clock is scale time and only
+// monotonic within a connection, so it cannot measure minutes.
+let shotStartedAt = null;
 
 function blankDraft() {
   return { dose_g: null, grounds_out_g: null, yield_g: null, time_s: null,
-           rating: null, tags: new Set(), curve: [], metrics: {} };
+           rating: null, tags: new Set(), curve: [], metrics: {},
+           puck_prep_s: null, method: null };
 }
 
 const displayName = () => profile?.name || profile?.bleName || 'Scale';
@@ -845,6 +880,10 @@ function onFrame({ uuid, bytes, at }) {
   const grams = applyCandidate(decoder, bytes);
   if (!Number.isFinite(grams)) return;
   lastRaw = grams;
+  // The raw stream, before the filter: the filter's job is to treat a 40 g
+  // spike lasting 150 ms as noise and remove it, which is right for weighing
+  // and fatal for reading a tap.
+  const gesture = taps.push(at, grams);
   const { weight, flow, settled } = est.step(at, grams);
   lastSettled = settled;
   const snap = brew.step(at, weight, flow);
@@ -854,6 +893,7 @@ function onFrame({ uuid, bytes, at }) {
   if (moved.tareTo !== null) brew.tare = moved.tareTo;
   render(snap);
   broadcast(snap);
+  if (gesture) onGesture(gesture);
   // The countdown moves every frame; the rest of the session panel only moves
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
@@ -881,6 +921,93 @@ function currentTarget() {
 const CUE_KEY = 'brewkit.cues';
 const gate = new cue.CueGate({ enabled: false });
 try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }
+
+/* --------------------------------------------------- the scale as a button */
+// Both hands are full and the laptop is across the room. The scale is already
+// under your fingers and already streaming, so it is the one control surface in
+// reach. See core/tap.js for why a tap is unmistakable in the raw stream.
+
+const TAP_KEY = 'brewkit.taps.v1';
+const taps = new TapListener();
+try { taps.enabled = localStorage.getItem(TAP_KEY) !== 'off'; } catch { /* ignore */ }
+
+/** Say what just happened, loudly enough that it is never a mystery. */
+function gestureDone(text, { ok = true } = {}) {
+  const strip = $('gesture');
+  strip.textContent = text;
+  strip.hidden = false;
+  strip.className = `gesture${ok ? '' : ' warn'}`;
+  strip.classList.remove('flash');
+  void strip.offsetWidth;
+  strip.classList.add('flash');
+  clearTimeout(gestureDone.timer);
+  gestureDone.timer = setTimeout(() => { strip.hidden = true; }, 2600);
+  if (ok) cue.CUES.tick();
+}
+
+/**
+ * A gesture means different things at different steps, and the table that says
+ * so lives in tap.js so that growing the vocabulary is a data change.
+ *
+ * Everything here routes through the buttons the page already has rather than
+ * reaching into the machines directly: a gesture should be able to do exactly
+ * what a click does, and nothing a click cannot.
+ */
+function onGesture(g) {
+  const step = sess.step;
+  const action = actionFor(step, g.type);
+  if (!action) return;
+  // A press held for most of a second and released is a hold — and is also a
+  // cup picked up and put back. The stream cannot tell them apart, so the
+  // session does: while it is waiting for a vessel to land, cups are being
+  // moved and a hold means nothing.
+  if (g.type === 'hold' && sess.phase === 'vessel') return;
+  // Whatever the gesture did, the platter is about to move — a tare drops the
+  // reading to zero, a capture lifts a cup off. Neither is a second gesture.
+  taps.mute(0.8, g.at);
+
+  if (action === 'capture') {
+    if (sess.snapshot().candidate === null) {
+      gestureDone('Nothing to capture yet — fill to the target first.', { ok: false });
+      return;
+    }
+    $('catch-go').click();
+    gestureDone(`Captured ${fmt(sess.snapshot()[step === 'dose' ? 'dose' : 'grounds'], 1)} g.`);
+  } else if (action === 'tare') {
+    $('tare').click();
+    gestureDone('Tared from the platter.');
+  } else if (action === 'stop') {
+    if (brew.state !== BREW.EXTRACTING) {
+      gestureDone('Nothing is pouring.', { ok: false });
+      return;
+    }
+    $('stop').click();
+    gestureDone('Stopped the shot.');
+  } else if (action === 'next') {
+    const i = STEP_ORDER.indexOf(step);
+    const to = STEP_ORDER[Math.min(STEP_ORDER.length - 1, i + 1)];
+    sess.goto(to);
+    if (to === 'brew') { est.reset(lastRaw); brew.arm(); }
+    paintSession();
+    gestureDone(`Moved on to ${to}.`);
+  } else if (action === 'method') {
+    const m = cycleMethod();
+    gestureDone(`Brew method: ${m.label}. Hold again to keep cycling.`);
+  }
+}
+
+function paintTapButton() {
+  $('gestures').textContent = taps.enabled ? 'Taps on' : 'Taps off';
+  $('gestures').setAttribute('aria-pressed', String(taps.enabled));
+  $('gesture-hint').textContent = taps.enabled ? gestureHint(sess.step) : '';
+}
+
+$('gestures').addEventListener('click', () => {
+  taps.enabled = !taps.enabled;
+  taps.reset(lastRaw);
+  try { localStorage.setItem(TAP_KEY, taps.enabled ? 'on' : 'off'); } catch { /* ignore */ }
+  paintTapButton();
+});
 
 function paintCueButton() {
   const on = gate.enabled && cue.isArmed();
@@ -1048,10 +1175,11 @@ function render(s) {
   soundCues(s);
   $('o-t').textContent = fmt(s.elapsed, 1);
   $('o-f').textContent = fmt(s.flow, 2);
+  paintFlow($('flowrow'), s.flow, sess.method);
 
   // What the cup will actually hold once the puck stops dripping, and how long
   // until you should cut. Both are only meaningful while it is pouring.
-  const lag = Number(kit.session().stop_lag_s) || 1.0;
+  const lag = kit.stopLag($('p-machine').value).seconds;
   const tgt = targetYield();
   const lands = s.running && s.flow > 0.02 ? s.net + s.flow * lag : NaN;
   const eta = s.running && s.flow > 0.05 && Number.isFinite(tgt)
@@ -1084,7 +1212,7 @@ function render(s) {
   // when the cup reads the target overshoots it by that much every single time.
   // The lag is learned from previous shots rather than assumed.
   if (s.state === BREW.EXTRACTING && Number.isFinite(target)) {
-    const lag = Number(kit.session().stop_lag_s) || 1.0;
+    const lag = kit.stopLag($('p-machine').value).seconds;
     const signal = stopSignalWeight(target, s.flow, lag);
     if (!stopArmed && s.net >= signal) {
       stopArmed = true;
@@ -1105,6 +1233,7 @@ function render(s) {
   strip.classList.toggle('on', s.state === BREW.EXTRACTING && !stopArmed);
   strip.classList.toggle('stop', stopArmed && s.state === BREW.EXTRACTING);
 
+  if (s.state === BREW.EXTRACTING && shotStartedAt === null) shotStartedAt = Date.now();
   if (s.state === BREW.COMPLETE && draft.time_s === null && brew.curve.length > 2) finishShot();
   if (s.state === BREW.EXTRACTING && sess.step !== 'brew') { sess.goto('brew'); paintSession(); }
 
@@ -1510,7 +1639,10 @@ function solve() {
 // Driven by the scale. See core/session.js for why a tare and a removal are
 // distinguishable at all — that one fact is what removes every click.
 
-const sess = new SessionMachine();
+const METHOD_KEY = 'brewkit.method.v1';
+let startMethod = 'espresso';
+try { startMethod = localStorage.getItem(METHOD_KEY) || 'espresso'; } catch { /* ignore */ }
+const sess = new SessionMachine({ method: startMethod });
 let lastStep = null;
 
 function fillKitSelects() {
@@ -1544,12 +1676,10 @@ function fillKitSelects() {
 }
 let defaultsApplied = false;
 
-const targetDose = () => (Number.isFinite(sess.dose) ? sess.dose : num('p-dose') ?? 18);
-const targetRatio = () => num('p-ratio') ?? 2;
-const targetYield = () => {
-  const d = targetDose(), r = targetRatio();
-  return Number.isFinite(d) && Number.isFinite(r) ? d * r : NaN;
-};
+const targetDose = () => (Number.isFinite(sess.dose) ? sess.dose
+  : num('p-dose') ?? methodOf(sess.method).defaults.dose);
+const targetRatio = () => num('p-ratio') ?? methodOf(sess.method).defaults.ratio;
+const targetYield = () => brewTarget(sess.method, targetDose(), targetRatio());
 
 /**
  * What the app is about to capture, and how long you have to disagree with it.
@@ -1590,6 +1720,53 @@ function setupHint() {
 }
 
 /** Everything the session knows, redrawn from one place. */
+/* -------------------------------------------------------- the brew method */
+
+/**
+ * Build the stepper from the method.
+ *
+ * Rebuilt rather than shown and hidden, because the numbering changes too: a
+ * pour over's "brew" is 02, not 03, and a stepper that disagrees with the
+ * session about which step is which is worse than no stepper.
+ */
+function buildStepper() {
+  const order = methodOf(sess.method).order;
+  $('stepper').replaceChildren(...order.map((step) => el('button',
+    { type: 'button', 'data-step': step },
+    el('span', { class: 'n' }, stepNumber(sess.method, step)),
+    el('span', { class: 'l' }, stepLabel(sess.method, step)),
+    el('span', { class: 'sv', id: `sv-${step}` }, '\u2014'))));
+}
+
+function buildMethods() {
+  $('methods').replaceChildren(...METHOD_ORDER.map((id) => {
+    const m = METHODS[id];
+    return el('button', { type: 'button', 'data-method': id, title: m.blurb,
+      'aria-pressed': String(id === sess.method),
+      onclick: () => setMethod(id) }, m.label);
+  }));
+}
+
+function setMethod(id) {
+  const m = sess.setMethod(id);
+  try { localStorage.setItem(METHOD_KEY, m.id); } catch { /* ignore */ }
+  // The targets belong to the drink: 18 g at 1:2 is an espresso, 22 g at 1:16
+  // is a pour over, and carrying one method's numbers into another produces a
+  // 36 g pour over.
+  if (!Number.isFinite(sess.dose)) $('p-dose').value = m.defaults.dose;
+  $('p-ratio').value = m.defaults.ratio;
+  sess.setTarget(targetDose());
+  buildStepper();
+  buildMethods();
+  paintSession();
+  return m;
+}
+
+/** What press-and-hold on the scale does. */
+function cycleMethod() {
+  return setMethod(nextMethod(sess.method).id);
+}
+
 function paintSession() {
   const s = sess.snapshot();
   paintCatch(s);
@@ -1602,7 +1779,7 @@ function paintSession() {
   // that the capture happened — which, when the app captured it for you rather
   // than being told to, is the only acknowledgement there is.
   const sv = (id, text) => {
-    if (!setText(id, text)) return;
+    if (!$(id) || !setText(id, text)) return;
     const n = $(id);
     n.classList.remove('new');
     void n.offsetWidth;
@@ -1611,6 +1788,7 @@ function paintSession() {
   sv('sv-setup', chosen ? (chosen.length > 9 ? `${chosen.slice(0, 8)}…` : chosen) : '—');
   sv('sv-dose', show(s.dose, s.auto.dose));
   sv('sv-grind', show(s.grounds, s.auto.grounds));
+  sv('sv-milk', show(s.milk, s.auto.milk));
   sv('sv-brew', Number.isFinite(draft.yield_g)
     ? `${draft.yield_g.toFixed(1)} g` : (s.candidate !== null && s.step === 'brew' ? '…' : '—'));
   sv('sv-rate', draft.rating ? `${draft.rating}/10` : '—');
@@ -1618,10 +1796,18 @@ function paintSession() {
   for (const b of $('stepper').querySelectorAll('button')) {
     if (b.dataset.step === s.step) b.setAttribute('aria-current', 'step');
     else b.removeAttribute('aria-current');
-    b.classList.toggle('done', STEP_ORDER.indexOf(b.dataset.step) < STEP_ORDER.indexOf(s.step));
+    b.classList.toggle('done', s.order.indexOf(b.dataset.step) < s.order.indexOf(s.step));
   }
+  for (const b of $('methods').querySelectorAll('button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.method === s.method));
+  }
+  paintTapButton();
   $('w-label').textContent = s.step === 'dose' ? 'Beans'
-    : s.step === 'grind' ? 'Grounds' : 'Weight';
+    : s.step === 'grind' ? 'Grounds'
+      : s.step === 'milk' ? 'Milk'
+        : s.step === 'brew' ? methodOf(s.method).brew.noun[0].toUpperCase()
+          + methodOf(s.method).brew.noun.slice(1)
+          : 'Weight';
 
   if (document.activeElement !== $('d-manual') && Number.isFinite(s.dose)) $('d-manual').value = s.dose;
   if (document.activeElement !== $('g-manual') && Number.isFinite(s.grounds)) $('g-manual').value = s.grounds;
@@ -1643,10 +1829,13 @@ function paintSession() {
     // Entering brew arms the machine so the cup landing tares and times itself.
     if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
   }
-  $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g out `
-    + `at 1:${fmt(targetRatio(), 1)}`;
+  const bm = methodOf(s.method).brew;
+  $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g `
+    + `${bm.measures === 'in' ? 'water' : 'out'} at 1:${fmt(targetRatio(), 1)}`;
   $('o-target').textContent = fmt(targetYield(), 1);
 }
+
+$('send-log').addEventListener('click', () => sendLogToPhone());
 
 $('stepper').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-step]');
@@ -1678,12 +1867,41 @@ const notePairing = () => {
 // The phone can answer back. A rating tapped beside the machine, seconds after
 // the shot, is a better rating than one typed on a laptop in another room.
 watcher.onMessage = (m) => {
+  // The phone asking for the whole log. It gets the same snapshot the Backup
+  // page writes to a file — over the link that is already open, on the network
+  // the two devices are already sharing, with no account and no file to carry.
+  if (m?.k === 'want-log') { sendLogToPhone(); return; }
   if (m?.k !== 'rate' || !Number.isFinite(m.v)) return;
   draft.rating = Math.max(1, Math.min(10, Math.round(m.v)));
   buildRateControls();
   $('live-msg').textContent = `Rated ${draft.rating}/10 from the phone.`;
   paintSession();
 };
+
+/**
+ * Push this device's whole log across the peer link.
+ *
+ * The phone has always been able to watch a pour and never able to see the
+ * shots behind it, because the only route for stored data was an account. The
+ * link is already open and already carries ten frames a second; a year of shots
+ * is smaller than a minute of that. So it goes down the reliable channel beside
+ * the telemetry, and the phone merges it with the same union the Backup page
+ * uses — which means sending it twice, or sending an older laptop's copy, can
+ * never cost the phone a shot.
+ */
+function sendLogToPhone() {
+  if (!watcher.logReady) {
+    $('watch-msg').textContent = 'The phone is not linked yet.';
+    return false;
+  }
+  const snap = backup.snapshot();
+  const n = watcher.sendWhole(snap, { kind: 'log' });
+  const d = backup.describe(snap);
+  $('watch-msg').textContent = n
+    ? `Sent ${d.shots} shots and ${d.total - d.shots} kit records to the phone.`
+    : 'Could not send the log — the link dropped.';
+  return !!n;
+}
 
 watcher.onState = (state) => {
   const badge = $('watch-state');
@@ -1693,6 +1911,7 @@ watcher.onState = (state) => {
   badge.className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
   $('watch-phone').textContent = state === 'open' ? 'Stop watching'
     : pairedBefore() ? 'Reconnect phone' : 'Watch on phone';
+  $('send-log').hidden = state !== 'open';
   if (state === 'open') notePairing();
 };
 
@@ -1928,18 +2147,35 @@ function finishShot() {
   draft.time_s = Number.isFinite(draft.metrics.duration_s)
     ? draft.metrics.duration_s : +brew.curve.at(-1)[0].toFixed(1);
 
+  // The drip lag is a property of the machine, not of the app. Every shot on it
+  // is a free measurement of how long it keeps dripping after the pump stops,
+  // and the estimate belongs on the machine's own record so a second machine
+  // does not inherit the first one's plumbing.
   if (stopSeen && Number.isFinite(draft.yield_g)) {
-    const lag = updateStopLag(Number(kit.session().stop_lag_s) || 1.0,
-      stopSeen.weight, draft.yield_g, stopSeen.flow);
-    kit.saveSession({ stop_lag_s: +lag.toFixed(2) });
+    const learned = kit.learnStopLag($('p-machine').value, {
+      weightAtSignal: stopSeen.weight, finalWeight: draft.yield_g, flowAtSignal: stopSeen.flow });
+    if (learned) {
+      $('lag-note').textContent = `${learned.name || 'This machine'} drips for about `
+        + `${Number(learned.stop_lag_s).toFixed(2)} s after the pump stops, from `
+        + `${learned.stop_lag_n} shot${learned.stop_lag_n === 1 ? '' : 's'}.`;
+      $('lag-note').hidden = false;
+    }
   }
+
+  // Free to record, and nothing else records it: both timestamps already exist,
+  // and ground coffee is not the same thing five minutes later that it was at
+  // thirty seconds.
+  draft.puck_prep_s = sess.puckPrep(shotStartedAt ?? Date.now());
+  draft.method = sess.method;
 
   const m = draft.metrics;
   $('live-msg').textContent = `${fmt(draft.yield_g, 1)} g in ${fmt(draft.time_s, 1)} s.`;
   $('b-summary').replaceChildren(el('div', { class: 'grid g3' },
     stat('First drip', m.t_first_drip_s, 's', 1),
     stat('Peak flow', m.peak_flow_gs, 'g/s', 2),
-    stat('Steady flow', m.steady_flow_gs, 'g/s', 2)));
+    Number.isFinite(draft.puck_prep_s)
+      ? stat('Grind to brew', draft.puck_prep_s, 's', 0)
+      : stat('Steady flow', m.steady_flow_gs, 'g/s', 2)));
   if (!$('r-yield').value) $('r-yield').value = draft.yield_g;
   sess.goto('rate');
   paintSession();
@@ -1989,6 +2225,7 @@ function resetShot(why = 'Session reset.') {
   sess.reset();
   sess.setTarget(targetDose());
   stopArmed = false; stopSeen = null;
+  shotStartedAt = null;
   ghostCurve = []; ghostFlowCurve = [];
   gate.reset();
   buildRateControls();
@@ -2033,6 +2270,9 @@ $('save').addEventListener('click', () => {
     peak_flow_gs: m.peak_flow_gs ?? null,
     steady_flow_gs: m.steady_flow_gs ?? null,
     flow_slope_late: m.flow_slope_late ?? null,
+    method: draft.method ?? sess.method,
+    milk_g: Number.isFinite(sess.milk) ? sess.milk : null,
+    puck_prep_s: draft.puck_prep_s ?? null,
     curve: encodeCurve(draft.curve),
     brix: num('r-brix'), rating: draft.rating,
     tags: [...draft.tags].join(' '),
@@ -2063,6 +2303,22 @@ function showDiagnosis(shot) {
       ? 'The curve looks clean and the numbers are inside the usual bands.'
       : 'There was no flow curve to read, so this only checked the numbers you typed.'));
   }
+  // Against your own best on this coffee, before the findings: "what did I do
+  // differently from the one I liked" is a better first question than "what is
+  // wrong with this", and it is only answerable because the ratings and the
+  // curves are in the same rows.
+  const cmp = compareToBest(shot, store.all(), { bagId: shot.bag_id || null });
+  if (cmp) {
+    holder.appendChild(el('div', { class: `finding ${cmp.close ? 'low' : 'medium'}`,
+      style: '--d:0ms' },
+      el('h4', {}, cmp.title),
+      el('p', {}, cmp.detail),
+      el('p', { class: 'do' }, cmp.sameNumbers
+        ? 'Same dose, yield and time as that one — so any difference in the cup is in the shape, '
+          + 'not in the numbers.'
+        : `Reference: ${cmp.ref.shot_id.replace('shot-', '#')}, rated ${cmp.ref.rating}/10.`)));
+  }
+
   // Ranked most severe first, so they arrive in the order they should be read.
   findings.forEach((f, i) => {
     holder.appendChild(el('div', { class: `finding ${f.severity}`, style: `--d:${i * 90}ms` },
@@ -2189,6 +2445,8 @@ $('p-bag').addEventListener('change', () => {
 initNotices();
 restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDriver); } });
 refreshAdvice();
+buildStepper();
+buildMethods();
 sess.setTarget(targetDose());
 syncReady();
 paintSession();
@@ -2210,6 +2468,9 @@ if (mock && !manualMock) {
   // The brew machine too: the software tare lives here, and a test that cannot
   // see it cannot tell a tared cup from a coincidence.
   window.__brew = brew;
+  // The gesture listener, so a test can drive taps through it and see what it
+  // decided rather than only what the page did afterwards.
+  window.__taps = taps;
   const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
   attach(m);
   m.connect()

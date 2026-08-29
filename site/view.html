@@ -49,6 +49,12 @@
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
+  .log-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
+  .log-row[hidden] { display:none; }
+  .log-row button { padding:7px 11px; box-shadow:none; font-size:11.5px; }
+  .log-row .msg { margin:0; font-size:12px; }
+  #flowrow { margin:10px 0 0; }
+  body:not(.brewing) #flowrow { display:none; }
   .fill-txt { display:flex; justify-content:space-between; gap:10px; margin-top:6px;
     font:700 11.5px/1 var(--mono); opacity:.88; }
   /* Same reasoning as the laptop: the ground is already the accent, so the
@@ -87,6 +93,13 @@
             style="margin-left:auto;padding:6px 10px;box-shadow:none;font-size:11px">Sound off</button>
     <button class="ghost" id="unpair" type="button" hidden
             style="padding:6px 10px;box-shadow:none;font-size:11px">Unlink</button>
+  </div>
+
+  <!-- The shots behind the pour. This device could always watch and never see
+       the log; now it can ask for it over the link that is already open. -->
+  <div class="log-row" id="log-row" hidden>
+    <button class="ghost" id="get-log" type="button">Get the log</button>
+    <span class="msg" id="log-msg"></span>
   </div>
 
   <!-- Pairing: two pastes, and only until it is linked. -->
@@ -144,6 +157,10 @@
       <div class="c"><div class="k">Flow</div><div class="v" id="q">0.00<small>g/s</small></div></div>
       <div class="c"><div class="k">Target</div><div class="v" id="target">—</div></div>
     </div>
+    <!-- The reason this device exists is that it is the one across the room
+         you can actually see. Flow as a bar is the difference between reading
+         a number and knowing an answer. -->
+    <div class="qrow" id="flowrow"><span class="qbar"><span class="band"></span><span class="now"></span></span></div>
     <div class="plot" id="plot"></div>
 
     <!-- The verdict. By the numbers, then the only question left. -->
@@ -157,10 +174,11 @@
 </div>
 
 <script type="module">
-import { initTheme } from './assets/js/ui.js';
+import { initTheme, paintFlow } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import * as cue from './assets/js/core/cue.js';
+import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 initTheme();
 
@@ -168,7 +186,8 @@ const $ = (id) => document.getElementById(id);
 const link = new LiveLink({ role: 'viewer' });
 let last = null;
 
-const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew', rate: 'Rate' };
+const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew',
+                     milk: 'Milk', rate: 'Rate' };
 
 function setConn(state) {
   const label = { idle: 'Not linked', waiting: 'Waiting for the laptop', open: 'Linked',
@@ -195,6 +214,7 @@ function setConn(state) {
 function viewFor(f) {
   if (f.step === 'rate') return 'done';
   if (f.step === 'brew') return 'brew';
+  // Milk is a weighing like the other two: a big number and a bar, not a plot.
   return 'weigh';
 }
 
@@ -207,10 +227,12 @@ function paint(f) {
   if (view === 'done') paintDone(f);
   const brewing = f.st === 'extracting' || f.st === 'dripping';
   $('big-k').textContent = brewing ? 'In the cup'
-    : f.step === 'dose' ? 'Beans' : f.step === 'grind' ? 'Grounds' : 'Weight';
+    : f.step === 'dose' ? 'Beans' : f.step === 'grind' ? 'Grounds'
+      : f.step === 'milk' ? 'Milk' : 'Weight';
   $('w').textContent = Number.isFinite(f.w) ? f.w.toFixed(1) : '—';
   $('t').innerHTML = `${Number.isFinite(f.t) ? f.t.toFixed(1) : '—'}<small>s</small>`;
   $('q').innerHTML = `${Number.isFinite(f.q) ? f.q.toFixed(2) : '—'}<small>g/s</small>`;
+  paintFlow($('flowrow'), f.q, f.method);
   $('target').innerHTML = Number.isFinite(f.target)
     ? `${f.target.toFixed(1)}<small>g</small>` : '—';
   $('coffee').textContent = f.coffee || 'No coffee chosen';
@@ -392,7 +414,47 @@ async function keepAwake(on) {
     if (!on && lock) { await lock.release(); lock = null; }
   } catch { /* denied, or not supported — the shot still shows */ }
 }
-link.onState = (s) => { setConn(s); keepAwake(s === 'open'); };
+/**
+ * The whole log, arriving over the same link that carries the pour.
+ *
+ * This used to require an account on both devices, which on an iPad meant the
+ * viewer was one failed sign-in away from a blank page. Now the phone simply
+ * asks, and the laptop answers down the reliable channel. It merges rather than
+ * replaces — the same union the Backup page uses — so a phone that has been
+ * rating shots keeps its ratings, and asking twice costs nothing.
+ */
+link.onLog = (payload) => {
+  const parsed = (() => {
+    try { return backup.parseBackup(JSON.stringify(payload)); }
+    catch (e) { $('log-msg').textContent = e.message; return null; }
+  })();
+  if (!parsed) return;
+  const applied = backup.apply(parsed);
+  if (!applied.ok) { $('log-msg').textContent = applied.error; return; }
+  const added = Object.entries(applied.summary)
+    .filter(([, v]) => v.added > 0)
+    .map(([k, v]) => `+${v.added} ${k}${v.added === 1 ? '' : 's'}`);
+  const shots = applied.summary.shot?.after ?? 0;
+  $('log-msg').textContent = added.length
+    ? `Got the log — ${added.join(', ')}. ${shots} shots on this device now.`
+    : `Already up to date: ${shots} shots on this device.`;
+  $('get-log').textContent = 'Get the log again';
+};
+
+link.onLogProgress = ({ got, of }) => {
+  if (of > 1 && got < of) $('log-msg').textContent = `Receiving the log… ${got}/${of}`;
+};
+
+$('get-log').addEventListener('click', () => {
+  if (!link.requestLog()) { $('log-msg').textContent = 'Not linked to the laptop.'; return; }
+  $('log-msg').textContent = 'Asked the laptop for the log…';
+});
+
+link.onState = (s) => {
+  setConn(s);
+  keepAwake(s === 'open');
+  $('log-row').hidden = s !== 'open';
+};
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && link.state === 'open') keepAwake(true);
 });

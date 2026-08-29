@@ -197,6 +197,21 @@ export function diagnose(shot) {
         + 'that were already extracting fine.' });
   }
 
+  // Ground coffee is a different material five minutes after the burrs than it
+  // was at thirty seconds: it degasses, it cools, and it takes up water from
+  // the air. Nothing else logs this because nothing else owns both timestamps,
+  // which is exactly why a shot that looks inexplicably unlike its neighbours
+  // usually has no explanation available. Here it does.
+  const prep = F(shot.puck_prep_s);
+  if (Number.isFinite(prep) && prep > 240) {
+    out.push({ code: 'puck_stale', severity: 'medium',
+      title: `${Math.round(prep / 60)} minutes between grinding and brewing`,
+      detail: 'Grounds degas and cool from the moment they leave the burrs, and they pick up '
+        + 'moisture from the air. A long gap makes a shot faster and flatter than the same dose '
+        + 'ground fresh, so this one is not really comparable with the rest of the log.',
+      action: 'Grind immediately before pulling, and treat this shot as its own thing.' });
+  }
+
   const rank = { high: 0, medium: 1, low: 2 };
   return out.sort((a, b) => rank[a.severity] - rank[b.severity]);
 }

@@ -68,6 +68,7 @@
         <div class="btn-row" style="margin-top:14px">
           <button class="primary" id="export" type="button">Export backup file</button>
           <button class="ghost" id="export-csv" type="button">Export shots as CSV</button>
+          <button class="ghost" id="export-open" type="button">Export for other tools</button>
         </div>
         <p class="msg" id="export-msg"></p>
         <div class="durable" id="durable"><span class="pip"></span><span id="durable-text">Checking
@@ -138,6 +139,8 @@ import { boot, paintBackup } from "./assets/js/ui.js";
 import * as backup from "./assets/js/core/backup.js";
 import { download } from "./assets/js/core/csv.js";
 import * as store from "./assets/js/core/store.js";
+import * as kit from "./assets/js/core/kit.js";
+import { decodeCurve } from "./assets/js/core/schema.js";
 boot();
 
 const $ = (id) => document.getElementById(id);
@@ -194,6 +197,17 @@ $('export').addEventListener('click', () => {
 $('export-csv').addEventListener('click', () => {
   download('shots.csv', store.exportCsv());
   $('export-msg').textContent = 'Wrote shots.csv — the shot log only, without your kit.';
+});
+
+$('export-open').addEventListener('click', () => {
+  const out = backup.interchange({
+    shots: store.all(), bags: kit.bags(), grinders: kit.grinders(), machines: kit.machines(),
+    decodeCurve,
+  });
+  download('brewkit-open.json', JSON.stringify(out, null, 2), 'application/json');
+  const curves = out.brews.filter((x) => x.curve.length > 3).length;
+  $('export-msg').textContent = `Wrote brewkit-open.json — ${out.brews.length} brews, `
+    + `${curves} with a full curve, names and units resolved.`;
 });
 
 $('pick').addEventListener('click', () => $('file').click());

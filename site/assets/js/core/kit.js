@@ -204,6 +204,11 @@ export function saveMachine(patch) {
   const rec = {
     name: '', kind: 'Dual boiler', basket: '',
     default_temp_c: null, default_pressure_bar: null, default_preinfusion_s: null,
+    // How long this machine keeps dripping after the pump stops, learned from
+    // its own shots. Every machine and basket differs, and a shared number is
+    // wrong for all but one of them. Null until there is anything to learn
+    // from, so the caller can tell "not measured" from "measured as 1.0".
+    stop_lag_s: null, stop_lag_n: 0,
     notes: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
@@ -214,6 +219,49 @@ export function saveMachine(patch) {
   writeJSON(MACHINE_KEY, list);
   emit();
   return rec;
+}
+
+/**
+ * Fold one shot's observed drip lag into a machine's running estimate.
+ *
+ * The observation is free: the app already knows what the cup read when it
+ * called the stop, what it finally settled at, and how fast it was flowing at
+ * the time. The gap divided by the flow is the lag, in seconds, measured rather
+ * than assumed — and it is per machine because a lever and a pump-driven
+ * machine with a bottomless basket do not drip alike.
+ *
+ * Exponentially weighted rather than averaged: a basket change or a new puck
+ * screen moves the true lag, and a mean over sixty shots would take months to
+ * notice. The weight is generous early, when there is little to lose, and
+ * settles down once there is a history worth trusting.
+ */
+export function learnStopLag(machineId, { weightAtSignal, finalWeight, flowAtSignal } = {}) {
+  const m = machineId ? machine(machineId) : null;
+  if (!m) return null;
+  if (!(flowAtSignal > 0.05)) return null;
+  const observed = (finalWeight - weightAtSignal) / flowAtSignal;
+  // A negative lag means the cup weighed less at the end than when the stop was
+  // called — a knocked scale, or the cup lifted early. Three seconds of drip is
+  // already implausible. Neither is data.
+  if (!Number.isFinite(observed) || observed < 0 || observed > 3.5) return null;
+  const n = Number(m.stop_lag_n) || 0;
+  const prev = Number.isFinite(Number(m.stop_lag_s)) ? Number(m.stop_lag_s) : observed;
+  const alpha = Math.max(0.12, 1 / (n + 1));
+  const next = prev * (1 - alpha) + observed * alpha;
+  return saveMachine({ id: m.id, stop_lag_s: +next.toFixed(2), stop_lag_n: n + 1 });
+}
+
+/**
+ * The lag to use when calling a stop: this machine's if it has learned one,
+ * otherwise the conservative default. `n` is how much of a history it rests on,
+ * which is what makes it honest to display.
+ */
+export function stopLag(machineId, fallback = 1.0) {
+  const m = machineId ? machine(machineId) : null;
+  const learned = Number(m?.stop_lag_s);
+  const n = Number(m?.stop_lag_n) || 0;
+  if (Number.isFinite(learned) && n >= 3) return { seconds: learned, n, learned: true };
+  return { seconds: fallback, n, learned: false };
 }
 
 export function removeMachine(id) {
