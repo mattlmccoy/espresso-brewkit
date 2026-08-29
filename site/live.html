@@ -782,7 +782,7 @@
 </footer>
 
 <script type="module">
-import { boot, fmt, el, paintFlow } from './assets/js/ui.js';
+import { boot, fmt, el, paintFlow, currentTheme } from './assets/js/ui.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as supply from './assets/js/core/supply.js';
@@ -2479,6 +2479,7 @@ function broadcast(snap) {
     coffee: bag ? [bag.bean_name, bag.roaster].filter(Boolean).join(' · ') : null,
     elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
     lag: kit.stopLag($('p-machine').value).seconds,
+    theme: currentTheme(),
   }));
 }
 

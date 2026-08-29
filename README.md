@@ -607,6 +607,46 @@ step, dose, target, coffee, and the last 240 points of the curve. Losing a frame
 therefore costs nothing, and a phone that joins mid-shot is not staring at a
 blank chart.
 
+### The dial, the volume, and a screen that is not a large phone
+
+The viewer started as one number and a curve, on the reasoning that a phone at
+arm's length wants one thing made big. That is right for a phone and wrong for
+an iPad, which has room for the number, the dial and the curve at once and was
+showing a third of what it could.
+
+So above 700 px the number and the dial sit side by side, the strip grows a
+fourth cell, and the curve gets real height. Landscape on a phone gets the same
+treatment in miniature. Below that it is the single column it always was, with
+the dial added underneath the number.
+
+**The dial has the drinks on it.** `core/dial.js` holds the geometry — the same
+half circle the laptop draws for weighing beans — with the three style bands
+from `styles.js` scaled by the dose, so the zones are contiguous and the arc
+answers "which drink am I in" rather than "how many grams". Which zone the cup
+is in is asked of the ratio rather than of the drawn arc: the arc stops at the
+end of the dial, so testing against it would call a shot that ran long "below
+the first band", which is the opposite of what it is.
+
+**And the tile fills.** The number sits over a level that rises as the shot
+lands, with the three marks drawn where they fall in the volume, so passing one
+is visible without reading anything. It is the same fraction of the same scale
+as the dial, from the same call — a screen showing a dial at two thirds beside a
+glass at half is a screen with two opinions.
+
+Drawn the obvious way round it read as draining: tint the poured part and the
+bright region is the empty one, shrinking as coffee arrives. So what is drawn is
+the space *above* the level, washed out, and the coffee is the tile's own colour
+left alone.
+
+### Following the laptop, until you disagree
+
+The viewer had no theme control at all, and no way to inherit one, so a dark
+laptop beside a light phone was the normal case. The theme now rides along in
+the frame — it costs a word ten times a second — and the phone wears it.
+
+Following is not choosing. Pick a theme on the phone and that is a decision
+about the phone: the laptop stops overriding it from then on.
+
 ### On the phone, three views
 
 The job has three parts and each wants something different made big: the number

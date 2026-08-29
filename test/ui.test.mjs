@@ -2189,6 +2189,140 @@ try {
     head.includes('t_s,raw_g,net_g,filtered_g') && /\n[\d.]+,[-\d.]+,/.test(head),
     head.split('\n').find((l) => /^[\d.]+,/.test(l))?.slice(0, 60) ?? 'no data rows');
 
+  {
+  // ---- the dial, which the phone never had ----
+  const gauge = await page.evaluate(async () => {
+    const D = await import('./assets/js/core/dial.js');
+    const at = (net) => D.shotDial('espresso', 18, { net, target: 36 });
+    const mid = at(24);
+    return {
+      top: mid.top,
+      zones: mid.zones.map((z) => `${z.id}:${z.from}-${z.to}`),
+      here: mid.zones.filter((z) => z.here).map((z) => z.id),
+      // The classification is asked of the ratio, so a pour past the end of the
+      // dial is still the drink it is, not "below the first band".
+      byWeight: [0, 12, 27, 36, 54, 65, 99].map((n) => at(n).style?.id ?? '—'),
+      fracs: [0, 27, 54, 99].map((n) => +at(n).frac.toFixed(2)),
+      over: at(99).over,
+      pourover: D.shotDial('pourover', 22, { net: 100 }),
+      noDose: D.shotDial('espresso', 0, { net: 10 }),
+      // Left to right, opening upward: 0 at the left end, 1 at the right.
+      ends: [D.point(0), D.point(0.5), D.point(1)].map((p) => p.map((v) => Math.round(v))),
+      emptyArc: D.arc(0.5, 0.5),
+      someArc: /^M[\d.]+ [\d.]+ A86 86 0 0 1/.test(D.arc(0.2, 0.8)),
+    };
+  });
+  t('dial: the three drinks are contiguous zones off the dose',
+    gauge.zones.join(' ') === 'ristretto:18-30.6 espresso:30.6-45 lungo:45-60.5',
+    gauge.zones.join(' '));
+  t('dial: it names the one the cup is in right now',
+    gauge.here.join() === 'ristretto', `at 24 g: ${gauge.here.join() || 'none'}`);
+  t('dial: and names it by ratio, so a pour past the end is still a lungo',
+    gauge.byWeight.join() === '—,—,ristretto,espresso,lungo,lungo,—' && gauge.over === true,
+    gauge.byWeight.join(' '));
+  t('dial: the needle runs 0 to 1 and stops there',
+    gauge.fracs.join() === '0,0.45,0.89,1', gauge.fracs.join(' '));
+  t('dial: a method without these names gets no dial rather than invented ones',
+    gauge.pourover === null && gauge.noDose === null, 'pour over and a zero dose both null');
+  t('dial: the arc opens upward and fills left to right',
+    JSON.stringify(gauge.ends) === '[[14,108],[100,22],[186,108]]'
+    && gauge.emptyArc === '' && gauge.someArc,
+    JSON.stringify(gauge.ends));
+
+  // ---- and on the phone, where it is the screen you are looking at ----
+  const watch = await ctx.newPage();
+  await watch.setViewportSize({ width: 390, height: 844 });
+  await watch.goto(`${B}/view.html`);
+  await watch.waitForFunction(() => window.__view);
+  // Other tests in this suite pick a theme, and localStorage is shared across
+  // the origin. A device that has chosen one is the case where following the
+  // laptop is meant to stop, so start from one that has not — and put the
+  // suite's choice back afterwards.
+  const themeWas = await watch.evaluate(() => {
+    const had = localStorage.getItem('brewkit.theme');
+    localStorage.removeItem('brewkit.theme');
+    return had;
+  });
+  await watch.reload();
+  await watch.waitForFunction(() => window.__view);
+  const shown = async (f) => {
+    await watch.evaluate(() => {
+      document.getElementById('pairing').hidden = true;
+      document.getElementById('watching').hidden = false;
+    });
+    await watch.evaluate((frame) => window.__view.paint(frame), f);
+    await watch.waitForTimeout(120);
+    return watch.evaluate(() => ({
+      gauge: !document.getElementById('gauge').hidden,
+      empty: document.getElementById('vol-fill').style.height,
+      style: document.getElementById('now-style').textContent,
+      sub: document.getElementById('g-sub').textContent,
+      here: [...document.getElementById('g-zones').children]
+        .filter((z) => z.classList.contains('here')).map((z) => z.dataset.id).join(),
+      marks: [...document.getElementById('vol-marks').children].map((m) => m.style.bottom),
+      theme: document.documentElement.getAttribute('data-theme'),
+      // Nothing may be drawn outside its own box: the gauge overflowing the
+      // stage put the dial on top of the strip below it.
+      overlap: (() => {
+        const g = document.getElementById('gauge').getBoundingClientRect();
+        const s = document.getElementById('v-strip').getBoundingClientRect();
+        return g.bottom > s.top + 1;
+      })(),
+    }));
+  };
+  const base = { k: 'f', q: 1.9, t: 14.3, step: 'brew', phase: 'fill', method: 'espresso',
+                 dose: 18, target: 36, tol: 1.5, lag: 1, coffee: 'Test', hint: '', curve: [] };
+  const pouring = await shown({ ...base, w: 24.2, st: 'extracting', theme: 'terminal' });
+  const weighing = await shown({ ...base, w: 12, st: 'idle', step: 'dose', theme: 'terminal' });
+  t('viewer: the dial is up while it pours and gone while it weighs',
+    pouring.gauge === true && weighing.gauge === false,
+    `pouring ${pouring.gauge}, weighing ${weighing.gauge}`);
+  t('viewer: the tile empties from the top as the cup fills',
+    Math.abs(parseFloat(pouring.empty) - 60) < 0.2,
+    `${pouring.empty} of the tile still to fill at 24.2 of 60.5 g`);
+  t('viewer: it says which drink it is, on the tile and under the dial',
+    pouring.style === 'Ristretto' && /Ristretto · 1:1\.34/.test(pouring.sub)
+    && pouring.here === 'ristretto', `${pouring.style} / ${pouring.sub}`);
+  t('viewer: the marks sit at the same heights the ladder uses',
+    pouring.marks.join() === '44.6%,59.5%,89.3%', pouring.marks.join(' '));
+  t('viewer: nothing is drawn over the strip beneath it',
+    pouring.overlap === false, `gauge overruns the strip: ${pouring.overlap}`);
+  t('viewer: it wears the laptop’s theme rather than its own default',
+    pouring.theme === 'terminal', `data-theme=${pouring.theme}`);
+
+  // A theme picked here is a decision about this device, and the laptop stops
+  // overriding it.
+  const overridden = await watch.evaluate(async () => {
+    document.querySelector('[data-theme-toggle]').click();
+    const mine = document.documentElement.getAttribute('data-theme');
+    // Send a different one, or the test cannot tell an override from an
+    // adoption — the toggle happened to land on the theme being pushed.
+    const other = ['light', 'dark', 'terminal'].find((th) => th !== mine);
+    window.__view.paint({ k: 'f', w: 24, q: 2, t: 10, st: 'extracting', step: 'brew',
+      method: 'espresso', dose: 18, target: 36, curve: [], theme: other });
+    return { mine, other, after: document.documentElement.getAttribute('data-theme') };
+  });
+  t('viewer: but a theme chosen here wins from then on',
+    overridden.after === overridden.mine && overridden.other !== overridden.mine,
+    `chose ${overridden.mine}, laptop then sent ${overridden.other}, still ${overridden.after}`);
+
+  // An iPad has room for the number and the dial at once.
+  await watch.setViewportSize({ width: 834, height: 1112 });
+  await watch.waitForTimeout(150);
+  const tablet = await watch.evaluate(() => ({
+    dir: getComputedStyle(document.getElementById('stage')).flexDirection,
+    cols: getComputedStyle(document.getElementById('v-strip')).gridTemplateColumns.split(' ').length,
+  }));
+  await watch.evaluate((had) => {
+    if (had) localStorage.setItem('brewkit.theme', had);
+    else localStorage.removeItem('brewkit.theme');
+  }, themeWas);
+  await watch.close();
+  t('viewer: an iPad puts the number and the dial side by side',
+    tablet.dir === 'row' && tablet.cols === 4,
+    `stage ${tablet.dir}, strip in ${tablet.cols} columns`);
+  }
+
   // ---- the three shots inside every shot ----
   // A dose does not have one correct yield: where you cut decides which drink
   // you made. The grams are exact from the first drop; the seconds are a

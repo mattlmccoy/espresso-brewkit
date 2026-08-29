@@ -19,8 +19,81 @@
     padding:9px 10px; box-sizing:border-box; resize:vertical; }
   /* The number and the curve share what is left, rather than the number
      swallowing the screen and leaving the curve a letterbox. */
-  .big { flex:3 1 0; display:grid; place-items:center; border:var(--bw) solid var(--ink);
+  /* `flex:N 1 0` on a column whose children are also flexible is how the dial
+     ended up drawn over the strip below it: the stage was given a share of the
+     screen smaller than the gauge needs, and nothing here clips. The gauge
+     takes its natural height and the number gets what is left. */
+  .stage { flex:3 1 auto; display:flex; flex-direction:column; gap:12px; min-height:0; }
+  .big { flex:1 1 auto; position:relative; display:grid; place-items:center; overflow:hidden;
+    border:var(--bw) solid var(--ink);
     background:var(--accent); color:var(--accent-ink); min-height:150px; padding:10px; }
+  .big-in { position:relative; z-index:2; }
+
+  /* THE CUP FILLING. The bar underneath says how far along the pour is; this
+     says it in the shape of the thing itself, rising from the bottom of the
+     tile as the shot lands. The marks are the same three drinks the dial and
+     the ladder use, drawn where they fall in the volume, so passing one is
+     visible from across a kitchen without reading anything. */
+  .vol { position:absolute; inset:0; z-index:1; pointer-events:none; }
+  .vol[hidden] { display:none; }
+  /* WHAT IS NOT IN THE CUP YET, rather than what is. Drawn the other way round
+     — a tint over the poured part — the tile reads as draining: the bright
+     region is the empty one and it shrinks as coffee arrives. So the fill is
+     the tile's own colour left alone, and everything above the level is washed
+     out. The line between them is the surface. */
+  .vol-fill { position:absolute; left:0; right:0; top:0; height:100%;
+    background:color-mix(in srgb, var(--bg) 62%, transparent);
+    border-bottom:2px solid color-mix(in srgb, var(--accent-ink) 70%, transparent);
+    transition:height .18s cubic-bezier(.22,.68,.32,1); }
+  /* A slow swell at the surface, because a pour is not a step function and a
+     level that only ratchets reads as a progress bar rather than a liquid.
+     Small enough that it never argues with the number on top of it. */
+  .vol-fill::after { content:''; position:absolute; left:0; right:0; bottom:-4px; height:7px;
+    background:color-mix(in srgb, var(--accent-ink) 22%, transparent);
+    animation:swell 2.6s ease-in-out infinite; }
+  @keyframes swell { 50% { transform:translateY(2px) scaleY(.55); } }
+  .vol-marks { position:absolute; inset:0; }
+  .vol-mark { position:absolute; left:0; right:0; height:0;
+    border-top:1px dashed color-mix(in srgb, var(--accent-ink) 40%, transparent); }
+  .vol-mark span { position:absolute; left:8px; top:-13px;
+    font:700 9.5px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+    color:color-mix(in srgb, var(--accent-ink) 68%, transparent); }
+  .vol-mark.passed { border-top-style:solid; }
+  .vol-mark.passed span { color:var(--accent-ink); }
+  /* Named on the tile, so the drink is readable without the dial. */
+  .now-style { display:inline-block; font:800 12px/1 var(--sans); letter-spacing:.12em;
+    text-transform:uppercase; margin-top:10px; padding:5px 9px;
+    background:var(--accent-ink); color:var(--accent); }
+  .now-style[hidden] { display:none; }
+
+  /* The dial. Same half circle as the laptop's, with the drinks on it. */
+  .gauge { flex:0 0 auto; position:relative; border:var(--bw) solid var(--ink);
+    background:var(--panel); padding:10px 12px 12px; display:none; }
+  body.brewing .gauge { display:block; }
+  .gauge svg { display:block; width:100%; height:auto; max-height:180px; }
+  .gauge path, .gauge line { fill:none; stroke-linecap:butt; }
+  .g-track { stroke:var(--hair); stroke-width:15; }
+  .g-zone { stroke-width:15; }
+  .g-zone.z-ristretto { stroke:color-mix(in srgb, var(--accent) 22%, transparent); }
+  .g-zone.z-espresso  { stroke:color-mix(in srgb, var(--accent) 42%, transparent); }
+  .g-zone.z-lungo     { stroke:color-mix(in srgb, var(--accent) 22%, transparent); }
+  .g-zone.here        { stroke:color-mix(in srgb, var(--accent) 78%, transparent); }
+  .g-now { stroke:var(--ink); stroke-width:6;
+    transition:stroke-dashoffset .18s cubic-bezier(.22,.68,.32,1); }
+  .g-tick { stroke:var(--ink); stroke-width:2.5; opacity:.6; }
+  .g-tick.is-target { stroke-width:3.5; opacity:1; }
+  .g-label { font:700 8.5px/1 var(--mono); letter-spacing:.06em; fill:var(--ink-mute);
+    text-anchor:middle; }
+  .g-read { position:absolute; left:0; right:0; bottom:14px; text-align:center; }
+  .g-n { font:800 30px/1 var(--sans); font-variant-numeric:tabular-nums; }
+  .g-u { font:700 13px/1 var(--sans); opacity:.6; margin-left:2px; }
+  .g-sub { font:700 11px/1.3 var(--mono); letter-spacing:.05em; color:var(--ink-dim);
+    margin-top:3px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vol-fill, .g-now { transition:none; }
+    .vol-fill::after { animation:none; }
+  }
   .big .n { font:800 clamp(58px, 22vw, 150px)/0.9 var(--sans); letter-spacing:-.03em;
     font-variant-numeric:tabular-nums; }
   .big .u { font:700 clamp(15px, 4vw, 22px)/1 var(--sans); opacity:.75; margin-left:4px; }
@@ -58,6 +131,29 @@
   body.stale .badge#conn { animation:pulse 1.6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity:.45; } }
   @media (prefers-reduced-motion: reduce) { body.stale .badge#conn { animation:none; } }
+  /* AN IPAD IS NOT A LARGE PHONE. It has room for the number, the dial and the
+     curve at the same time, and showing one at a time on a 11-inch screen
+     wastes most of it. Above this width they sit side by side and the strip
+     grows a fourth cell rather than everything simply getting bigger. */
+  @media (min-width: 700px) {
+    .watch { padding:16px 16px calc(16px + env(safe-area-inset-bottom)); gap:14px; }
+    body.brewing .stage { flex-direction:row; align-items:stretch; }
+    body.brewing .stage .big { flex:1 1 58%; min-height:220px; }
+    body.brewing .stage .gauge { flex:1 1 42%; display:flex; flex-direction:column;
+      justify-content:center; }
+    .gauge svg { max-height:none; }
+    .g-n { font-size:38px; }
+    .strip { grid-template-columns:repeat(4, 1fr); }
+    .big .n { font-size:clamp(70px, 12vw, 160px); }
+    .plot { flex:2 1 0; min-height:200px; }
+    .ladder-g { font-size:22px; }
+  }
+  /* Landscape on a phone is the same problem in miniature. */
+  @media (max-height: 520px) and (orientation: landscape) {
+    body.brewing .stage { flex-direction:row; }
+    .big .n { font-size:clamp(44px, 9vw, 84px); }
+    .gauge svg { max-height:132px; }
+  }
   .log-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
   .log-row[hidden] { display:none; }
   .log-row button { padding:7px 11px; box-shadow:none; font-size:11.5px; }
@@ -122,10 +218,17 @@
   <div class="head">
     <a class="brand" href="./index.html" style="font-size:15px;padding:5px 9px">Brewkit</a>
     <span class="badge" id="conn">Not linked</span>
+    <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
     <button class="ghost" id="cues" type="button" aria-pressed="false" hidden
-            style="margin-left:auto;padding:6px 10px;box-shadow:none;font-size:11px">Sound off</button>
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Sound off</button>
+    <!-- This page had no way to change its own theme, and no way to follow the
+         laptop's either, so a dark laptop beside a light phone was the normal
+         case. The button is the local override; without it the frame decides. -->
+    <button class="ghost" data-theme-toggle id="theme" type="button"
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Theme</button>
     <button class="ghost" id="unpair" type="button" hidden
             style="padding:6px 10px;box-shadow:none;font-size:11px">Unlink</button>
+    </span>
   </div>
 
   <!-- The shots behind the pour. This device could always watch and never see
@@ -174,18 +277,46 @@
       <span class="badge" id="step">—</span></div>
     <p id="hint"></p>
 
-    <div class="big" id="v-big"><div>
-      <div class="k" id="big-k">Weight</div>
-      <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
-      <div class="fill" id="fill" hidden>
-        <div class="fill-track">
-          <span class="fill-band" id="fill-band"></span>
-          <span class="fill-mark" id="fill-mark"></span>
-          <span class="fill-now" id="fill-now"></span>
+    <div class="stage" id="stage">
+      <!-- The number, and behind it the cup filling. The level is the same
+           fraction the dial shows, from the same call, so the two cannot
+           disagree about where the pour is. -->
+      <div class="big" id="v-big">
+        <div class="vol" id="vol" hidden>
+          <div class="vol-fill" id="vol-fill"></div>
+          <div class="vol-marks" id="vol-marks"></div>
         </div>
-        <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
+        <div class="big-in">
+          <div class="k" id="big-k">Weight</div>
+          <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
+          <div style="text-align:center"><span class="now-style" id="now-style" hidden>—</span></div>
+          <div class="fill" id="fill" hidden>
+            <div class="fill-track">
+              <span class="fill-band" id="fill-band"></span>
+              <span class="fill-mark" id="fill-mark"></span>
+              <span class="fill-now" id="fill-now"></span>
+            </div>
+            <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
+          </div>
+        </div>
       </div>
-    </div></div>
+
+      <!-- The dial the laptop had and this never did. Zones are the three
+           drinks, so the question it answers is "which one am I in", not
+           "how many grams". -->
+      <div class="gauge" id="gauge" hidden>
+        <svg viewBox="0 0 200 128" role="img" aria-label="Where the pour is">
+          <path class="g-track" d="M14 108 A86 86 0 0 1 186 108"></path>
+          <g id="g-zones"></g>
+          <path class="g-now" id="g-now" d="M14 108 A86 86 0 0 1 186 108"></path>
+          <g id="g-ticks"></g>
+        </svg>
+        <div class="g-read">
+          <span class="g-n" id="g-n">0.0</span><span class="g-u">g</span>
+          <div class="g-sub" id="g-sub">—</div>
+        </div>
+      </div>
+    </div>
 
     <div class="strip" id="v-strip">
       <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
@@ -216,7 +347,7 @@
 </div>
 
 <script type="module">
-import { initTheme, paintFlow } from './assets/js/ui.js';
+import { initTheme, paintFlow, applyTheme, themeChosen } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import * as cue from './assets/js/core/cue.js';
@@ -225,6 +356,7 @@ import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
   from './assets/js/core/styles.js';
+import { shotDial, arc, arcLength, point } from './assets/js/core/dial.js';
 initTheme();
 
 const $ = (id) => document.getElementById(id);
@@ -286,7 +418,97 @@ function paint(f) {
   $('hint').textContent = f.hint ?? '';
   paintFill(f);
   paintLadder(f);
+  paintGauge(f);
+  wearTheme(f.theme);
   drawCurve(f);
+}
+
+/**
+ * Follow the laptop, unless somebody here has said otherwise.
+ *
+ * Two screens on one counter showing one shot should not be one light and one
+ * dark. But the phone is also a device somebody might want dark at night while
+ * the laptop stays light, so a theme chosen here wins from then on.
+ */
+function wearTheme(theme) {
+  if (!theme || themeChosen()) return;
+  if (document.documentElement.getAttribute('data-theme') === theme) return;
+  applyTheme(theme);
+}
+
+/**
+ * The dial, and the cup filling behind the number.
+ *
+ * Both come from one call, so the arc and the level are the same fraction of
+ * the same scale. Drawing them from separate arithmetic is how a screen ends up
+ * showing a dial at two thirds beside a glass at half.
+ */
+let zoneSig = '';
+function paintGauge(f) {
+  const brewing = f.st === 'extracting' || f.st === 'dripping';
+  const d = brewing
+    ? shotDial(f.method, f.dose, { net: f.w, target: f.target })
+    : null;
+  $('gauge').hidden = !d;
+  $('vol').hidden = !d;
+  $('now-style').hidden = !d;
+  if (!d) { zoneSig = ''; return; }
+
+  // Zones and ticks only change when the dose or the target does.
+  const sig = `${d.top}|${d.marks.map((m) => m.grams).join(',')}`;
+  if (zoneSig !== sig) {
+    zoneSig = sig;
+    const svgns = 'http://www.w3.org/2000/svg';
+    const zones = $('g-zones');
+    zones.replaceChildren(...d.zones.map((z) => {
+      const path = document.createElementNS(svgns, 'path');
+      path.setAttribute('class', `g-zone z-${z.id}`);
+      path.setAttribute('d', arc(z.fromFrac, z.toFrac));
+      path.dataset.id = z.id;
+      return path;
+    }));
+    const ticks = $('g-ticks');
+    ticks.replaceChildren();
+    for (const m of d.marks) {
+      const [x, y] = point(m.frac);
+      const line = document.createElementNS(svgns, 'line');
+      line.setAttribute('class', `g-tick${m.isTarget ? ' is-target' : ''}`);
+      line.setAttribute('x1', x.toFixed(1)); line.setAttribute('y1', y.toFixed(1));
+      line.setAttribute('x2', (100 + (x - 100) * 0.8).toFixed(1));
+      line.setAttribute('y2', (108 + (y - 108) * 0.8).toFixed(1));
+      ticks.append(line);
+    }
+    // The volume carries the same marks, as heights.
+    $('vol-marks').replaceChildren(...d.marks.map((m) => {
+      const row = document.createElement('div');
+      row.className = 'vol-mark';
+      const tag = document.createElement('span');
+      tag.textContent = m.label;
+      row.append(tag);
+      row.style.bottom = `${(m.frac * 100).toFixed(1)}%`;
+      return row;
+    }));
+  }
+
+  for (const z of $('g-zones').children) {
+    z.classList.toggle('here', d.style?.id === z.dataset.id);
+  }
+  const now = $('g-now');
+  now.style.strokeDasharray = String(arcLength());
+  now.style.strokeDashoffset = String(arcLength() * (1 - d.frac));
+  $('g-n').textContent = d.net.toFixed(1);
+  $('g-sub').textContent = d.style
+    ? `${d.style.label} · 1:${d.style.ratio}`
+    : d.over ? `past the dial · ${d.top} g` : `under ristretto · ${d.top} g at the end`;
+
+  // The element is the space above the coffee, so it shrinks as the cup fills.
+  $('vol-fill').style.height = `${((1 - d.frac) * 100).toFixed(1)}%`;
+  for (const row of $('vol-marks').children) {
+    const at = parseFloat(row.style.bottom) / 100;
+    row.classList.toggle('passed', d.frac >= at);
+  }
+  $('now-style').textContent = d.style ? d.style.label : '';
+  $('now-style').hidden = !d.style;
 }
 
 /**
