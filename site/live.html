@@ -11,10 +11,23 @@
   .readout { display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:14px; }
   @media (max-width:820px){ .readout{ grid-template-columns:1fr 1fr; } }
   .big .v { font-size: clamp(46px, 9vw, 92px); }
-  .state-strip { padding:14px 18px; font:700 13px/1 var(--sans); letter-spacing:.16em;
-    text-transform:uppercase; background:var(--ink); color:var(--tag-fg); }
+  /* The one line on the page that says what the app thinks is happening. It
+     changes rarely and always means something, so it earns a transition. */
+  .state-strip { position:relative; overflow:hidden; padding:14px 18px;
+    font:700 13px/1 var(--sans); letter-spacing:.16em; text-transform:uppercase;
+    background:var(--ink); color:var(--tag-fg);
+    transition:background var(--t) var(--ease-out), color var(--t) var(--ease-out); }
   .state-strip.on { background:var(--accent); color:var(--accent-ink); }
   .state-strip.stop { background:var(--fit); color:#fff; }
+  .state-strip > span { display:block; }
+  .state-strip.swap > span { animation:stateswap var(--t-slow) var(--ease-out); }
+  @keyframes stateswap { from { opacity:0; transform:translateY(-9px); } }
+  /* "Stop now" is the only instruction here with a deadline, so it is the only
+     thing on the page allowed to keep moving until it is obeyed. */
+  .state-strip.stop::after { content:''; position:absolute; inset:0;
+    background:linear-gradient(90deg, transparent, rgb(255 255 255 / 26%), transparent);
+    animation:sweep 1.15s var(--ease-out) infinite; }
+  @keyframes sweep { from { transform:translateX(-100%); } to { transform:translateX(100%); } }
   .frames { font-family:var(--mono); font-size:12px; max-height:190px; overflow:auto;
     background:var(--bg); border:2px solid var(--ink); padding:10px; }
   .frames div { white-space:pre; }
@@ -26,6 +39,16 @@
   .steps button:last-child { border-right-width:var(--bw); }
   .steps button[aria-current="step"] { background:var(--accent); color:var(--accent-ink); }
   .steps button.done { background:var(--panel-2); }
+  /* A finished step gets a tick rather than only a shade: "done" and "not yet"
+     read identically at a glance when the only difference is background. */
+  .steps button.done .n::after { content:' \2713'; color:var(--accent); font-size:11px; }
+  .steps button { position:relative; }
+  .steps button[aria-current="step"]::after { content:''; position:absolute; left:0; right:0;
+    bottom:-1px; height:3px; background:var(--ink); animation:grow-x var(--t-slow) var(--ease-out); }
+  @keyframes grow-x { from { transform:scaleX(0); } }
+  /* The captured value under each step. It arrives once and should be seen. */
+  .steps .sv.new { animation:svin var(--t-slow) var(--spring); }
+  @keyframes svin { 0% { opacity:0; transform:translateY(5px) scale(.86); } }
   .steps .n { display:block; font:700 10px/1 var(--sans); letter-spacing:.14em; opacity:.7; }
   .steps .l { display:block; font:700 13.5px/1 var(--sans); margin-top:6px; }
   .chips { display:flex; gap:8px; flex-wrap:wrap; }
@@ -48,6 +71,7 @@
      page; the dial is what you are actually reading. */
   .slides { position:relative; flex:1 1 auto; min-height:0; overflow:hidden; }
   .slide { position:absolute; inset:0; display:flex; flex-direction:column; min-height:0;
+    justify-content:center;
     transition:transform .42s cubic-bezier(.22,.68,.3,1), opacity .28s ease; }
   .slide[data-off="left"] { transform:translateX(-6%); opacity:0; pointer-events:none; }
   .slide[data-off="right"] { transform:translateX(6%); opacity:0; pointer-events:none; }
@@ -80,9 +104,38 @@
   /* A capture is worth one beat of acknowledgement. */
   @keyframes caught { 0% { transform:scale(1); } 38% { transform:scale(1.045); } 100% { transform:scale(1); } }
   .hero.caught { animation:caught .34s ease-out; }
-  .steps button { transition:background .2s ease, color .2s ease; }
+  .steps button { transition:background var(--t) var(--ease-out), color var(--t) var(--ease-out); }
+
+  /* Landing inside the window is the moment the whole dose step is for, so the
+     tile itself acknowledges it instead of leaving the news to a small number. */
+  .st.hero { transition:box-shadow var(--t-slow) var(--ease-out); }
+  .st.hero.in-window { box-shadow:inset 0 0 0 3px var(--flag); }
+  .st.hero.in-window .v { animation:landed var(--t-slow) var(--spring); }
+  @keyframes landed { 0% { transform:scale(1); } 45% { transform:scale(1.035); } 100% { transform:scale(1); } }
+
+  /* While the number is still climbing the bar crawls, so it reads as filling
+     rather than as a static level. It stops the instant you are in the window —
+     the point being that stillness is the signal. */
+  .fill.is-under .fill-now { background-image:repeating-linear-gradient(115deg,
+      transparent 0 7px, rgb(255 255 255 / 22%) 7px 14px); background-size:200% 100%;
+    animation:crawl 900ms linear infinite; }
+  @keyframes crawl { to { background-position:-28px 0; } }
+
+  /* The pending capture slides in from the side it will be confirmed on. */
+  .catch:not([hidden]) { animation:catchin var(--t-slow) var(--ease-out); }
+  @keyframes catchin { from { opacity:0; transform:translateX(-14px); } }
+
+  /* Findings arrive one after another, because they are meant to be read in
+     order and five appearing at once is a wall. */
+  .finding { animation:enter var(--t-slow) var(--ease-out) both; animation-delay:var(--d, 0ms); }
+
+  /* The dashboard's three columns, on first paint only. */
+  .dash-page .cell { animation:enter var(--t-slow) var(--ease-out) both;
+    animation-delay:var(--d, 0ms); }
+
   @media (prefers-reduced-motion: reduce) {
-    .hero.caught { animation:none; }
+    .hero.caught, .st.hero.in-window .v, .state-strip.stop::after,
+    .fill.is-under .fill-now { animation:none; }
     .dial-now { transition:none; }
   }
   /* The stepper moved into the narrower left column; these are the same
@@ -244,14 +297,13 @@
   <div id="step-live" style="display:none">
     <div class="stage">
       <!-- Now -->
-      <section class="bx cell" id="cell-now">
+      <section class="bx cell" id="cell-now" style="--d:0ms">
         <div class="cell-head">
           <span class="tag" id="device-chip">Live</span>
           <span class="badge" id="settled">—</span>
           <span class="badge" id="battery" hidden title="Scale battery">—</span>
           <button class="ghost" id="disconnect" type="button">Disconnect</button>
         </div>
-        <p class="msg" id="decoder-note" style="margin:0 0 8px"></p>
         <div id="name-row" style="display:none">
           <div class="row" style="grid-template-columns:1fr auto;gap:8px;align-items:end">
             <div class="field" style="margin:0"><label for="device-name">Name this scale</label>
@@ -285,13 +337,6 @@
         </div>
 
         <div class="state-strip" id="state">Idle</div>
-        <div class="btn-row" style="margin:6px 0 2px">
-          <button class="ghost" id="watch-phone" type="button"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
-          <button class="ghost" id="cues" type="button" aria-pressed="false"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
-          <span class="badge" id="watch-state" hidden>&mdash;</span>
-        </div>
 
         <p class="hint" id="step-hint"></p>
         <div class="catch" id="catch" hidden>
@@ -299,7 +344,6 @@
           <span class="catch-bar" id="catch-bar"><span id="catch-fill"></span></span>
           <button class="primary" id="catch-go" type="button">Use it</button>
         </div>
-        <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
         <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
           <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div>
@@ -321,6 +365,17 @@
           <div class="st bx"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
           <div class="st bx"><div class="k">Target</div><div class="v"><span id="o-target">—</span><span class="u">g</span></div></div>
         </div>
+
+        <div class="btn-row" style="margin:6px 0 2px">
+          <button class="ghost" id="watch-phone" type="button"
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
+          <button class="ghost" id="cues" type="button" aria-pressed="false"
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
+          <span class="badge" id="watch-state" hidden>&mdash;</span>
+        </div>
+
+        <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
+
         <div class="btn-row tight">
           <button class="ghost" id="tare" type="button">Tare</button>
           <button class="ghost" id="arm" type="button">Arm</button>
@@ -328,12 +383,13 @@
           <button class="ghost" id="stop" type="button">Stop</button>
           <button class="ghost" id="discard" type="button">Reset</button>
         </div>
+        <p class="msg" id="decoder-note" style="margin:8px 0 0"></p>
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
       </section>
 
       <!-- The pour, against a reference -->
-      <section class="bx cell" id="cell-pour">
+      <section class="bx cell" id="cell-pour" style="--d:70ms">
         <div class="cell-head" id="pour-head">
           <span class="tag" id="mid-tag">The pour</span>
           <span class="legend" id="pour-legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow
@@ -391,7 +447,7 @@
       </section>
 
       <!-- Everything about what is going into the cup -->
-      <section class="bx cell" id="cell-side">
+      <section class="bx cell" id="cell-side" style="--d:140ms">
 
         <div class="coffee-card bx" id="coffee-card">
           <div class="cc-head"><strong id="cc-name">No coffee selected</strong>
@@ -936,6 +992,29 @@ function paintSlides() {
 }
 
 /** The bar under the big readout. Redrawn every frame; it is the point. */
+/**
+ * Write a value, and mark it when it actually changed.
+ *
+ * Five of the six tiles on this dashboard update ten times a second and mostly
+ * print the same string; the two that step — "Lands at", "To target" — are the
+ * ones worth noticing, and they are the easiest to miss. A one-beat flash on
+ * change costs nothing when nothing changed, which is most frames.
+ */
+const lastText = new Map();
+function setText(id, value, { flash = false } = {}) {
+  const node = $(id);
+  if (!node || lastText.get(id) === value) return false;
+  const first = !lastText.has(id);
+  lastText.set(id, value);
+  node.textContent = value;
+  if (flash && !first) {
+    node.classList.remove('tick-flash');
+    void node.offsetWidth;   // restart rather than skip the animation
+    node.classList.add('tick-flash');
+  }
+  return true;
+}
+
 function paintFill(net) {
   const box = $('fill');
   const target = currentTarget();
@@ -945,10 +1024,13 @@ function paintFill(net) {
   const live = Number.isFinite(target) && target > 0
     && (weighing ? sess.phase !== 'vessel' : brew.state !== 'idle');
   box.hidden = !live;
-  if (!live) return;
+  if (!live) { box.closest('.st.hero')?.classList.remove('in-window'); return; }
   const p = fillProgress(net, target, weighing ? sess.tolerance(target) : Math.max(1, target * 0.04));
-  if (!p) { box.hidden = true; return; }
+  if (!p) { box.hidden = true; box.closest('.st.hero')?.classList.remove('in-window'); return; }
   box.className = `fill is-${p.state}`;
+  // The tile, not just the bar: at arm's length beside a grinder the bar is a
+  // detail and the big blue rectangle is the thing you can see.
+  box.closest('.st.hero')?.classList.toggle('in-window', p.state === 'in');
   $('fill-now').style.width = `${(p.frac * 100).toFixed(1)}%`;
   $('fill-band').style.left = `${(p.lo * 100).toFixed(1)}%`;
   $('fill-band').style.width = `${((p.hi - p.lo) * 100).toFixed(1)}%`;
@@ -974,9 +1056,9 @@ function render(s) {
   const lands = s.running && s.flow > 0.02 ? s.net + s.flow * lag : NaN;
   const eta = s.running && s.flow > 0.05 && Number.isFinite(tgt)
     ? (tgt - s.flow * lag - s.net) / s.flow : NaN;
-  $('o-proj').textContent = fmt(lands, 1);
-  $('o-eta').textContent = Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—';
-  $('o-trend').textContent = fmt(s.trend, 3);
+  setText('o-proj', fmt(lands, 1), { flash: true });
+  setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
+  setText('o-trend', fmt(s.trend, 3));
 
   // A channel is worth knowing about while the shot is still running, not only
   // in the post-mortem. The trend is NaN until there is enough shot to judge,
@@ -1010,7 +1092,15 @@ function render(s) {
     }
     if (stopArmed) label = `${s.label} — stop now, ${fmt(target, 1)} g incoming`;
   }
-  strip.textContent = label;
+  // The strip holds a span so the text can move without the background moving
+  // with it — a block that slides its own colour in reads as a glitch.
+  if (!strip.firstElementChild) strip.replaceChildren(el('span', {}, label));
+  if (strip.firstElementChild.textContent !== label) {
+    strip.firstElementChild.textContent = label;
+    strip.classList.remove('swap');
+    void strip.offsetWidth;
+    strip.classList.add('swap');
+  }
   strip.dataset.state = s.state;
   strip.classList.toggle('on', s.state === BREW.EXTRACTING && !stopArmed);
   strip.classList.toggle('stop', stopArmed && s.state === BREW.EXTRACTING);
@@ -1110,8 +1200,11 @@ function showBattery(level) {
   const b = $('battery');
   if (!Number.isFinite(level)) { b.hidden = true; return; }
   b.hidden = false;
-  b.textContent = `${Math.round(level)}%`;
+  const next = `${Math.round(level)}%`;
+  const changed = b.textContent && b.textContent !== next;
+  b.textContent = next;
   b.className = `badge ${level <= 15 ? 'warn' : level <= 30 ? 'flag' : 'ok'}`;
+  if (changed) { b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); }
 }
 
 async function afterConnect(name, id) {
@@ -1505,12 +1598,22 @@ function paintSession() {
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
   const chosen = kit.bag($('p-bag').value)?.bean_name;
-  $('sv-setup').textContent = chosen ? (chosen.length > 9 ? `${chosen.slice(0, 8)}…` : chosen) : '—';
-  $('sv-dose').textContent = show(s.dose, s.auto.dose);
-  $('sv-grind').textContent = show(s.grounds, s.auto.grounds);
-  $('sv-brew').textContent = Number.isFinite(draft.yield_g)
-    ? `${draft.yield_g.toFixed(1)} g` : (s.candidate !== null && s.step === 'brew' ? '…' : '—');
-  $('sv-rate').textContent = draft.rating ? `${draft.rating}/10` : '—';
+  // A step's value lands once. Animating it on arrival is the acknowledgement
+  // that the capture happened — which, when the app captured it for you rather
+  // than being told to, is the only acknowledgement there is.
+  const sv = (id, text) => {
+    if (!setText(id, text)) return;
+    const n = $(id);
+    n.classList.remove('new');
+    void n.offsetWidth;
+    if (text !== '—') n.classList.add('new');
+  };
+  sv('sv-setup', chosen ? (chosen.length > 9 ? `${chosen.slice(0, 8)}…` : chosen) : '—');
+  sv('sv-dose', show(s.dose, s.auto.dose));
+  sv('sv-grind', show(s.grounds, s.auto.grounds));
+  sv('sv-brew', Number.isFinite(draft.yield_g)
+    ? `${draft.yield_g.toFixed(1)} g` : (s.candidate !== null && s.step === 'brew' ? '…' : '—'));
+  sv('sv-rate', draft.rating ? `${draft.rating}/10` : '—');
 
   for (const b of $('stepper').querySelectorAll('button')) {
     if (b.dataset.step === s.step) b.setAttribute('aria-current', 'step');
@@ -1960,13 +2063,13 @@ function showDiagnosis(shot) {
       ? 'The curve looks clean and the numbers are inside the usual bands.'
       : 'There was no flow curve to read, so this only checked the numbers you typed.'));
   }
-  for (const f of findings) {
-    holder.appendChild(el('div', { class: `finding ${f.severity}` },
+  // Ranked most severe first, so they arrive in the order they should be read.
+  findings.forEach((f, i) => {
+    holder.appendChild(el('div', { class: `finding ${f.severity}`, style: `--d:${i * 90}ms` },
       el('h4', {}, f.title), el('p', {}, f.detail), el('p', { class: 'do' }, f.action)));
-  }
+  });
   holder.appendChild(el('div', { class: 'btn-row' },
-    el('a', { class: 'primary', href: `./shots.html#${shot.shot_id}`,
-      style: 'display:inline-block;padding:11px 15px;text-decoration:none' }, 'See this shot'),
+    el('a', { class: 'btn-link primary', href: `./shots.html#${shot.shot_id}` }, 'See this shot'),
     el('button', { type: 'button', onclick: () => $('discard').click() }, 'Next shot')));
 }
 

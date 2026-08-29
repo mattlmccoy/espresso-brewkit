@@ -33,7 +33,7 @@ function resolve(urlPath) {
 /**
  * @param port 0 picks a free one, which is what the test run wants; a fixed
  *             port is what a person wants, so the URL stays the same between
- *             restarts and stays valid in Google's origin allowlist.
+ *             restarts.
  * @param host 127.0.0.1 keeps it on this machine. Pass 0.0.0.0 to reach it
  *             from a phone on the same Wi-Fi — see the note in the README
  *             about secure contexts before doing that.

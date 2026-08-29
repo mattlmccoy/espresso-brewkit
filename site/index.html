@@ -4,9 +4,154 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>espresso·brewkit</title>
-<meta name="description" content="Browser-based measurement tools for espresso: extraction calculator, shot log, regression explorer, and uncertainty analysis.">
+<meta name="description" content="Pull espresso with a Bluetooth scale driving the session: guided dosing, a live flow curve, and an analysis of what to change next. Runs entirely in your browser.">
 <link rel="stylesheet" href="./assets/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  /* ---------------------------------------------------------------- hero */
+  .hero-wrap { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 22px;
+    align-items: stretch; margin: 6px 0 26px; }
+  @media (max-width: 900px) { .hero-wrap { grid-template-columns: minmax(0, 1fr); } }
+
+  .pitch { display: flex; flex-direction: column; gap: 16px; }
+  .pitch h1 { margin: 0; }
+  .lede { margin: 0; font: 600 16px/1.5 var(--sans); color: var(--ink-dim); max-width: 42ch; }
+  .cta-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  a.cta { display: inline-flex; align-items: center; gap: 9px; text-decoration: none;
+    border: var(--bw) solid var(--ink); background: var(--accent); color: var(--accent-ink);
+    padding: 13px 18px; font: 700 13.5px/1 var(--sans); letter-spacing: .01em;
+    box-shadow: var(--sh) var(--sh) 0 var(--ink);
+    transition: transform var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out); }
+  a.cta.quiet { background: var(--panel); color: var(--ink); }
+  a.cta:hover { transform: translate(-2px, -2px); box-shadow: calc(var(--sh) + 2px) calc(var(--sh) + 2px) 0 var(--ink); }
+  a.cta:active { transform: translate(1px, 1px); box-shadow: calc(var(--sh) - 2px) calc(var(--sh) - 2px) 0 var(--ink); }
+  a.cta .arr { transition: transform var(--t) var(--spring); }
+  a.cta:hover .arr { transform: translateX(3px); }
+
+  /* -------------------------------------------------------------- the tour */
+  .tour { border: var(--bw) solid var(--ink); background: var(--panel);
+    box-shadow: var(--sh) var(--sh) 0 var(--ink); display: flex; flex-direction: column;
+    min-height: 356px; overflow: hidden; }
+  .tour-top { display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+    border-bottom: 1px solid var(--hair); background: var(--panel-2); }
+  .tour-step { font: 700 11px/1 var(--mono); letter-spacing: .1em; background: var(--ink);
+    color: var(--tag-fg); padding: 5px 7px; }
+  .tour-prompt { font: 600 12.5px/1.3 var(--sans); color: var(--ink-dim); min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The prompt is the line that changes most; a soft swap stops it reading as a
+     flicker every time the session moves on. */
+  .tour-prompt.swap { animation: promptin var(--t-slow) var(--ease-out); }
+  @keyframes promptin { from { opacity: 0; transform: translateY(-4px); } }
+
+  .stage { position: relative; flex: 1; min-height: 236px; }
+  .scene { position: absolute; inset: 0; padding: 16px 18px; display: flex; flex-direction: column;
+    justify-content: center; gap: 12px; opacity: 0; visibility: hidden;
+    transform: translateY(10px) scale(.985);
+    transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out),
+      visibility var(--t-slow); }
+  .scene.on { opacity: 1; visibility: visible; transform: none; }
+
+  /* readout shared by the two weighing scenes */
+  .rd { display: flex; align-items: baseline; gap: 10px; }
+  .rd .n { font: 700 clamp(46px, 8.5vw, 76px)/.88 var(--mono); letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums; }
+  .rd .u { font: 700 17px/1 var(--mono); color: var(--ink-mute); }
+  .rd .tare { margin-left: auto; text-align: right; font: 600 11px/1.45 var(--mono);
+    color: var(--ink-mute); }
+  .rd .tare b { display: block; color: var(--ink-dim); font-weight: 700; }
+  /* A tare is the one moment the number lies about the world on purpose, so it
+     gets a flash: without it the drop from 52.0 to 0.0 looks like a dropped cup. */
+  .rd.tared .n { animation: tareflash var(--t-slow) var(--ease-out); }
+  @keyframes tareflash { 0% { color: var(--accent); transform: scale(.94); } }
+
+  .fill-track { position: relative; height: 12px; border: 2px solid currentColor;
+    background: var(--panel-2); overflow: hidden; }
+  .fill-band { position: absolute; top: 0; bottom: 0;
+    background: color-mix(in srgb, currentColor 22%, transparent); }
+  .fill-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: currentColor; }
+  .fill-now { position: absolute; top: 0; bottom: 0; left: 0; background: currentColor;
+    transition: width 90ms linear; }
+  .fill-txt { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px;
+    font: 700 11.5px/1 var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+  .fillbox { color: var(--ink-mute); transition: color var(--t) var(--ease-out); }
+  .fillbox.is-in { color: var(--accent); }
+  .fillbox.is-over { color: var(--fit); }
+
+  /* the vessel arriving on the platform */
+  .vessel { height: 84px; position: relative; }
+  .vessel svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+  /* brew */
+  .plotwrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  .plotwrap .fillchart { flex: 1; min-height: 0; }
+  .plotwrap .fillchart svg { width: 100%; height: 100%; display: block; }
+  .brewbar { display: flex; align-items: center; gap: 12px; }
+  .brewbar .big { font: 700 30px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .brewbar .sub { font: 700 11px/1 var(--mono); color: var(--ink-mute); letter-spacing: .06em;
+    text-transform: uppercase; }
+  .flowbar { flex: 1; height: 9px; border: 2px solid var(--hair); background: var(--panel-2);
+    position: relative; overflow: hidden; }
+  .flowbar i { position: absolute; inset: 0 auto 0 0; background: var(--fit);
+    transition: width 90ms linear; }
+
+  /* verdict */
+  .cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+    background: var(--hair); border: 1px solid var(--hair); }
+  .cells div { background: var(--panel); padding: 9px 10px; opacity: 0; transform: translateY(7px);
+    transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out); }
+  .cells div.on { opacity: 1; transform: none; }
+  .cells .n { display: block; font: 700 21px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  .cells .k { display: block; margin-top: 5px; font: 600 10px/1 var(--sans); letter-spacing: .07em;
+    text-transform: uppercase; color: var(--ink-mute); }
+  .verdict { display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-left: var(--bw) solid var(--accent); background: var(--panel-2);
+    font: 600 13px/1.45 var(--sans); opacity: 0; transform: translateX(-8px);
+    transition: opacity var(--t-slow) var(--ease-out), transform var(--t-slow) var(--ease-out); }
+  .verdict.on { opacity: 1; transform: none; }
+  .stars { display: flex; gap: 5px; }
+  .stars span { width: 15px; height: 15px; background: var(--hair);
+    clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    transform: scale(.5); opacity: .5;
+    transition: background var(--t) var(--ease-out), transform var(--t) var(--spring),
+      opacity var(--t) var(--ease-out); }
+  .stars span.on { background: var(--accent); transform: scale(1); opacity: 1; }
+
+  /* pairing */
+  .pairwrap { display: grid; place-items: center; height: 100%; }
+  .pairwrap svg { width: min(100%, 420px); height: auto; }
+
+  /* ------------------------------------------------------------- controls */
+  .tour-bottom { border-top: 1px solid var(--hair); background: var(--panel-2); }
+  .rail { height: 3px; background: var(--hair); }
+  .rail i { display: block; height: 100%; background: var(--accent); width: 0; }
+  .tour-ctl { display: flex; align-items: center; gap: 8px; padding: 8px 10px; flex-wrap: wrap; }
+  .chapters { display: flex; gap: 5px; margin-right: auto; flex-wrap: wrap; }
+  .chapters button { border: 1px solid var(--hair); background: var(--panel); color: var(--ink-mute);
+    padding: 5px 8px; font: 700 10px/1 var(--mono); letter-spacing: .08em; cursor: pointer;
+    box-shadow: none; transition: background var(--t-fast) var(--ease-out),
+      color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out); }
+  .chapters button:hover { border-color: var(--ink); color: var(--ink); }
+  .chapters button[aria-current="true"] { background: var(--ink); color: var(--tag-fg);
+    border-color: var(--ink); }
+  .tour-ctl .mini { border: 1px solid var(--hair); background: var(--panel); color: var(--ink);
+    padding: 5px 9px; font: 700 10.5px/1 var(--mono); letter-spacing: .06em; cursor: pointer;
+    box-shadow: none; }
+  .tour-ctl .mini:hover { border-color: var(--ink); }
+
+  .caption { margin: 0; padding: 0 12px 11px; font: 600 13px/1.5 var(--sans); color: var(--ink-dim); }
+  .caption b { color: var(--ink); }
+
+  /* ---------------------------------------------------------------- cards */
+  .tools .tool-card { transition: transform var(--t) var(--ease-out),
+    box-shadow var(--t) var(--ease-out); }
+  /* Seven cards appearing at once is a flash; in sequence it reads as a list. */
+  .tools .tool-card { animation: enter var(--t-slow) var(--ease-out) both;
+    animation-delay: var(--d, 0ms); }
+  .tools .tool-card:hover { transform: translate(-2px, -2px); }
+  .tool-card.lead { grid-column: span 2; }
+  @media (max-width: 720px) { .tool-card.lead { grid-column: span 1; } }
+  .tool-card.lead h3 { font-size: 25px; }
+</style>
 </head>
 <body>
 <div class="wrap">
@@ -22,16 +167,141 @@
     </nav>
   </header>
 
-  <div class="page-head">
-    <h1>Brewkit</h1>
-    <p class="desc">Pull a shot with a Bluetooth scale driving the whole session, read the curve
-    it poured, and work out what to change next.</p>
+  <div class="hero-wrap">
+    <div class="pitch">
+      <h1>Brewkit</h1>
+      <p class="lede">Put a Bluetooth scale under the cup and let it run the whole shot — the dose,
+      the grind, the pour, and the argument about what to change next.</p>
+      <p class="lede" style="font-size:14px">No account, no server, no install. It runs in this
+      browser and the log stays on this computer.</p>
+      <div class="cta-row">
+        <a class="cta" href="./live.html">Start a shot <span class="arr" aria-hidden="true">&rarr;</span></a>
+        <a class="cta quiet" href="./shots.html">See the log</a>
+      </div>
+    </div>
+
+    <!-- The walkthrough. Everything in here is drawn from tour.js, in the
+         current theme, at whatever size the grid gives it. -->
+    <section class="tour" id="tour" aria-label="How Brewkit works">
+      <div class="tour-top">
+        <span class="tour-step" id="t-step">00</span>
+        <span class="tour-prompt" id="t-prompt"></span>
+      </div>
+
+      <div class="stage" id="stage">
+        <div class="scene" data-scene="pair">
+          <div class="pairwrap">
+            <svg viewBox="0 0 340 150" role="img" aria-label="A laptop connecting to a scale over Bluetooth">
+              <!-- laptop -->
+              <rect x="10" y="34" width="104" height="66" rx="3" fill="var(--panel-2)"
+                    stroke="var(--ink)" stroke-width="2.5"/>
+              <rect x="19" y="43" width="86" height="48" fill="var(--panel)" stroke="none"/>
+              <path d="M4 100h116l10 14H-6z" fill="var(--panel-2)" stroke="var(--ink)" stroke-width="2.5"
+                    stroke-linejoin="round"/>
+              <!-- scale -->
+              <rect x="216" y="76" width="112" height="34" rx="3" fill="var(--panel-2)"
+                    stroke="var(--ink)" stroke-width="2.5"/>
+              <rect x="228" y="84" width="58" height="18" fill="var(--panel)"/>
+              <text x="257" y="98" text-anchor="middle" font-family="var(--mono)" font-size="12"
+                    font-weight="700" fill="var(--ink-dim)" id="pair-rd">0.0</text>
+              <ellipse cx="272" cy="66" rx="46" ry="7" fill="var(--panel-2)" stroke="var(--ink)"
+                       stroke-width="2.5"/>
+              <!-- signal -->
+              <g fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round">
+                <path id="pw1" d="M148 75a14 14 0 0 1 0-20"/>
+                <path id="pw2" d="M164 82a26 26 0 0 0 0-34"/>
+                <path id="pw3" d="M180 89a38 38 0 0 0 0-48"/>
+              </g>
+              <g id="pair-ok" opacity="0">
+                <circle cx="170" cy="122" r="15" fill="var(--accent)"/>
+                <path d="M163 122l5 5 10-11" fill="none" stroke="var(--accent-ink)" stroke-width="3"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <div class="scene" data-scene="weigh">
+          <div class="vessel">
+            <svg viewBox="0 0 320 62" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+              <line x1="46" y1="56" x2="274" y2="56" stroke="var(--ink)" stroke-width="3"
+                    stroke-linecap="round"/>
+              <g id="v-cup" opacity="0">
+                <path d="M126 22h68l-7 30h-54z" fill="var(--panel-2)" stroke="var(--ink)"
+                      stroke-width="2.5" stroke-linejoin="round"/>
+                <rect id="v-beans" x="131" y="40" width="58" height="10" fill="var(--accent)"
+                      opacity=".55"/>
+              </g>
+              <g id="v-pf" opacity="0">
+                <rect x="112" y="24" width="96" height="26" rx="2" fill="var(--panel-2)"
+                      stroke="var(--ink)" stroke-width="2.5"/>
+                <rect id="v-grounds" x="118" y="34" width="84" height="10" fill="var(--fit)"
+                      opacity=".5"/>
+                <rect x="208" y="32" width="52" height="8" rx="4" fill="var(--panel-2)"
+                      stroke="var(--ink)" stroke-width="2.5"/>
+              </g>
+            </svg>
+          </div>
+          <div class="rd" id="w-rd">
+            <span class="n" id="w-n">0.0</span><span class="u">g</span>
+            <span class="tare"><b id="w-raw">0.0 g</b><span id="w-tarelbl">on the platform</span></span>
+          </div>
+          <div class="fillbox" id="w-fill">
+            <div class="fill-track">
+              <span class="fill-band" id="w-band"></span>
+              <span class="fill-mark" id="w-mark"></span>
+              <span class="fill-now" id="w-now"></span>
+            </div>
+            <div class="fill-txt"><span id="w-of">0.0 / 18.0 g</span><span id="w-gap">&minus;18.0</span></div>
+          </div>
+        </div>
+
+        <div class="scene" data-scene="brew">
+          <div class="plotwrap">
+            <div class="fillchart" id="t-curve"></div>
+            <div class="brewbar">
+              <span class="big" id="b-w">0.0</span><span class="sub">g</span>
+              <span class="flowbar"><i id="b-flow"></i></span>
+              <span class="big" id="b-t" style="font-size:22px">0.0</span><span class="sub">s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="scene" data-scene="read">
+          <div class="cells" id="r-cells">
+            <div><span class="n">1:2.0</span><span class="k">Ratio</span></div>
+            <div><span class="n">27.5</span><span class="k">Seconds</span></div>
+            <div><span class="n">2.13</span><span class="k">Peak g/s</span></div>
+            <div><span class="n">36.1</span><span class="k">Yield g</span></div>
+          </div>
+          <div class="verdict" id="r-verdict">
+            <span>Clean run: flow peaked at 11 s and sagged gently after, which is what an intact
+            puck does as it compacts. Nothing to change — pull the same one again.</span>
+          </div>
+          <div class="stars" id="r-stars" aria-label="Rated four out of five">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="tour-bottom">
+        <div class="rail"><i id="t-rail"></i></div>
+        <div class="tour-ctl">
+          <div class="chapters" id="t-chapters" role="tablist" aria-label="Chapters"></div>
+          <button class="mini" id="t-prev" type="button" aria-label="Previous chapter">&larr;</button>
+          <button class="mini" id="t-play" type="button">Pause</button>
+          <button class="mini" id="t-next" type="button" aria-label="Next chapter">&rarr;</button>
+        </div>
+        <p class="caption" id="t-caption"></p>
+      </div>
+    </section>
   </div>
 
   <div class="grid tools">
-    <a class="tool-card" href="./live.html"><span class="ico">01</span>
+    <a class="tool-card lead" href="./live.html"><span class="ico">01</span>
       <h3>Live</h3>
-      <p>The session, driven by the scale. Weigh, grind, pull and rate — it steps itself.</p></a>
+      <p>The session, driven by the scale. It tares for you, waits for the dose, follows the
+      portafilter to the machine, calls the stop, and files the shot.</p></a>
     <a class="tool-card" href="./shots.html"><span class="ico">02</span>
       <h3>Shots</h3>
       <p>Every shot you have pulled, with its flow curve, its diagnosis, and how it compares.</p></a>
@@ -44,9 +314,9 @@
     <a class="tool-card" href="./lab.html"><span class="ico">05</span>
       <h3>Lab</h3>
       <p>The analysis half: refractometry, regression, outlier detection, uncertainty propagation.</p></a>
-    <a class="tool-card" href="./sync.html"><span class="ico">06</span>
-      <h3>Sync</h3>
-      <p>Keep the same log on a computer and a phone, stored in your own Google Drive.</p></a>
+    <a class="tool-card" href="./backup.html"><span class="ico">06</span>
+      <h3>Backup</h3>
+      <p>Write the whole log to a file, or merge one in from another device. No account anywhere.</p></a>
     <a class="tool-card" href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design"><span class="ico">07</span>
       <h3>Scale design</h3>
       <p>Hardware and firmware spec for a scale that logs shots on-device.</p></a>
@@ -64,11 +334,13 @@
     <div class="bx panel">
       <div class="tag">Storage</div>
       <p style="margin-top:0;color:var(--ink-dim);font-size:13.5px;font-weight:500">
-      Shots live in this browser's local storage. Nothing is uploaded, there is no account,
-      and the export is a plain CSV you own.</p>
+      Shots live in this browser and stay there — closing the tab, quitting the browser and
+      shutting the computer down all leave the log where it was. Nothing is uploaded and there is
+      no account.</p>
       <p style="color:var(--ink-dim);font-size:13.5px;font-weight:500;margin-bottom:0">
-      The same schema is what the
-      <a href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">scale</a>
+      Clearing site data would take it with them, so
+      <a href="./backup.html">Backup</a> writes the lot to a file you keep. The same schema is what
+      the <a href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">scale</a>
       writes to its own flash.</p>
     </div>
   </div>
@@ -82,9 +354,19 @@
 <script type="module">
 import { boot } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";
+import { livePlot } from "./assets/js/core/chart.js";
+import * as T from "./assets/js/core/tour.js";
 boot();
-const msg = document.getElementById("sample-msg");
-document.getElementById("load-sample").addEventListener("click", async () => {
+
+const $ = (id) => document.getElementById(id);
+
+[...document.querySelectorAll(".tools .tool-card")].forEach((c, i) => {
+  c.style.setProperty("--d", `${60 + i * 45}ms`);
+});
+
+/* -------------------------------------------------------------- sample data */
+const msg = $("sample-msg");
+$("load-sample").addEventListener("click", async () => {
   try {
     const res = await fetch("./data/shots.csv");
     if (!res.ok) throw new Error(res.status + " " + res.statusText);
@@ -94,6 +376,195 @@ document.getElementById("load-sample").addEventListener("click", async () => {
     msg.textContent = "Could not load sample data: " + e.message;
   }
 });
+
+/* --------------------------------------------------------------- the tour */
+
+const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const tour = new T.Tour({ onChange: onScene });
+const scenes = {};
+for (const node of document.querySelectorAll(".scene")) scenes[node.dataset.scene] = node;
+// dose and grind are the same picture with a different vessel, which is rather
+// the point of step 02: the app does the identical three beats twice.
+const SCENE_VIEW = { pair: "pair", dose: "weigh", grind: "weigh", brew: "brew", read: "read" };
+
+// Chapters double as the step list, so the numbering people will see on Live is
+// on screen before they ever open it.
+const chapters = $("t-chapters");
+T.SCENES.forEach((s, i) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = `${s.step} ${s.short}`;
+  b.setAttribute("role", "tab");
+  b.addEventListener("click", () => { tour.seek(i); tour.play(); paintCtl(); });
+  chapters.appendChild(b);
+});
+
+function onScene(i) {
+  const s = T.SCENES[i];
+  $("t-step").textContent = s.step;
+  $("t-caption").textContent = s.caption;
+  for (const [id, node] of Object.entries(scenes)) node.classList.toggle("on", id === SCENE_VIEW[s.id]);
+  [...chapters.children].forEach((b, k) => b.setAttribute("aria-current", String(k === i)));
+  lastPrompt = null;
+  lastCurveT = -1;
+}
+
+let lastPrompt = null;
+function prompt(text) {
+  if (text === lastPrompt) return;
+  lastPrompt = text;
+  const el = $("t-prompt");
+  el.textContent = text;
+  el.classList.remove("swap");
+  void el.offsetWidth;   // restart the animation rather than skip it
+  el.classList.add("swap");
+}
+
+function paintCtl() {
+  $("t-play").textContent = tour.playing ? "Pause" : "Play";
+  $("t-rail").style.width = `${(tour.progress * 100).toFixed(2)}%`;
+}
+
+/* ------------------------------------------------------------ scene paints */
+
+const setAttr = (id, k, v) => $(id)?.setAttribute(k, String(v));
+
+function paintPair(u) {
+  // Three arcs light in turn, then the tick lands and the scale wakes up.
+  const lit = (n) => {
+    const k = T.seg(u, 0.12 + n * 0.11, 0.3 + n * 0.11);
+    return u > 0.74 ? 1 : k;
+  };
+  setAttr("pw1", "opacity", lit(0).toFixed(3));
+  setAttr("pw2", "opacity", lit(1).toFixed(3));
+  setAttr("pw3", "opacity", lit(2).toFixed(3));
+  setAttr("pair-ok", "opacity", T.seg(u, 0.72, 0.86).toFixed(3));
+  const on = u > 0.74;
+  $("pair-rd").textContent = on ? "0.0" : "—";
+  $("pair-rd").setAttribute("fill", on ? "var(--accent)" : "var(--ink-mute)");
+  prompt(u > 0.74 ? "Connected — and remembered for next time"
+    : "Choose the scale in the browser's own picker");
+}
+
+function paintWeigh(id, u) {
+  const p = id === "dose" ? T.dosePhase(u) : T.grindPhase(u);
+  const target = T.DOSE_TARGET;
+  prompt(p.prompt);
+
+  $("w-n").textContent = p.net.toFixed(1);
+  $("w-rd").classList.toggle("tared", p.phase === "tare");
+  $("w-raw").textContent = `${p.raw.toFixed(1)} g`;
+  $("w-tarelbl").textContent = p.tare ? `tare −${p.tare.toFixed(0)} g` : "on the platform";
+
+  // The vessel drops in, and the beans or grounds pile up inside it.
+  const cup = id === "dose";
+  const arrive = cup ? T.seg(u, 0.13, 0.26) : T.seg(u, 0.16, 0.3);
+  const gone = cup ? 1 - T.seg(u, 0.94, 1) : 1;
+  setAttr("v-cup", "opacity", (cup ? arrive * gone : 0).toFixed(3));
+  setAttr("v-pf", "opacity", (cup ? 0 : arrive).toFixed(3));
+  setAttr(cup ? "v-cup" : "v-pf", "transform", `translate(0 ${(1 - arrive) * -34})`);
+  const frac = Math.max(0, Math.min(1, p.net / (target * 1.05)));
+  if (cup) { setAttr("v-beans", "height", (2 + frac * 16).toFixed(1));
+             setAttr("v-beans", "y", (50 - frac * 16).toFixed(1)); }
+  else { setAttr("v-grounds", "height", (2 + frac * 13).toFixed(1));
+         setAttr("v-grounds", "y", (47 - frac * 13).toFixed(1)); }
+
+  // The same fill bar the Live page draws, from the same maths.
+  const tol = Math.max(1.5, target * 0.12);
+  const max = Math.max(target * 1.3, target + tol * 1.5);
+  const pct = (x) => `${(Math.max(0, Math.min(1, x)) * 100).toFixed(2)}%`;
+  $("w-now").style.width = pct(p.net / max);
+  $("w-band").style.left = pct((target - tol) / max);
+  $("w-band").style.width = pct((2 * tol) / max);
+  $("w-mark").style.left = pct(target / max);
+  const delta = p.net - target;
+  const state = Math.abs(delta) <= tol ? "is-in" : delta > 0 ? "is-over" : "is-under";
+  $("w-fill").className = `fillbox ${state}`;
+  $("w-of").textContent = `${p.net.toFixed(1)} / ${target.toFixed(1)} g`;
+  $("w-gap").textContent = `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}`;
+}
+
+// The plot is rebuilt rather than mutated, which is what livePlot offers; at
+// 20 Hz on a curve this short that is cheaper than it sounds, and it keeps the
+// tour drawing through exactly the code the Live page uses.
+let lastCurveT = -1;
+function paintBrew(u) {
+  const p = T.brewPhase(u);
+  prompt(p.prompt);
+  if (Math.abs(p.t - lastCurveT) > 0.28 || p.t === 0 || p.stopped) {
+    lastCurveT = p.t;
+    const { weight, flow } = T.curveTo(Math.max(p.t, 0.1));
+    livePlot($("t-curve"), { weight, flow, target: T.YIELD_TARGET,
+      firstDrip: p.t > T.FIRST_DRIP_S ? T.FIRST_DRIP_S : NaN, width: 620, height: 250 });
+  }
+  const w = p.stopped ? T.FINAL_G : (p.weight ?? 0);
+  $("b-w").textContent = w.toFixed(1);
+  $("b-t").textContent = p.t.toFixed(1);
+  const f = p.stopped ? 0 : T.flowAt(p.t);
+  $("b-flow").style.width = `${Math.min(100, (f / 2.6) * 100).toFixed(1)}%`;
+}
+
+function paintRead(u) {
+  const p = T.readPhase(u);
+  prompt("Filed, with its curve, against this bag and this grinder");
+  const cells = $("r-cells").children;
+  [p.showRatio, p.showTime, p.showFlow, true].forEach((on, i) =>
+    cells[i].classList.toggle("on", !!on));
+  $("r-verdict").classList.toggle("on", p.showVerdict);
+  [...$("r-stars").children].forEach((s, i) => s.classList.toggle("on", i < p.stars));
+}
+
+function paintScene() {
+  const id = tour.scene.id;
+  const u = tour.u;
+  if (id === "pair") paintPair(u);
+  else if (id === "dose" || id === "grind") paintWeigh(id, u);
+  else if (id === "brew") paintBrew(u);
+  else paintRead(u);
+}
+
+/* ------------------------------------------------------------------- clock */
+
+let last = 0;
+let visible = true;
+function frame(now) {
+  const dt = last ? now - last : 0;
+  last = now;
+  if (visible && tour.playing) { tour.tick(dt); paintScene(); paintCtl(); }
+  requestAnimationFrame(frame);
+}
+
+$("t-play").addEventListener("click", () => { tour.toggle(); paintCtl(); });
+$("t-next").addEventListener("click", () => { tour.next(); tour.play(); paintCtl(); });
+$("t-prev").addEventListener("click", () => { tour.prev(); tour.play(); paintCtl(); });
+
+// A tour animating behind a page nobody is looking at is a battery bill and
+// nothing else.
+if ("IntersectionObserver" in window) {
+  new IntersectionObserver(([e]) => { visible = e.isIntersecting; },
+    { threshold: 0.15 }).observe($("tour"));
+}
+document.addEventListener("visibilitychange", () => { last = 0; });
+
+// Reduced motion: the same walkthrough, every scene reachable, but it does not
+// start moving on its own. Each chapter opens on its finished frame, so nothing
+// is hidden behind an animation that is never going to play.
+if (still) {
+  tour.pause();
+  tour.rest(0);
+  for (const b of [$("t-next"), $("t-prev"), ...chapters.children]) {
+    b.addEventListener("click", () => { if (!tour.playing) { tour.rest(tour.i); repaint(); } });
+  }
+}
+function repaint() { paintScene(); paintCtl(); }
+
+onScene(0);
+repaint();
+requestAnimationFrame(frame);
+
+// Handy for the suite, and for anyone who wants to hold a scene still.
+window.__tour = tour;
+window.__tourPaint = repaint;
 </script>
 </body>
 </html>

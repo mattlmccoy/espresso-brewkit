@@ -5,7 +5,7 @@
 // entire category of race conditions from the UI code.
 
 import { read, serialize } from './csv.js';
-import { tombstone } from './sync.js';
+import { tombstone } from './backup.js';
 import { deriveShot, DEFAULT_BRIX_FACTOR } from './coffee.js';
 
 const KEY = 'brewkit.shots.v1';

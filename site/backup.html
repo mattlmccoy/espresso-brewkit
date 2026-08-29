@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backup · espresso·brewkit</title>
+<meta name="description" content="Export your shot log to a file, and merge it back on another device. No account, no server.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  /* The drop target is the whole restore panel, so a file can be dragged
+     anywhere near it rather than onto a precise 40px button. */
+  .drop { position: relative; transition: border-color var(--t) var(--ease-out),
+    background var(--t) var(--ease-out), transform var(--t) var(--spring); }
+  .drop.over { border-color: var(--accent); background: var(--panel-2); transform: scale(1.012); }
+  .drop.over::after {
+    content: 'Drop to restore'; position: absolute; inset: 0; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--panel) 88%, transparent);
+    font: 700 13px/1 var(--mono); letter-spacing: .05em; text-transform: uppercase;
+    color: var(--accent); pointer-events: none;
+  }
+  .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 1px;
+    background: var(--hair); border: 1px solid var(--hair); margin-top: 14px; }
+  .counts div { background: var(--panel); padding: 10px 11px; }
+  .counts .n { font: 700 21px/1 var(--mono); display: block; }
+  .counts .k { font: 600 10.5px/1 var(--sans); letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-mute); margin-top: 6px; display: block; }
+  /* Each store counts up from zero on load. It is the cheapest way to make a
+     wall of numbers read as "here is your log" rather than as a table. */
+  .counts .n { animation: pop var(--t-slow) var(--spring) both; }
+  @keyframes pop { from { opacity: 0; transform: translateY(6px) scale(.9); } }
+  .stat-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .delta { font: 700 12px/1 var(--mono); color: var(--accent); }
+  .durable { display: flex; align-items: center; gap: 9px; margin-top: 12px;
+    font: 600 13px/1.5 var(--sans); color: var(--ink-dim); }
+  .durable .pip { width: 9px; height: 9px; flex: none; border-radius: 50%;
+    background: var(--ink-mute); transition: background var(--t) var(--ease-out); }
+  .durable.yes .pip { background: var(--accent); }
+  .durable.no .pip { background: var(--warn); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="site-head">
+    <a class="brand" href="./index.html">Brewkit</a>
+    <nav class="nav">
+      <a href="./live.html">Live</a>
+      <a href="./shots.html">Shots</a>
+      <a href="./advisor.html">Advisor</a>
+      <a href="./kit.html">Kit</a>
+      <a href="./lab.html">Lab</a>
+      <button class="theme-btn" data-theme-toggle type="button">Dark</button>
+    </nav>
+  </header>
+
+  <div class="page-head">
+    <h1>Backup</h1>
+    <p class="desc">Your log lives in this browser and stays there between sessions. This page
+    writes it to a file — to keep a copy, or to merge it into another device.</p>
+  </div>
+
+  <div class="split">
+    <div>
+      <div class="bx panel">
+        <div class="tag">This device</div>
+        <div class="counts" id="counts"></div>
+        <p class="msg" id="last"></p>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="primary" id="export" type="button">Export backup file</button>
+          <button class="ghost" id="export-csv" type="button">Export shots as CSV</button>
+        </div>
+        <p class="msg" id="export-msg"></p>
+        <div class="durable" id="durable"><span class="pip"></span><span id="durable-text">Checking
+        how this browser is storing the log…</span></div>
+      </div>
+
+      <div class="bx panel drop" id="restore" style="margin-top:22px">
+        <div class="tag">Restore or merge</div>
+        <p class="msg" style="margin-top:10px">Pick a backup file, or drag one onto this panel.
+        Nothing is overwritten: the two logs are unioned, so importing an older file cannot cost
+        you a shot.</p>
+        <div class="btn-row" style="margin-top:12px">
+          <button id="pick" type="button">Choose a backup file…</button>
+          <input id="file" type="file" accept="application/json,.json" hidden>
+        </div>
+        <p class="msg" id="restore-msg"></p>
+        <div id="summary" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="bx panel">
+        <div class="tag">Where your shots actually live</div>
+        <p class="note" style="margin-top:12px"><strong>In this browser, on this computer.</strong>
+        Not in a session — closing the tab, quitting the browser and shutting the machine down all
+        leave the log exactly where it was. It is keyed to this browser on this profile, so Chrome
+        and Firefox on the same machine keep separate logs, and so does a private window.</p>
+        <p class="note" style="margin-top:12px"><strong>Nothing is uploaded, ever.</strong> There is
+        no account and no server. That also means there is no copy anywhere else, which is what this
+        page is for: clearing site data, or telling the browser to wipe everything on exit, takes
+        the log with it.</p>
+        <p class="note" style="margin-top:12px"><strong>The file is plain JSON.</strong> Readable,
+        diffable, and yours. The shot rows inside it are the same schema the
+        <a href="https://github.com/mattlmccoy/espresso-brewkit/tree/main/design">scale</a> writes
+        to its own flash, and Shots will export the same rows as CSV if you would rather work with
+        them in a spreadsheet.</p>
+      </div>
+
+      <div class="bx panel" style="margin-top:22px">
+        <div class="tag">Two devices</div>
+        <p class="note" style="margin-top:12px"><strong>Merging, not overwriting.</strong> Shots are
+        unioned by id, so pulling shots on the laptop and rating them on the phone loses neither.
+        When the same shot exists on both sides, the one edited later wins. Deletions travel too, as
+        tombstones — without them a union could only ever add, and a shot deleted here would come
+        straight back from the other device's file.</p>
+        <p class="note" style="margin-top:12px"><strong>To watch a pour live, don't use this
+        page.</strong> A file is the wrong shape for a number that moves ten times a second.
+        <a href="./view.html">Watch</a> takes the frames straight off the laptop over your own
+        network — no account, no server, nothing leaving the room. Start it from <em>Watch on
+        phone</em> on the Live page.</p>
+        <p class="note" style="margin-top:12px"><strong>On an iPhone or iPad this is a viewer and a
+        logger.</strong> No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is
+        Safari underneath — so a phone cannot stream the scale. It can read your shots and curves,
+        rate a shot, and enter weights by hand. Scale streaming stays on the computer; that is
+        Apple's decision rather than something this project can work around.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-foot">
+    espresso·brewkit — measurement tools for espresso ·
+    <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
+    Runs entirely in your browser; no data leaves this device.
+  </footer>
+</div>
+<script type="module">
+import { boot, paintBackup } from "./assets/js/ui.js";
+import * as backup from "./assets/js/core/backup.js";
+import { download } from "./assets/js/core/csv.js";
+import * as store from "./assets/js/core/store.js";
+boot();
+
+const $ = (id) => document.getElementById(id);
+const LABEL = { shot: 'shots', bag: 'bags', grinder: 'grinders', machine: 'machines',
+                consumable: 'supplies', adjustment: 'adjustments' };
+
+function ago(iso) {
+  if (!iso) return null;
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  const d = Math.floor(ms / 86400000);
+  if (d > 1) return `${d} days ago`;
+  const h = Math.floor(ms / 3600000);
+  if (h >= 1) return h === 1 ? 'an hour ago' : `${h} hours ago`;
+  const m = Math.floor(ms / 60000);
+  return m < 1 ? 'just now' : m === 1 ? 'a minute ago' : `${m} minutes ago`;
+}
+
+function paint() {
+  const d = backup.describe(backup.snapshot());
+  const box = $('counts');
+  box.textContent = '';
+  for (const [type, label] of Object.entries(LABEL)) {
+    const cell = document.createElement('div');
+    const n = document.createElement('span');
+    n.className = 'n';
+    n.textContent = String(d.counts[type] ?? 0);
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = label;
+    cell.append(n, k);
+    box.appendChild(cell);
+  }
+  const cfg = backup.config();
+  const when = ago(cfg.lastBackup);
+  const st = paintBackup();
+  $('last').textContent = !when
+    ? 'No backup file has been written from this device yet.'
+    : st?.due
+      ? `Last backup ${when} — and there are shots newer than it.`
+      : `Last backup ${when}. Nothing has changed since.`;
+}
+
+$('export').addEventListener('click', () => {
+  const snap = backup.snapshot();
+  download(backup.filename(), JSON.stringify(snap, null, 2), 'application/json');
+  backup.saveConfig({ lastBackup: new Date().toISOString() });
+  const d = backup.describe(snap);
+  $('export-msg').textContent = `Wrote ${d.total} records (${d.shots} shots) to `
+    + `${backup.filename()}.`;
+  paint();
+});
+
+$('export-csv').addEventListener('click', () => {
+  download('shots.csv', store.exportCsv());
+  $('export-msg').textContent = 'Wrote shots.csv — the shot log only, without your kit.';
+});
+
+$('pick').addEventListener('click', () => $('file').click());
+$('file').addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  if (f) restore(f);
+  e.target.value = '';
+});
+
+const panel = $('restore');
+for (const type of ['dragenter', 'dragover']) {
+  panel.addEventListener(type, (e) => { e.preventDefault(); panel.classList.add('over'); });
+}
+for (const type of ['dragleave', 'drop']) {
+  panel.addEventListener(type, (e) => {
+    e.preventDefault();
+    if (type === 'dragleave' && panel.contains(e.relatedTarget)) return;
+    panel.classList.remove('over');
+  });
+}
+panel.addEventListener('drop', (e) => {
+  const f = e.dataTransfer?.files?.[0];
+  if (f) restore(f);
+});
+
+async function restore(file) {
+  const msg = $('restore-msg');
+  const out = $('summary');
+  out.textContent = '';
+  msg.textContent = `Reading ${file.name}…`;
+  let snap;
+  try {
+    snap = backup.parseBackup(await file.text());
+  } catch (err) {
+    msg.textContent = err.message;
+    return;
+  }
+  const applied = backup.apply(snap);
+  if (!applied.ok) { msg.textContent = applied.error; return; }
+
+  const gained = Object.entries(applied.summary).filter(([, s]) => s.added > 0);
+  msg.textContent = gained.length
+    ? `Merged ${file.name}.`
+    : `Merged ${file.name} — everything in it was already here.`;
+  const row = document.createElement('div');
+  row.className = 'stat-row';
+  for (const [type, s] of Object.entries(applied.summary)) {
+    if (!s.added) continue;
+    const span = document.createElement('span');
+    span.className = 'delta';
+    span.textContent = `+${s.added} ${LABEL[type] ?? type}`;
+    row.appendChild(span);
+  }
+  out.appendChild(row);
+  paint();
+}
+
+backup.persist().then((p) => {
+  const box = $('durable');
+  const text = $('durable-text');
+  if (!p.supported) {
+    box.className = 'durable';
+    text.textContent = 'This browser will not say whether it treats the log as evictable. '
+      + 'Keep a backup file.';
+    return;
+  }
+  box.className = `durable ${p.persisted ? 'yes' : 'no'}`;
+  const size = p.usage ? ` Using about ${Math.max(1, Math.round(p.usage / 1024))} KB.` : '';
+  text.textContent = p.persisted
+    ? `This browser has marked the log as persistent — it will not be evicted to reclaim space.${size}`
+    : `This browser has not granted persistent storage, so the log could be evicted under disk `
+      + `pressure. Use the app a few more times, or keep a backup file.${size}`;
+});
+
+paint();
+</script>
+</body>
+</html>

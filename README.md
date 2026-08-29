@@ -22,12 +22,69 @@ plain CSV you own.
 | **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. |
 | **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders, machines and consumables. What a shot was made with, how stale it was, and what is running out. |
 | **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
+| **[Backup](https://mattlmccoy.github.io/espresso-brewkit/backup.html)** | The whole log to a file, and back again. Restoring merges rather than overwrites. |
 
 Pulling a shot and analysing one are different activities on different schedules.
 The first happens with a wet hand while coffee is going cold; the second happens
 afterwards, needs a refractometer for its most interesting output, and rewards
 sitting down. Putting all of it in one flat navigation bar made eight things look
 equally routine when four of them are occasional — hence **Lab**.
+
+## The walkthrough on the home page
+
+The front page plays the whole session — pair, dose, grind, brew, read — before
+you have connected anything. It loops, it has chapters you can jump between, and
+it pauses when it scrolls out of view.
+
+It is drawn rather than recorded. A screen recording would have been far less
+code and worse in four ways: a file to host, wrong the first time the interface
+changed, unreadable at a phone's width, and frozen in whichever theme the
+recording was made in. This runs in the current palette at whatever size the
+grid gives it, and the brew chapter draws its curve through `livePlot` — the
+same function the Live page uses — so the picture cannot drift away from the
+product.
+
+`core/tour.js` holds the timing and the physics and touches no DOM, which is the
+half worth testing. The fake shot is generated from a flow function rather than
+keyframed: nothing during pre-infusion, a rise as the puck wets through, and a
+sag at the end as it erodes. Integrated, that lands on 36 g in 27.5 s with a
+2.1 g/s peak. The suite asserts all of it, because the first thing anyone sees
+from a tool that claims to read curves should not be a curve no espresso ever
+made.
+
+`Tour.tick()` takes a delta rather than reading a clock. That is what lets the
+suite step it exactly, and it is also why a tab returning from the background
+cannot skip the story: the delta is capped at 120 ms, so one enormous frame
+advances one beat instead of forty.
+
+Reduced motion does not get a still image. It gets the same five chapters, each
+opening on its finished frame, driven by the arrows — nothing is hidden behind
+an animation that is never going to play.
+
+## Motion, and what it is for
+
+Four durations and three curves live as custom properties in `app.css`, so
+nothing in the app invents its own timing. One media query at the top turns all
+of it off for `prefers-reduced-motion`, which means every animation below is
+written as though motion is on and none of them has to remember.
+
+Motion here is meant to answer a question, not to decorate:
+
+- **The tile, not the bar.** Landing in the dose window rings the whole hero
+  tile. Across a kitchen the bar is a detail and the big blue rectangle is what
+  you can actually see.
+- **Stillness is the signal.** The fill bar crawls while you are under and stops
+  dead when you are inside the window, so the bar answers "am I there yet"
+  without being read.
+- **One thing keeps moving.** "Stop now" is the only instruction on the page
+  with a deadline, so it is the only thing allowed to keep sweeping until it is
+  obeyed.
+- **Arriving values announce themselves.** A step's captured weight and the two
+  predictive tiles flash once when they change. The five readouts that stream at
+  10 Hz do not — a flash ten times a second is not information.
+- **Findings arrive in order.** The diagnosis is ranked most severe first and
+  staggers in, because five things appearing at once is a wall rather than a
+  list.
 
 ## The session steps itself
 
@@ -99,10 +156,9 @@ cd espresso-brewkit
 npm start          # http://localhost:4173/live.html
 ```
 
-The port is fixed on purpose: a Google OAuth client id only works from origins
-registered against it, so add `http://localhost:4173` under *Authorised
-JavaScript origins* once and sign-in works locally too. Everything that is not
-sign-in works without it.
+The port is fixed on purpose, so the URL you bookmark keeps working and the
+browser keeps the same storage bucket — your local log survives a restart of the
+server rather than starting empty each time.
 
 **Web Bluetooth needs a secure context, and `http://localhost` counts as one**,
 so the scale connects over plain HTTP on the machine running the server. A phone
@@ -154,10 +210,8 @@ it costs two pastes.
 
 No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is Safari
 underneath — so an iPad can never be the thing holding the scale. It can be the
-thing watching, and until now the only way to get data onto it was Drive sync:
-an account on both ends, and a pull-merge-push against Google's servers for a
-number that changes ten times a second. That is the wrong shape twice over, and
-a sign-in problem turns the whole viewer into a blank page.
+thing watching, and a file or a cloud round-trip is the wrong shape for a number
+that changes ten times a second.
 
 [Watch](https://mattlmccoy.github.io/espresso-brewkit/view.html) takes the
 frames straight off the laptop instead — **WebRTC, peer to peer**, no server, no
@@ -202,85 +256,61 @@ ends remember, the laptop's button becomes **Reconnect phone**, the code is
 generated and copied to the clipboard without being asked, and the phone shows
 the short version with the explainer one tap away.
 
-## Two devices, no server
+## Where the log lives, and getting it off this machine
 
-[Sync](https://mattlmccoy.github.io/espresso-brewkit/sync.html) keeps a computer
-and a phone holding the same log, using **Google Drive's `appDataFolder`** — a
-hidden per-app folder inside your own Drive, invisible in your file list and
-readable only by this app. There is no backend, nothing hosted, and no account
-here. The OAuth client id is public by design: a browser cannot keep a secret,
-so Google secures it with an origin allowlist instead.
+Everything is in this browser's `localStorage`, on this computer. That survives
+closing the tab, quitting the browser and shutting the machine down; it does not
+survive clearing site data, and it is keyed per browser profile, so Chrome and
+Firefox on the same machine hold separate logs. On boot the app asks for
+[persistent storage](https://developer.mozilla.org/docs/Web/API/StorageManager/persist),
+which exempts the log from being evicted under disk pressure — Chrome grants it
+silently to a site you actually use, Safari has no such API and simply refuses,
+so [Backup](https://mattlmccoy.github.io/espresso-brewkit/backup.html) reports
+which answer you got rather than assuming the good one.
 
-The client id ships with the site, so nobody has to make a Google Cloud project
-to use a coffee log. It can, because it is public by construction: a browser
-cannot keep a secret, so Google secures the id with an origin allowlist rather
-than with secrecy, and one lifted from the page is useless anywhere but the
-origin registered against it. It lives in `site/assets/js/config.js`, or in a
-`<meta name="brewkit-client-id">` for anyone injecting it at build time. Setting
-your own on the Sync page still works and overrides the shipped one — only the
-override is stored, so clearing it returns to the default instead of breaking
-sign-in, and a later deployment can move the default without stranding devices
-that signed in under the old one.
+**There is no account and no server.** There used to be: the log synced through
+Google Drive's `appDataFolder`, a hidden per-app folder in your own Drive. It
+worked, and it is gone, because it could never work for anyone but the author.
+`github.io` sits on the [Public Suffix List](https://publicsuffix.org/), so
+Google treats it as a registry suffix like `.com` and refuses it as an
+**Authorized domain** — which the branding page requires before a consent screen
+can be published. An unpublished app admits only the accounts named on its
+tester list, up to a hundred, added by hand. So the first run of a coffee log
+was a support request, and the fix was not in this project's gift: it needed a
+custom domain. Trading an account system for a file was the better trade.
 
-Publishing the consent screen is what lets anyone sign in rather than a list of
-named testers. Every scope here is **non-sensitive** — `drive.appdata` is the
-narrowest Drive scope there is, and `openid email profile` only names the
-account — so the app needs no verification *review* to go to production.
+[Backup](https://mattlmccoy.github.io/espresso-brewkit/backup.html) writes the
+whole dataset — shots, bags, grinders, machines, supplies, adjustments — to one
+dated JSON file, and reads one back. Shots alone still export as CSV from the
+Shots page, which is the format to open in a spreadsheet.
 
-It still cannot be published from `github.io`. The branding page requires an app
-home page and a privacy policy link, and the domains behind them must be listed
-as **Authorized domains** — where `github.io` is refused, because it sits on the
-[Public Suffix List](https://publicsuffix.org/) and Google treats it as a
-registry suffix like `.com`. That is a property of the hosting, not of the app:
-pointing a custom domain at the same GitHub Pages site clears it, and clears
-Search Console verification with it. Until then the app stays in **Testing**,
-where up to 100 accounts named on the tester list can sign in — which is the
-right shape for a personal tool anyway, and costs nothing.
+Restoring **merges rather than overwrites**. Shots are unioned by id, so pulling
+shots on the laptop and rating them on the phone loses neither, and importing a
+stale file cannot cost you a shot; where the same shot was edited on both sides
+the later edit wins. Deletions travel as **tombstones**, because a union can
+only ever add — without them, a shot deleted here would come straight back out
+of the other device's file. That merge is the part with teeth, and it is pure,
+so it is tested hard.
 
-Setting that credential up is the one manual step for your own deployment, and
-two of its fields cause
-nearly all the trouble. **Authorised JavaScript origins**, on the OAuth client
-id itself, is the one that matters: scheme and host, no path and no trailing
-slash. **Authorised domains**, on the consent screen, is a different field and
-will not take a `github.io` address at all — `github.io` is on the [Public
-Suffix List](https://publicsuffix.org/), so Google treats it as a registry
-suffix like `.com`, and no amount of site verification changes that. An
-unpublished app has no use for the field anyway. What an unpublished app *does*
-need is your own address under **Audience → Test users**; without it Google
-answers *"Access blocked — has not completed the Google verification process"*,
-and owning the project does not stand in for being listed on it. When a sign-in
-fails the page names these causes itself, because Google's popup reports the
-reason on its own page and then never returns to this origin — a blocked app and
-a window you closed arrive here as the same event.
+Because nothing is uploaded there is also no copy anywhere else, which is the
+one thing the old sync did buy. So the nav carries a dot that lights the moment
+your newest shot is newer than your newest backup file, on every page, and goes
+out when you write one.
 
-Signing in is Google's own flow: their account chooser, their consent screen,
-their button. The page names each permission **before** you click, because a
-consent screen is easier to approve honestly when you already know what it will
-say. It asks for `drive.appdata` and, only so the page can show which account
-you are syncing to, `openid email profile` — an account chooser that then tells
-you nothing about which account you chose is worse than no chooser at all. Your
-name and picture appear on the page afterwards and are never sent anywhere.
-
-The access token is deliberately **not persisted**: it lasts about an hour, so a
-return visit shows your account with "session expired" and a one-click
-reconnect, rather than pretending to be signed in. Signing out revokes the token
-with Google rather than merely forgetting it.
-
-It **merges rather than overwrites**. Every sync pulls, merges and pushes. Shots
-are unioned by id, so using both devices without syncing in between loses
-nothing; where the same shot was edited in both places the later edit wins.
-Deletions travel as **tombstones**, because a union can only ever add — without
-them, deleting a shot on the laptop would pull it straight back from the phone.
-
-The merge is pure and tested hard against a fake transport. The Drive half needs
-a real Google account, so it is kept as thin as it can be — the less that lives
-there, the less is taken on trust.
-
-**On an iPhone or iPad it is a viewer and a logger.** No iOS browser has Web
+**On an iPhone or iPad this is a viewer and a logger.** No iOS browser has Web
 Bluetooth — not Safari, and not Chrome, which is Safari underneath — so a phone
 cannot stream the scale. It can read shots and curves, rate a shot, check what
 is running low, and take weights by hand. Scale streaming stays on the computer.
 That is Apple's decision, not something this project can work around.
+
+
+### Proving it survives a restart
+
+Every other test in the suite runs in an ephemeral browser context, which means
+they would all pass whether or not the storage claim were true. So one of them
+does not: it writes a shot, closes the browser entirely, opens a new one on the
+same profile directory, and looks for the shot. That is the only test here that
+exercises the thing the whole storage story rests on.
 
 ## Cues, for when you are not looking at the screen
 
@@ -671,7 +701,8 @@ will connect through, so building this is not throwaway work.
 ```
 site/       the GitHub Pages app — plain HTML + ES modules, no build step
   assets/js/core/    stats, uncertainty, coffee math, CSV, storage, charts, filters,
-                     bags and grinders, curve diagnosis, the two advisor models
+                     bags and grinders, curve diagnosis, the two advisor models,
+                     the file backup and its merge, the home-page walkthrough
   assets/js/ble/     Web Bluetooth transport, protocol auto-decoder, mock scale
 data/       shots.csv (canonical dataset) + the original per-shot files
 design/     specification for the scale hardware and firmware
@@ -685,15 +716,25 @@ dependencies at all. ES modules need HTTP, so `file://` won't work; serve it:
 
 ```bash
 npm run serve                 # prints a local URL, serves site/ with data/ mounted
+npm run check                 # parses every module the site ships, in about a second
 ```
+
+`npm run check` exists because `node --check` covered the test harness and not
+the app, which is the part that actually runs on someone's machine. A duplicate
+declaration in a core module is a blank page, and finding that out seven minutes
+into a Playwright run is six and a half minutes too late.
 
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-274 assertions across the site in both themes: the analysis results, the
-legacy CSV import path, the 3D drag interaction, theme persistence, font loading,
-WCAG contrast on chrome pairs, grid alignment, horizontal overflow, chart sizing,
-and the absence of rhetorical-question headings.
+Four hundred-odd assertions across the site in all three themes: the analysis
+results, the legacy CSV import path, the 3D drag interaction, theme persistence,
+font loading, WCAG contrast on chrome pairs, grid alignment, horizontal overflow,
+chart sizing, and the absence of rhetorical-question headings.
+
+It takes about seven minutes, which is too long to run against a typo. `npm run
+check` parses every module the site ships in about a second and is the thing to
+run while working; the browser suite is the thing to run before pushing.
 
 The models are tested against ground truth rather than against themselves. The
 resistance fit is given shots generated from a known `log(Q) = a + b·grind + c·days`
@@ -791,12 +832,6 @@ to 0 in the [uncertainty tool](https://mattlmccoy.github.io/espresso-brewkit/unc
 to reproduce the old numbers and see the difference.
 
 ## Deploying
-
-`site/google5caa7feb8604ab88.html` is a Google Search Console verification file.
-It is a single line of text that must be served byte for byte at its exact path,
-which is why the deploy's sanity check tests for a closing `</html>` only in
-files that have an opening one — a verification stub is not a truncated page,
-and treating it as one would fail the deploy of the whole site.
 
 `.github/workflows/pages.yml` builds and deploys `site/` on every push to `main`.
 It needs **Settings → Pages → Source: GitHub Actions** enabled once.
