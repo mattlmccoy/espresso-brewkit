@@ -324,12 +324,16 @@
 
   <div class="grid g2" style="margin-top:22px">
     <div class="bx panel">
-      <div class="tag">Sample data</div>
+      <div class="tag">An empty log</div>
       <p style="margin-top:0;color:var(--ink-dim);font-size:13.5px;font-weight:500">
-      Load 15 real extractions to see every tool populated. Clear them whenever you want
-      to start your own log.</p>
-      <div class="btn-row"><button class="primary" id="load-sample" type="button">Load sample data</button></div>
-      <p class="msg" id="sample-msg"></p>
+      This log starts empty on purpose. There used to be a button here that loaded fifteen shots
+      from the project's Python era into it — but those were pulled on entirely different
+      equipment, and mixed into your log they skew the grind model, the habit calendar and every
+      comparison.</p>
+      <p style="color:var(--ink-dim);font-size:13.5px;font-weight:500;margin-bottom:0">
+      They still exist, in the one place they are useful: the
+      <a href="./lab.html">Lab</a> loads them as a reference set, because they carry Brix on every
+      row and the analysis tools need something to analyse.</p>
     </div>
     <div class="bx panel">
       <div class="tag">Storage</div>
@@ -353,7 +357,6 @@
 </div>
 <script type="module">
 import { boot } from "./assets/js/ui.js";
-import * as store from "./assets/js/core/store.js";
 import { livePlot } from "./assets/js/core/chart.js";
 import * as T from "./assets/js/core/tour.js";
 boot();
@@ -365,17 +368,6 @@ const $ = (id) => document.getElementById(id);
 });
 
 /* -------------------------------------------------------------- sample data */
-const msg = $("sample-msg");
-$("load-sample").addEventListener("click", async () => {
-  try {
-    const res = await fetch("./data/shots.csv");
-    if (!res.ok) throw new Error(res.status + " " + res.statusText);
-    const r = store.importCsv(await res.text());
-    msg.textContent = r.added + " shots loaded (" + r.skipped + " already present). Total: " + r.total + ".";
-  } catch (e) {
-    msg.textContent = "Could not load sample data: " + e.message;
-  }
-});
 
 /* --------------------------------------------------------------- the tour */
 

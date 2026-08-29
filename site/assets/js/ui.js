@@ -160,3 +160,44 @@ export function paintFlow(root, flow, method = 'espresso') {
   if (val) val.textContent = `${flow.toFixed(2)} g/s`;
   return p;
 }
+
+
+/* ---------------------------------------------------- the Lab's data source */
+
+const SOURCE_KEY = 'brewkit.labsource.v1';
+export const labSource = () => {
+  try { return localStorage.getItem(SOURCE_KEY) || 'mine'; } catch { return 'mine'; }
+};
+
+/**
+ * Let a Lab page choose what it is analysing.
+ *
+ * The reference set is fifteen shots from this project's Python era, on
+ * different equipment. That makes it wrong for the daily tools — it would skew
+ * a grind model fitted to a dial it never used — and right for these three,
+ * because it carries Brix on every row and almost nothing pulled since does.
+ * A refractometer is a bench instrument; this app is used at a machine.
+ *
+ * Defaults to the reference set only while you have nothing of your own, so a
+ * new Lab demonstrates something rather than three empty charts.
+ */
+export function mountLabSource(root, { mine, reference, onChange }) {
+  if (!root) return labSource();
+  let value = labSource();
+  if (value === 'mine' && !mine.length && reference.length) value = 'reference';
+  const options = [
+    ['mine', `Your shots (${mine.length})`],
+    ['reference', `Reference set (${reference.length})`],
+    ['both', `Both (${mine.length + reference.length})`],
+  ];
+  root.replaceChildren(...options.map(([id, text]) => el('button', {
+    type: 'button', 'data-source': id, 'aria-pressed': String(id === value),
+    onclick: () => {
+      value = id;
+      try { localStorage.setItem(SOURCE_KEY, id); } catch { /* ignore */ }
+      for (const b of root.children) b.setAttribute('aria-pressed', String(b.dataset.source === id));
+      onChange?.(id);
+    },
+  }, text)));
+  return value;
+}

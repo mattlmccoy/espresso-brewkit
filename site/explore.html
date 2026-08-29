@@ -27,6 +27,8 @@
     <p class="desc">Fit the shot log against one variable, or two.</p>
   </div>
 
+  <div class="source" id="source"></div>
+
   <div class="grid g3">
     <div class="bx panel" style="padding:15px"><label for="resp">Response</label><select id="resp"></select></div>
     <div class="bx panel" style="padding:15px"><label for="p1">Predictor</label><select id="p1"></select></div>
@@ -77,12 +79,22 @@
   </footer>
 </div>
 <script type="module">
-import { boot, fmt } from "./assets/js/ui.js";
+import { boot, fmt, mountLabSource, labSource } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";
+import * as reference from './assets/js/core/reference.js';
 import * as stats from "./assets/js/core/stats.js";
 import * as chart from "./assets/js/core/chart.js";
 import { PREDICTORS, RESPONSES, NUMERIC, label } from "./assets/js/core/schema.js";
 boot();
+
+/* ------------------------------------------------------------- what we read */
+// The reference set is fifteen shots from this project's Python era, on
+// different equipment. Wrong for the daily tools, which is why it no longer
+// loads into the shot log at all — and right for this one, because it carries
+// Brix on every row and almost nothing pulled since does.
+let refRows = [];
+const labRows = () => reference.pick(labSource(), store.all(), refRows);
+
 
 const $ = (id) => document.getElementById(id);
 
@@ -114,7 +126,7 @@ function usableNumeric(rows) {
 }
 
 function render() {
-  const rows = store.all();
+  const rows = labRows();
   $("nodata").style.display = rows.length ? "none" : "";
   $("content").style.display = rows.length ? "" : "none";
   if (!rows.length) return;
@@ -211,6 +223,15 @@ function render() {
 
 for (const id of ["resp", "p1", "p2"]) $(id).addEventListener("change", render);
 store.subscribe(render);
+
+// Fetched rather than imported, so it can never end up in anybody's shot log.
+reference.load().then((rows) => {
+  refRows = rows;
+  mountLabSource(document.getElementById('source'), {
+    mine: store.all(), reference: refRows, onChange: () => { render(); },
+  });
+  render();
+});
 render();
 </script>
 </body>

@@ -49,6 +49,8 @@
     <p class="desc">Every shot you have pulled, with the curve it poured and what that curve says.</p>
   </div>
 
+  <div class="note warn" id="strays" hidden style="margin-bottom:18px"></div>
+
   <div class="split">
     <div class="bx panel">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
@@ -86,6 +88,7 @@ import * as kit from './assets/js/core/kit.js';
 import * as chart from './assets/js/core/chart.js';
 import { decodeCurve, label } from './assets/js/core/schema.js';
 import { diagnose } from './assets/js/core/diagnose.js';
+import { strays } from './assets/js/core/reference.js';
 import { compareToBest } from './assets/js/core/compare.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { download } from './assets/js/core/csv.js';
@@ -118,6 +121,34 @@ function shots() {
   const all = store.all();
   const bag = $('filter-bag').value;
   return bag ? all.filter((s) => s.bag_id === bag) : all;
+}
+
+/**
+ * Offer to take the old reference shots back out of the log.
+ *
+ * They used to be loadable from the home page with one click, so most logs
+ * have them. They were pulled on different equipment with a dial that ran
+ * 200–600 and no curves at all, and in among your own shots they skew the
+ * grind model, the habit calendar and every comparison. Removing them is
+ * offered rather than done: it is still somebody's data, and deleting rows
+ * without being asked is not a thing this app gets to do.
+ */
+function renderStrays() {
+  const old = strays(store.all());
+  const box = $('strays');
+  box.hidden = old.length === 0;
+  if (!old.length) return;
+  box.replaceChildren(
+    el('p', { style: 'margin:0 0 10px' },
+      el('strong', {}, `${old.length} shots in this log came from the old sample set. `),
+      'They were pulled on a different machine and grinder, and have no flow curves. '
+      + 'While they are here they skew the grind model, the habit view and every comparison. '
+      + 'The Lab still has them as a reference set either way.'),
+    el('button', { class: 'danger', type: 'button', onclick: () => {
+      if (!confirm(`Remove ${old.length} sample shots from your log?`)) return;
+      for (const r of old) store.remove(r.shot_id);
+      render();
+    } }, `Remove the ${old.length} sample shots`));
 }
 
 function renderList() {
@@ -275,7 +306,7 @@ function renderDetail() {
   }
 }
 
-function render() { renderList(); renderDetail(); }
+function render() { renderStrays(); renderList(); renderDetail(); }
 
 function fillBags() {
   const sel = $('filter-bag');

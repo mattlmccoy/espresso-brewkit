@@ -68,7 +68,6 @@
         <div class="btn-row">
           <button id="export" type="button">Export CSV</button>
           <button id="import-btn" type="button">Import CSV</button>
-          <button id="sample" type="button">Load samples</button>
           <button class="danger ghost" id="clear" type="button">Clear all</button>
         </div>
         <input id="import" type="file" accept=".csv,text/csv" class="sr">
@@ -201,15 +200,6 @@ $("import").addEventListener("change", async (e) => {
     + (r.legacy ? " (legacy format converted)" : "")
     + (r.skipped ? ", skipped " + r.skipped + " with duplicate IDs" : "") + ".";
   e.target.value = "";
-});
-
-$("sample").addEventListener("click", async () => {
-  try {
-    const res = await fetch("./data/shots.csv");
-    if (!res.ok) throw new Error(res.status + " " + res.statusText);
-    const r = store.importCsv(await res.text());
-    $("data-msg").textContent = r.added + " sample shots loaded (" + r.skipped + " already present).";
-  } catch (err) { $("data-msg").textContent = "Could not load samples: " + err.message; }
 });
 
 $("clear").addEventListener("click", () => {

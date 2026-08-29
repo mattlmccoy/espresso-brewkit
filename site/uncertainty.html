@@ -27,6 +27,8 @@
     <p class="desc">GUM propagation through the extraction yield equation.</p>
   </div>
 
+  <div class="source" id="source"></div>
+
   <div class="split">
     <div>
       <div class="bx panel">
@@ -95,11 +97,21 @@
   </footer>
 </div>
 <script type="module">
-import { boot, fmt, el } from "./assets/js/ui.js";
+import { boot, fmt, el, mountLabSource, labSource } from "./assets/js/ui.js";
 import * as store from "./assets/js/core/store.js";
+import * as reference from './assets/js/core/reference.js';
 import * as unc from "./assets/js/core/uncertainty.js";
 import * as stats from "./assets/js/core/stats.js";
 boot();
+
+/* ------------------------------------------------------------- what we read */
+// The reference set is fifteen shots from this project's Python era, on
+// different equipment. Wrong for the daily tools, which is why it no longer
+// loads into the shot log at all — and right for this one, because it carries
+// Brix on every row and almost nothing pulled since does.
+let refRows = [];
+const labRows = () => reference.pick(labSource(), store.all(), refRows);
+
 const $ = (id) => document.getElementById(id);
 const val = (id) => parseFloat($(id).value);
 
@@ -112,7 +124,7 @@ function fillPicker() {
   const none = document.createElement("option");
   none.value = ""; none.textContent = "— enter manually —";
   sel.appendChild(none);
-  for (const r of store.all()) {
+  for (const r of labRows()) {
     if (!Number.isFinite(r.brix)) continue;
     const o = document.createElement("option");
     o.value = r.shot_id;
@@ -151,7 +163,7 @@ function render() {
   const at = $("alltbl");
   at.replaceChildren();
   const rels = [];
-  for (const s of store.all()) {
+  for (const s of labRows()) {
     if (!Number.isFinite(s.brix) || !Number.isFinite(s.dose_g) || !Number.isFinite(s.yield_g)) continue;
     const u = unc.propagate({ brix: s.brix, factor, doseG: s.dose_g, yieldG: s.yield_g }, opts());
     rels.push(u.relative);
@@ -169,7 +181,7 @@ function render() {
 }
 
 $("pick").addEventListener("change", (e) => {
-  const s = store.all().find((r) => r.shot_id === e.target.value);
+  const s = labRows().find((r) => r.shot_id === e.target.value);
   if (!s) return;
   $("dose").value = s.dose_g;
   $("yield").value = s.yield_g;
@@ -181,6 +193,15 @@ for (const id of ["uMass","uBrix","uFactor","factor","dose","yield","brix"]) {
   $(id).addEventListener("input", render);
 }
 store.subscribe(() => { fillPicker(); render(); });
+
+// Fetched rather than imported, so it can never end up in anybody's shot log.
+reference.load().then((rows) => {
+  refRows = rows;
+  mountLabSource(document.getElementById('source'), {
+    mine: store.all(), reference: refRows, onChange: () => { fillPicker(); render(); },
+  });
+  fillPicker(); render();
+});
 fillPicker();
 render();
 </script>
