@@ -258,12 +258,18 @@
     max-width:min(560px, 92vw); padding:20px 22px; }
   #pair-dlg::backdrop { background:rgba(0,0,0,.45); }
   .qr-wrap { display:flex; gap:16px; align-items:flex-start; margin-top:12px; }
-  .qr { flex:0 0 190px; background:#fff; padding:8px; border:var(--bw) solid var(--ink); }
+  /* Width is set from the module count in sizeQr(); this is the floor. */
+  .qr { background:#fff; padding:8px; border:var(--bw) solid var(--ink); min-width:190px; }
+  #qr-full-dlg { border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink);
+    padding:18px; max-width:96vw; max-height:96vh; }
+  #qr-full-dlg::backdrop { background:rgba(0,0,0,.8); }
+  #qr-full { width:min(86vw, 86vh); min-width:0; }
+  #qr-full svg { display:block; width:100%; height:auto; }
   .qr svg { display:block; width:100%; height:auto; }
   .qr-said { flex:1 1 0; min-width:0; }
   #pair-cam { width:100%; max-height:220px; margin-top:10px; background:#000; }
   #pair-cam[hidden] { display:none; }
-  @media (max-width:560px) { .qr-wrap { flex-direction:column; } .qr { flex:none; width:200px; } }
+  @media (max-width:560px) { .qr-wrap { flex-direction:column; } }
   #pair-dlg textarea { width:100%; box-sizing:border-box; font:600 11.5px/1.4 var(--mono);
     background:var(--panel-2); color:var(--ink); border:2px solid var(--ink); padding:8px 9px;
     resize:vertical; word-break:break-all; }
@@ -726,7 +732,12 @@
   <!-- Point the phone's camera at this. iOS reads QR codes natively and opens
        the link, which is why this direction needs no app, no typing and no
        paste at all. -->
-  <div class="qr-wrap"><div class="qr" id="pair-qr"></div>
+  <div class="qr-wrap"><div>
+      <div class="qr" id="pair-qr"></div>
+      <button class="ghost" id="qr-big" type="button"
+              style="width:100%;margin-top:8px;padding:6px;font-size:11.5px">Make it bigger</button>
+      <p class="note" id="qr-local" hidden style="margin:8px 0 0;font-size:11.5px"></p>
+    </div>
     <div class="qr-said">
       <p class="msg" style="margin:0 0 6px"><strong>1 &middot; scan this with the phone</strong></p>
       <p class="msg" style="margin:0">Open the Camera app and point it here. Tap the link it
@@ -752,6 +763,13 @@
   </div>
   <video id="pair-cam" playsinline muted hidden></video>
   <p class="msg" id="pair-msg"></p>
+</dialog>
+
+<!-- The square and nothing else. A phone that will not read it inside the
+     dialog will read it here, because the only limit left is the display. -->
+<dialog id="qr-full-dlg">
+  <div class="qr" id="qr-full"></div>
+  <p class="msg" style="margin:10px 0 0;text-align:center">Tap anywhere to close</p>
 </dialog>
 
 <footer class="site-foot">
@@ -2433,6 +2451,18 @@ $('watch-phone').addEventListener('click', async () => {
     const drawn = qrSvg(url.href, { title: 'Open the viewer on your phone' });
     $('pair-qr').innerHTML = drawn
       ?? '<p class="msg" style="margin:0">Code too long for a QR — use the text below.</p>';
+    sizeQr();
+    // A code the phone cannot reach looks exactly like a code it cannot read,
+    // and the fix for the two is opposite. localhost is the laptop's own name
+    // for itself, so a phone that scans this perfectly still gets nowhere.
+    const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+      || location.protocol === 'file:';
+    $('qr-local').hidden = !local;
+    $('qr-local').textContent = local
+      ? `This page is at ${location.hostname || 'a file:// path'}, which is a name only this `
+        + 'computer answers to — a phone will read the square and then fail to open it. '
+        + 'Use the published address, or serve it on this machine\u2019s network address.'
+      : '';
     // Still copied without being asked, for the no-camera path.
     let copied = false;
     try { await navigator.clipboard.writeText(code); copied = true; } catch { /* blocked */ }
@@ -2461,6 +2491,40 @@ function offerScanning() {
   // itself; the browser's own reader is kept as a fast path where it exists.
   $('pair-scan').hidden = !navigator.mediaDevices?.getUserMedia;
 }
+
+/**
+ * How big the square has to be, which is not a matter of taste.
+ *
+ * It was a fixed 190 px box, and that is a different symbol every time: the
+ * number of modules grows with the number of network interfaces the laptop
+ * has, so the same box went from about 3.2 pixels a module to 2.6 — roughly
+ * half a millimetre on screen. A phone camera fighting the glare off a laptop
+ * display needs more than that, and the failure is silent: the camera simply
+ * never offers the link, which looks like the QR being broken.
+ *
+ * So the box follows the module count rather than the other way round, at a
+ * floor of six pixels a module, and the fold-out below makes it as large as
+ * the screen allows for the times when that is still not enough.
+ */
+function sizeQr(node = $('pair-qr')) {
+  const svg = node.querySelector('svg');
+  if (!svg) return;
+  const modules = Number(svg.getAttribute('viewBox')?.split(' ')[2]) || 53;
+  const room = Math.min(window.innerWidth - 80, window.innerHeight - 220);
+  const want = Math.min(Math.max(modules * 6, 190), Math.max(190, room));
+  node.style.width = `${Math.round(want)}px`;
+}
+
+// Bigger still, for a camera that will not take it at any size the dialog can
+// manage. Nothing else on screen, so the whole display is the square.
+$('qr-big').addEventListener('click', () => {
+  const svg = $('pair-qr').querySelector('svg');
+  if (!svg) return;
+  $('qr-full').innerHTML = svg.outerHTML;
+  $('qr-full-dlg').showModal();
+});
+$('qr-full-dlg').addEventListener('click', () => $('qr-full-dlg').close());
+addEventListener('resize', () => { if ($('pair-dlg').open) sizeQr(); });
 
 let camStream = null;
 $('pair-scan').addEventListener('click', async () => {
