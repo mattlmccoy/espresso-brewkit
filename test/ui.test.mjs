@@ -171,6 +171,41 @@ try {
   const themeAfter = await page.getAttribute('html', 'data-theme');
   t('theme: toggles and persists across pages', themeAttr === themeAfter && !!themeAttr, themeAttr);
 
+  // Three palettes, cycled. The button is named for where it takes you.
+  const cycle = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const btn = document.querySelector('[data-theme-toggle]');
+    const seen = [];
+    for (let i = 0; i < 4; i++) {
+      seen.push(`${document.documentElement.getAttribute('data-theme')}>${btn.textContent}`);
+      btn.click();
+    }
+    return { seen, order: THEMES.join(','), at: document.documentElement.getAttribute('data-theme') };
+  });
+  t('theme: three of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal'
+    && cycle.seen.every((s) => {
+      const [now, next] = s.split('>');
+      const order = ['light', 'dark', 'terminal'];
+      return order[(order.indexOf(now) + 1) % 3].toLowerCase() === next.toLowerCase();
+    }), cycle.seen.join(' · '));
+  const term = await page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'terminal');
+    const cs = getComputedStyle(document.documentElement);
+    const body = getComputedStyle(document.body);
+    return { sans: cs.getPropertyValue('--sans').trim(),
+             disp: cs.getPropertyValue('--disp').trim(),
+             ink: cs.getPropertyValue('--ink').trim(),
+             font: body.fontFamily };
+  });
+  t('theme: terminal is one typeface for everything, which is the whole idea',
+    term.sans === term.disp && /Space Mono|monospace/i.test(term.font),
+    `${term.font.slice(0, 40)} · ink ${term.ink}`);
+  await page.evaluate(() => {
+    document.documentElement.setAttribute('data-theme', 'light');
+    localStorage.setItem('brewkit.theme', 'light');
+  });
+
   // 10. Nav marking
   const current = await page.locator('.nav a[aria-current="page"]').innerText();
   // innerText reflects CSS text-transform, which the design language applies.
@@ -2661,10 +2696,15 @@ try {
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark']) {
-    const c2 = await browser.newContext({ viewport:{width:1300,height:900}, colorScheme: scheme });
+  for (const scheme of ['light', 'dark', 'terminal']) {
+    const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
+      colorScheme: scheme === 'terminal' ? 'dark' : scheme });
     const p2 = await c2.newPage();
     await p2.goto(B + '/explore.html');
+    // Terminal is never reached by a system preference, so it is asked for.
+    if (scheme === 'terminal') {
+      await p2.evaluate(() => document.documentElement.setAttribute('data-theme', 'terminal'));
+    }
     await p2.waitForTimeout(250);
     const worst = await p2.evaluate(() => {
       const lum = (c) => {
