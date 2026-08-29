@@ -109,11 +109,17 @@ export function bagStatus(bag, shots) {
   if (!Number.isFinite(capacity) || capacity <= 0) {
     return { known: false, used, byShots, manual, shots: mine.length, typical };
   }
+  // Exact, and allowed to go negative: over-drawing a bag is real information —
+  // usually that the bag weight was wrong — and clamping here would leave the
+  // log quietly disagreeing with the tin. `left` and `over` are what displays
+  // print, because "−3912.8 g left" is not a sentence.
   const remaining = +(capacity - used).toFixed(2);
+  const over = remaining < 0 ? +(-remaining).toFixed(2) : 0;
   const shotsLeft = Number.isFinite(typical) && typical > 0
     ? Math.floor(Math.max(0, remaining) / typical) : null;
   return {
-    known: true, capacity, used, byShots, manual, remaining,
+    known: true, capacity, used, byShots, manual, remaining, over,
+    left: Math.max(0, remaining),
     shots: mine.length, typical, shotsLeft,
     pct: Math.max(0, Math.min(1, remaining / capacity)),
     // "Low" is measured in shots rather than grams, because 40 g left means

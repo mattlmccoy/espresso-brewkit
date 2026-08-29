@@ -176,7 +176,7 @@ export class LiveLink {
  * enough that losing one costs nothing. There are no deltas here by design:
  * every frame is the whole picture, which is what lets the channel be lossy.
  */
-export function frameOf({ snap, sess, target, coffee, elapsed, curve }) {
+export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve }) {
   return {
     k: 'f',
     w: Number.isFinite(snap?.net) ? +snap.net.toFixed(2) : null,
@@ -184,10 +184,15 @@ export function frameOf({ snap, sess, target, coffee, elapsed, curve }) {
     t: Number.isFinite(elapsed) ? +elapsed.toFixed(1) : null,
     st: snap?.state ?? null,
     step: sess?.step ?? null,
+    phase: sess?.phase ?? null,
     hint: sess?.hint ?? null,
     dose: sess?.dose ?? null,
     grounds: sess?.grounds ?? null,
+    // The target for the step you are actually on: the dose while weighing,
+    // the yield once it is pouring. Sent with its window so the phone can draw
+    // the same bar without knowing the rule that produced it.
     target: Number.isFinite(target) ? +target.toFixed(1) : null,
+    tol: Number.isFinite(tol) ? +tol.toFixed(2) : null,
     coffee: coffee ?? null,
     // A short tail of the curve, so a phone joining mid-shot is not blank.
     curve: Array.isArray(curve) ? curve.slice(-240).map(
