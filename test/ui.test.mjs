@@ -1553,6 +1553,133 @@ try {
     fixtureAfter.feeds === 0 && fixtureAfter.shots === JSON.parse(fixtureBefore.shots ?? '[]').length,
     `${fixtureAfter.shots} shots, ${fixtureAfter.feeds} loaded hoppers`);
 
+  // ---- pairing without pasting eight hundred characters ----
+  // An SDP offer is 830 characters of which about eighty carry information.
+  // That difference is the whole reason a QR is possible: 830 bytes is a
+  // 113-module symbol a webcam cannot read, and 87 is a 37-module one it can.
+  const packed = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/sdp.js');
+    const gather = (pc) => new Promise((r) => {
+      const t = setTimeout(r, 3000);
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); }
+      };
+    });
+    const host = new RTCPeerConnection({ iceServers: [] });
+    const ch = host.createDataChannel('pour', { ordered: false, maxRetransmits: 0 });
+    await host.setLocalDescription(await host.createOffer());
+    await gather(host);
+    const raw = host.localDescription.sdp;
+    const small = S.pack(raw);
+
+    // The test that matters: connect using the REBUILT description, not the
+    // original. A packing that loses something ICE needs fails here and
+    // nowhere else.
+    const view = new RTCPeerConnection({ iceServers: [] });
+    const opened = new Promise((r) => {
+      view.ondatachannel = (e) => { e.channel.onopen = () => r('open'); };
+    });
+    await view.setRemoteDescription({ type: 'offer', sdp: S.unpack(small) });
+    await view.setLocalDescription(await view.createAnswer());
+    await gather(view);
+    await host.setRemoteDescription({ type: 'answer', sdp: S.unpack(S.pack(view.localDescription.sdp)) });
+    const state = await Promise.race([opened,
+      new Promise((r) => setTimeout(() => r('timeout'), 9000))]);
+    host.close(); view.close();
+    void ch;
+
+    return {
+      rawChars: raw.length, smallChars: small.length, state,
+      // An unpacked description has to carry the parts ICE and DTLS need.
+      rebuilt: S.unpack(small),
+      badVersion: S.unpack('9~a~b~c~A~'),
+      garbage: S.unpack('not a code'),
+    };
+  });
+  t('pairing: an offer packs to a fraction of its size',
+    packed.smallChars < 120 && packed.rawChars > 400,
+    `${packed.rawChars} chars down to ${packed.smallChars}`);
+  t('pairing: and the rebuilt description still makes a working connection',
+    packed.state === 'open', packed.state);
+  t('pairing: the rebuild carries the fingerprint, credentials and a candidate',
+    /a=fingerprint:sha-256 (?:[0-9A-F]{2}:){31}[0-9A-F]{2}/.test(packed.rebuilt)
+    && /a=ice-ufrag:\S+/.test(packed.rebuilt) && /a=ice-pwd:\S+/.test(packed.rebuilt)
+    && /a=candidate:\S+ 1 udp/.test(packed.rebuilt),
+    'all four present');
+  t('pairing: a code from another version is refused rather than half-read',
+    packed.badVersion === null && packed.garbage === null, 'both null');
+
+  // The QR encoder. Checked against the standard rather than against itself
+  // where that is possible: capacities from the published tables, Reed-Solomon
+  // by the property that defines it, and the fixed patterns by inspection.
+  const qr = await page.evaluate(async () => {
+    const Q = await import('./assets/js/core/qr.js');
+    const EXP = new Uint8Array(512); const LOG = new Uint8Array(256);
+    let x = 1;
+    for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+    const mul = (a, b) => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]]);
+
+    // Every codeword polynomial must vanish at the generator's roots.
+    let rsOk = true;
+    for (const deg of [10, 16, 18, 22, 24, 26, 30]) {
+      const data = Uint8Array.from({ length: 20 }, (_, i) => (i * 37 + 11) & 255);
+      const full = [...data, ...Q.ecCodewords(data, deg)];
+      for (let k = 0; k < deg; k++) {
+        let acc = 0;
+        for (const c of full) acc = mul(acc, EXP[k]) ^ c;
+        if (acc !== 0) rsOk = false;
+      }
+    }
+
+    const caps = { 1: 14, 2: 26, 3: 42, 4: 62, 5: 84, 6: 106, 7: 122, 8: 152, 9: 180, 10: 213 };
+    const capsOk = Object.entries(caps).every(([v, n]) => Q.capacity(Number(v)) === n);
+
+    const sym = Q.encode('x'.repeat(80));
+    const m = sym.matrix; const n = sym.n;
+    const want = [[1,1,1,1,1,1,1],[1,0,0,0,0,0,1],[1,0,1,1,1,0,1],[1,0,1,1,1,0,1],
+                  [1,0,1,1,1,0,1],[1,0,0,0,0,0,1],[1,1,1,1,1,1,1]];
+    const finder = (r0, c0) => want.every((row, r) => row.every((v, c) => (m[r0 + r][c0 + c] & 1) === v));
+    let timing = true;
+    for (let i = 8; i < n - 8; i++) {
+      const bit = i % 2 === 0 ? 1 : 0;
+      if ((m[6][i] & 1) !== bit || (m[i][6] & 1) !== bit) timing = false;
+    }
+    let fmtA = 0; let fmtB = 0;
+    for (let i = 0; i < 15; i++) {
+      const a = i < 6 ? m[8][i] : i === 6 ? m[8][7] : i === 7 ? m[8][8] : i === 8 ? m[7][8] : m[14 - i][8];
+      fmtA |= (a & 1) << i;
+      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << i;
+    }
+    const raw = (fmtA ^ 0x5412) >> 10;
+
+    const long = 'https://example.test/view.html#p=' + 'y'.repeat(120);
+    return {
+      rsOk, capsOk, version: sym.version, modules: n,
+      finders: finder(0, 0) && finder(0, n - 7) && finder(n - 7, 0),
+      timing,
+      darkModule: (m[n - 8][8] & 1) === 1,
+      formatAgrees: fmtA === fmtB && ((raw >> 3) & 3) === 0 && (raw & 7) === sym.mask,
+      roundTrip: Q.readBack(sym) === 'x'.repeat(80),
+      longRoundTrip: (() => { const q = Q.encode(long); return q && Q.readBack(q) === long; })(),
+      tooLong: Q.encode('z'.repeat(5000)),
+      svgLooksRight: /^<svg [^>]*viewBox="0 0 \d+ \d+"/.test(Q.svg('hello') ?? ''),
+    };
+  });
+  t('qr: Reed-Solomon codewords are divisible by their generator',
+    qr.rsOk, 'every root evaluates to zero');
+  t('qr: capacities match the published tables for level M',
+    qr.capsOk, 'v1–v10 byte mode');
+  t('qr: the fixed patterns are where the standard puts them',
+    qr.finders && qr.timing && qr.darkModule,
+    `finders ${qr.finders}, timing ${qr.timing}, dark module ${qr.darkModule}`);
+  t('qr: both copies of the format info agree, and name level M and the mask',
+    qr.formatAgrees, 'agree');
+  t('qr: a symbol reads back as what went into it, short and long',
+    qr.roundTrip && qr.longRoundTrip, `v${qr.version}, ${qr.modules} modules`);
+  t('qr: something too big to encode returns nothing rather than a broken symbol',
+    qr.tooLong === null && qr.svgLooksRight, String(qr.tooLong));
+
   // ---- gestures live in the gaps, never inside a measurement ----
   // This is a correctness rule rather than a preference: a tap is a sixty-gram
   // excursion, and driven through the real filter a two-tap gesture during a

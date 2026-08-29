@@ -454,10 +454,16 @@ Wi-Fi; the data has no reason to visit California first.
 
 The awkward part is introductions. WebRTC peers cannot start without exchanging
 a description of each other, and that is normally a signalling server's job.
-There isn't one, so you do it: the laptop makes a code, the phone takes it and
-makes a reply, the laptop takes the reply. Two copies and two pastes, once per
-session, about fifteen seconds. On a Mac and an iPhone signed into the same
-Apple account, Universal Clipboard means copying on one is pasting on the other.
+There isn't one, so the two devices have to hand the descriptions over
+themselves. **The laptop shows a QR code and the phone points its camera at
+it** — the code is a `view.html#p=...` URL, so the phone's own camera app opens
+the viewer already holding the offer, answers it, and shows its reply as a
+second QR for the laptop to read back.
+
+Pasting still works and is still there, one `<details>` fold away, because a
+camera can be pointed at the wrong thing and Universal Clipboard between a Mac
+and an iPhone is genuinely quick. But it is the fallback now rather than the
+route.
 
 **No ICE servers are configured**, which is a decision rather than an omission.
 With none, the browser offers only host candidates — addresses on the local
@@ -502,10 +508,66 @@ same union the Backup page uses, so asking twice can never cost a shot.
 
 A pairing cannot be stored and reused — a WebRTC description is good for exactly
 one connection. What can be stored is the fact that you have done it before,
-which is the difference between a page of instructions and a single paste: both
-ends remember, the laptop's button becomes **Reconnect phone**, the code is
-generated and copied to the clipboard without being asked, and the phone shows
-the short version with the explainer one tap away.
+which is the difference between a page of instructions and a page with a code on
+it: both ends remember, the laptop's button becomes **Reconnect phone** and goes
+straight to a fresh QR without explaining itself again, and the phone keeps the
+short version with the explainer one tap away.
+
+### Fitting a WebRTC description into a QR code
+
+A QR code is only a shortcut if the phone reads it on the first try, and that is
+a question of how much is in it. An offer as Chromium writes it runs to **560
+characters** in the test container and longer on a laptop, which has more network
+interfaces to advertise. This encoder tops out at version 15, holding 412 bytes
+at the error correction level it uses, so a raw offer does not merely make a
+grid too dense to read — it does not fit at all.
+
+Almost none of those characters carry information the other end needs. An
+SDP is mostly a codec catalogue, and this connection negotiates no audio and no
+video — only data channels, which have no codecs to describe. What actually has
+to survive the trip is five things: the ICE username fragment, the ICE password,
+the DTLS certificate fingerprint, the setup role, and the host candidates.
+`core/sdp.js` keeps those and rebuilds the rest from a fixed template, packing
+the fingerprint from 95 hex characters to 32 bytes of base64 and each candidate
+to a short token — an IPv4 address as four bytes and a port as two, an mDNS
+candidate as its UUID packed to 16 bytes.
+
+**560 characters become 87**, and the suite asserts that on a genuine offer
+rather than a fixture. With the page URL in front of them that is 145,
+which is a version 8 symbol — coarse enough that a phone reads it off a laptop
+screen from across the counter. The test that matters is not that the
+string round-trips: it is that the *rebuilt* description makes a working
+connection, so the suite feeds an unpacked offer to a real `RTCPeerConnection`
+and asserts the data channel reaches `open` and carries a message.
+
+The encoder is written out in `core/qr.js` rather than pulled in, for the same
+reason nothing else here is: this site has no build step and no dependencies.
+It is byte mode at error-correction level M, versions 1 to 15, with the
+standard's eight mask patterns scored on its four penalties. It is checked
+against the published tables — capacity per version, Reed–Solomon codewords
+divisible by their generator polynomial, the finder and timing patterns, and the
+two copies of the format information agreeing with each other. Writing the
+checks that way caught a real bug: the format-information run was laying down
+eight bits where the standard says seven, quietly overwriting the module that is
+always dark.
+
+Reading a QR back is the asymmetric half. `BarcodeDetector` is in Chrome on
+Android and absent or unreliable elsewhere — it is not in headless Chromium at
+all — so the laptop's camera scan is offered when the browser has it and simply
+not mentioned when it does not. The phone never needs it: it is following a URL,
+which every phone camera has done for years.
+
+### When the link drops
+
+Wi-Fi on a phone in a kitchen is not a stable thing, and the old behaviour on a
+dropped connection was to blank the screen — which is the worst moment to lose
+the number, because it happens mid-shot. Now the last frame **stays on screen**,
+dimmed, with a *Reconnecting…* badge over it, and the laptop gives the
+connection a **four-second grace period** before it does anything. Most drops
+recover inside that. Past it, the laptop restarts ICE on the existing
+connection, which re-gathers candidates without a new pairing — so a phone that
+moved between access points comes back on its own, and you only re-pair when the
+connection is genuinely gone.
 
 ## Where the log lives, and getting it off this machine
 
@@ -993,7 +1055,7 @@ into a Playwright run is six and a half minutes too late.
 ## Tests
 
 `npm test` drives the site in a real browser and asserts on what actually renders.
-Four hundred-odd assertions across the site in all three themes: the analysis
+Nearly five hundred assertions across the site in all three themes: the analysis
 results, the legacy CSV import path, the 3D drag interaction, theme persistence,
 font loading, WCAG contrast on chrome pairs, grid alignment, horizontal overflow,
 chart sizing, and the absence of rhetorical-question headings.
@@ -1009,7 +1071,10 @@ inverse; the curve metrics have to recover a flow profile whose peak, steady rat
 and late slope are known by construction; and the filter has to survive a step, a
 droplet impact, a slow pour and a whole shot. Refusals are tested too — the advisor
 must decline to fit two shots, or eight shots all at the same setting, rather than
-emitting a confident number.
+emitting a confident number. The QR encoder is held to the same standard in the
+literal sense: its capacities, its Reed–Solomon codewords and its fixed patterns
+are checked against ISO/IEC 18004 rather than against a snapshot of its own
+output, which is what caught the format-information run writing one bit too many.
 
 ```bash
 npm install

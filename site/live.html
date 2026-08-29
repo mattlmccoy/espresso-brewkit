@@ -210,6 +210,13 @@
   #pair-dlg { border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink);
     max-width:min(560px, 92vw); padding:20px 22px; }
   #pair-dlg::backdrop { background:rgba(0,0,0,.45); }
+  .qr-wrap { display:flex; gap:16px; align-items:flex-start; margin-top:12px; }
+  .qr { flex:0 0 190px; background:#fff; padding:8px; border:var(--bw) solid var(--ink); }
+  .qr svg { display:block; width:100%; height:auto; }
+  .qr-said { flex:1 1 0; min-width:0; }
+  #pair-cam { width:100%; max-height:220px; margin-top:10px; background:#000; }
+  #pair-cam[hidden] { display:none; }
+  @media (max-width:560px) { .qr-wrap { flex-direction:column; } .qr { flex:none; width:200px; } }
   #pair-dlg textarea { width:100%; box-sizing:border-box; font:600 11.5px/1.4 var(--mono);
     background:var(--panel-2); color:var(--ink); border:2px solid var(--ink); padding:8px 9px;
     resize:vertical; word-break:break-all; }
@@ -650,24 +657,37 @@
   <div id="pair-steps">
     <p class="msg" style="margin-top:12px">An iPhone or iPad cannot talk to a Bluetooth scale, so
     this sends the pour there directly &mdash; no account, nothing hosted, and nothing leaving your
-    Wi-Fi. Two pastes, once per session.</p>
-    <ol class="msg" style="padding-left:20px">
-      <li>Open <strong id="view-url">/view.html</strong> on the phone.</li>
-      <li>Copy the code below and paste it there.</li>
-      <li>Paste its reply back here.</li>
-    </ol>
+    Wi-Fi.</p>
   </div>
-  <p class="msg" style="margin:12px 0 5px"><strong>1 &middot; this laptop&rsquo;s code</strong></p>
-  <textarea id="pair-offer" readonly rows="3"
-            autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-  <div class="btn-row"><button class="primary" id="pair-copy" type="button">Copy code</button></div>
-  <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong></p>
-  <textarea id="pair-answer" rows="3" placeholder="Paste the reply from the phone here"
+
+  <!-- Point the phone's camera at this. iOS reads QR codes natively and opens
+       the link, which is why this direction needs no app, no typing and no
+       paste at all. -->
+  <div class="qr-wrap"><div class="qr" id="pair-qr"></div>
+    <div class="qr-said">
+      <p class="msg" style="margin:0 0 6px"><strong>1 &middot; scan this with the phone</strong></p>
+      <p class="msg" style="margin:0">Open the Camera app and point it here. Tap the link it
+      offers. The viewer opens already holding this laptop&rsquo;s code.</p>
+      <details style="margin-top:10px">
+        <summary class="msg" style="cursor:pointer">No camera? Use the code</summary>
+        <p class="msg" style="margin:8px 0 4px" id="view-url">/view.html</p>
+        <textarea id="pair-offer" readonly rows="2"
+                  autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+        <div class="btn-row"><button id="pair-copy" type="button">Copy code</button></div>
+      </details>
+    </div>
+  </div>
+
+  <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong>
+  &mdash; 87 characters, so it pastes in one go</p>
+  <textarea id="pair-answer" rows="2" placeholder="Paste the reply from the phone here"
             autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
   <div class="btn-row">
     <button class="primary" id="pair-accept" type="button">Link</button>
+    <button class="ghost" id="pair-scan" type="button" hidden>Scan the phone&rsquo;s code</button>
     <button class="ghost" id="pair-close" type="button">Close</button>
   </div>
+  <video id="pair-cam" playsinline muted hidden></video>
   <p class="msg" id="pair-msg"></p>
 </dialog>
 
@@ -696,6 +716,7 @@ import { SessionMachine, fillProgress } from './assets/js/core/session.js';
 import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, brewTarget }
   from './assets/js/core/method.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
+import { svg as qrSvg } from './assets/js/core/qr.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
 import { TapListener, actionFor, gestureHint, thresholdFor,
@@ -2123,6 +2144,11 @@ const notePairing = () => {
 
 // The phone can answer back. A rating tapped beside the machine, seconds after
 // the shot, is a better rating than one typed on a laptop in another room.
+watcher.onRestart = () => {
+  $('watch-msg').textContent = 'The phone dropped off — trying to find it again without '
+    + 'pairing from scratch.';
+};
+
 watcher.onMessage = (m) => {
   // The phone asking for the whole log. It gets the same snapshot the Backup
   // page writes to a file — over the link that is already open, on the network
@@ -2163,7 +2189,8 @@ function sendLogToPhone() {
 watcher.onState = (state) => {
   const badge = $('watch-state');
   badge.hidden = state === 'idle' || state === 'closed';
-  badge.textContent = { waiting: 'Phone: waiting', open: 'Phone: watching',
+  badge.textContent = { waiting: pairedBefore() ? 'Phone: reconnecting' : 'Phone: waiting',
+                        open: 'Phone: watching',
                         failed: 'Phone: no route' }[state] ?? state;
   badge.className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
   $('watch-phone').textContent = state === 'open' ? 'Stop watching'
@@ -2204,16 +2231,78 @@ $('watch-phone').addEventListener('click', async () => {
     // A previous link left nothing reusable, so a fresh one is made every time.
     // Closing the old peer first stops two of them racing for one channel.
     if (watcher.state !== 'idle') watcher.close();
-    $('pair-offer').value = await watcher.offer();
-    // Copied without being asked: the first instruction was always "copy this".
+    const code = await watcher.offer();
+    $('pair-offer').value = code;
+    // The QR carries the viewer's URL with the code in the fragment, so the
+    // iOS Camera app — which reads QR natively and offers to open links — does
+    // the whole first leg with no app, no typing and no paste.
+    const url = new URL('./view.html', location.href);
+    url.hash = `p=${code}`;
+    const drawn = qrSvg(url.href, { title: 'Open the viewer on your phone' });
+    $('pair-qr').innerHTML = drawn
+      ?? '<p class="msg" style="margin:0">Code too long for a QR — use the text below.</p>';
+    // Still copied without being asked, for the no-camera path.
     let copied = false;
-    try { await navigator.clipboard.writeText($('pair-offer').value); copied = true; } catch { /* blocked */ }
+    try { await navigator.clipboard.writeText(code); copied = true; } catch { /* blocked */ }
     $('pair-msg').textContent = copied
-      ? 'Copied. Paste it on the phone, then bring back its reply.'
-      : 'Copy it, paste it on the phone, then bring back its reply.';
+      ? 'Scan the square, or paste the copied code on the phone. Then bring back its reply.'
+      : 'Scan the square with the phone\u2019s camera, then bring back its reply.';
     $('pair-answer').focus();
+    offerScanning();
   } catch (err) {
     $('pair-msg').textContent = err.message;
+  }
+});
+
+/**
+ * Read the phone's reply with the laptop camera, where the browser can.
+ *
+ * BarcodeDetector is not everywhere — notably not in every desktop Chrome —
+ * so this is offered when it exists and silently absent when it does not. The
+ * paste is the path that always works, and at 87 characters it is one line.
+ */
+function offerScanning() {
+  $('pair-scan').hidden = !('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia);
+}
+
+let camStream = null;
+$('pair-scan').addEventListener('click', async () => {
+  const video = $('pair-cam');
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+    video.hidden = true;
+    $('pair-scan').textContent = 'Scan the phone\u2019s code';
+    return;
+  }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    video.srcObject = camStream;
+    video.hidden = false;
+    await video.play();
+    $('pair-scan').textContent = 'Stop scanning';
+    $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
+    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+    const tick = async () => {
+      if (!camStream) return;
+      try {
+        const found = await detector.detect(video);
+        const hit = found.find((f) => /^\d+~/.test(f.rawValue ?? ''));
+        if (hit) {
+          $('pair-answer').value = hit.rawValue;
+          camStream.getTracks().forEach((t) => t.stop());
+          camStream = null;
+          video.hidden = true;
+          $('pair-scan').textContent = 'Scan the phone\u2019s code';
+          $('pair-accept').click();
+          return;
+        }
+      } catch { /* a frame that would not decode is not an error */ }
+      setTimeout(tick, 220);
+    };
+    tick();
+  } catch (err) {
+    $('pair-msg').textContent = `Could not open the camera: ${err.message}. Paste the code instead.`;
   }
 });
 
