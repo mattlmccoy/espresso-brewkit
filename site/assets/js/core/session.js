@@ -71,6 +71,41 @@ export const PHASE = { VESSEL: 'vessel', FILL: 'fill', READY: 'ready' };
 export const VESSEL_NAME = { dose: 'dosing cup', grind: 'portafilter' };
 const NEXT_NAME = { dose: 'the grind', grind: 'brewing' };
 
+/**
+ * How far off a target still counts as hitting it. A fraction, with a floor so
+ * an 8 g single is not held to a tighter absolute window than an 18 g double.
+ */
+export function tolerance(target, { nearFrac = 0.12, nearMin = 1.5 } = {}) {
+  return Math.max(nearMin, target * nearFrac);
+}
+
+/**
+ * The dose as a bar: where you are, where you are aiming, and how much of a
+ * miss still counts.
+ *
+ * The window is drawn as a region rather than the target as a line, because
+ * that is what it is — landing anywhere in it ends the step. A line invites
+ * chasing a number that the grinder cannot hit on purpose anyway.
+ *
+ * The scale runs past the window so an overshoot has somewhere to go. A bar
+ * pinned at full tells you that you are over but not by how much, which is the
+ * one thing you want to know when you have gone past.
+ */
+export function fillProgress(net, target, tol = tolerance(target)) {
+  if (!Number.isFinite(target) || target <= 0 || !Number.isFinite(net)) return null;
+  const max = Math.max(target * 1.3, target + tol * 1.5);
+  const delta = +(net - target).toFixed(2);
+  return {
+    frac: Math.max(0, Math.min(1, net / max)),
+    lo: Math.max(0, (target - tol) / max),
+    hi: Math.min(1, (target + tol) / max),
+    mark: target / max,
+    delta,
+    over: net > target + tol,
+    state: Math.abs(delta) <= tol ? 'in' : delta > 0 ? 'over' : 'under',
+  };
+}
+
 /** The line under the step name: one instruction, for right now. */
 export function prompt(s) {
   if (s.step !== STEP.DOSE && s.step !== STEP.GRIND) return STEP_HINT[s.step];
@@ -135,10 +170,15 @@ export class SessionMachine {
     return this.target;
   }
 
+  /** How far off the target still counts as hitting it. */
+  tolerance(target = this.targetFor()) {
+    return tolerance(target, this.o);
+  }
+
   nearTarget(net) {
     const tgt = this.targetFor();
     if (!Number.isFinite(tgt) || tgt <= 0) return false;
-    return Math.abs(net - tgt) <= Math.max(this.o.nearMin, tgt * this.o.nearFrac);
+    return Math.abs(net - tgt) <= this.tolerance(tgt);
   }
 
   reset() {

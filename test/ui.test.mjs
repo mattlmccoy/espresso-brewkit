@@ -1340,6 +1340,42 @@ try {
   t('flow: and a portafilter needs no such argument, being heavier than any dose',
     placed.pfTare === 469, `tared ${placed.pfTare}`);
 
+  // ---- the dose as a bar ----
+  // The window is drawn as a region rather than the target as a line, because
+  // that is what it is: landing anywhere in it ends the step.
+  const bar = await page.evaluate(async () => {
+    const { fillProgress, tolerance } = await import('./assets/js/core/session.js');
+    const at = (net, target = 18) => fillProgress(net, target);
+    return {
+      tol18: tolerance(18), tol8: tolerance(8),
+      empty: at(0), half: at(9), justUnder: at(15.5), inWindow: at(18.2),
+      justOver: at(20.5), way: at(40),
+      none: fillProgress(12, 0), nan: fillProgress(NaN, 18),
+    };
+  });
+  t('bar: the window is a fraction of the dose, with a floor for small ones',
+    Math.abs(bar.tol18 - 2.16) < 1e-9 && bar.tol8 === 1.5,
+    `±${bar.tol18.toFixed(2)} g at 18, ±${bar.tol8} g at 8`);
+  t('bar: it fills as you pour',
+    bar.empty.frac === 0 && Math.abs(bar.half.frac - 0.385) < 0.01
+    && bar.half.state === 'under', `${(bar.half.frac * 100).toFixed(0)}% at 9 g`);
+  t('bar: the window sits before the end, so an overshoot has somewhere to go',
+    bar.inWindow.hi < 1 && bar.inWindow.lo < bar.inWindow.mark
+    && bar.inWindow.mark < bar.inWindow.hi,
+    `window ${(bar.inWindow.lo * 100).toFixed(0)}–${(bar.inWindow.hi * 100).toFixed(0)}%, `
+      + `target at ${(bar.inWindow.mark * 100).toFixed(0)}%`);
+  t('bar: three states, and 15.5 g of an 18 g dose is not one of the good ones',
+    bar.justUnder.state === 'under' && bar.inWindow.state === 'in'
+    && bar.justOver.state === 'over',
+    `${bar.justUnder.state}/${bar.inWindow.state}/${bar.justOver.state}`);
+  t('bar: it says how far off, in the direction you are off',
+    Math.abs(bar.justUnder.delta + 2.5) < 1e-9 && Math.abs(bar.justOver.delta - 2.5) < 1e-9,
+    `${bar.justUnder.delta} / +${bar.justOver.delta}`);
+  t('bar: a wild overshoot clamps rather than running off the end',
+    bar.way.frac === 1 && bar.way.state === 'over', `${bar.way.frac} at 40 g`);
+  t('bar: with no target there is no bar',
+    bar.none === null && bar.nan === null, 'null on both');
+
   // ---- and the ways out when it cannot know you are done ----
   const ways = await page.evaluate(async () => {
     const { SessionMachine, prompt } = await import('./assets/js/core/session.js');
@@ -1596,6 +1632,96 @@ try {
   }
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
+
+  // On screen: it appears once there is something to weigh, not before.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    window.__sess.reset();
+    window.__sess.setReady(true);
+    window.__sess.setTarget(18);
+    void kit;
+    window.__mock.grams = 0;
+  });
+  await page.waitForTimeout(500);
+  const beforeCup = await page.evaluate(() => document.getElementById('fill').hidden);
+  await page.evaluate(() => { window.__mock.grams = 52; });
+  await page.waitForFunction(() => window.__sess.phase === 'fill', null, { timeout: 6000 });
+  await page.evaluate(() => { window.__mock.grams = 61; });   // 9 g in
+  await page.waitForTimeout(900);
+  const halfway = await page.evaluate(() => ({
+    hidden: document.getElementById('fill').hidden,
+    cls: document.getElementById('fill').className,
+    width: document.getElementById('fill-now').style.width,
+    of: document.getElementById('fill-of').textContent,
+    gap: document.getElementById('fill-gap').textContent,
+  }));
+  await page.evaluate(() => { window.__mock.grams = 70.2; });  // 18.2 g in
+  await page.waitForFunction(
+    () => document.getElementById('fill').className.includes('is-in'), { timeout: 6000 });
+  const landed = await page.evaluate(() => ({
+    cls: document.getElementById('fill').className,
+    gap: document.getElementById('fill-gap').textContent,
+  }));
+
+  t('bar: nothing to show while it is still waiting for the cup',
+    beforeCup === true, `hidden: ${beforeCup}`);
+  t('bar: it appears once the cup is tared, and counts down the gap',
+    halfway.hidden === false && /is-under/.test(halfway.cls)
+    && /9\.0 \/ 18\.0 g/.test(halfway.of) && /to go/.test(halfway.gap),
+    `${halfway.of} — ${halfway.gap} (${halfway.width})`);
+  t('bar: and turns over to the live colour once you are in the window',
+    /is-in/.test(landed.cls) && landed.gap === 'in the window', landed.gap);
+
+  // ---- leaving Live should not cost you the scale or the phone ----
+  // A page navigation destroys a GATT connection and a peer connection alike;
+  // nothing in a web page can prevent that. What it can do is not need to.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+  await page.waitForTimeout(400);
+  const guarded = await page.evaluate(() => ({
+    connected: window.__mock.connected,
+    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
+      .map((a) => a.getAttribute('target') ?? '').join(','),
+    rels: [...document.querySelectorAll('.nav a[href$=".html"]')]
+      .every((a) => a.rel === 'noopener'),
+    note: document.getElementById('nav-note').hidden,
+  }));
+  t('nav guard: while the scale is connected, the other pages open in their own tab',
+    guarded.connected === true && /^_blank(,_blank)*$/.test(guarded.targets)
+    && guarded.rels === true, guarded.targets.slice(0, 40));
+  t('nav guard: and the page says why, rather than surprising you with a tab',
+    guarded.note === false, 'note shown');
+
+  // Which scale this tab had open, so returning to Live picks it up with no
+  // click. Session-scoped: a tab opened tomorrow should not go hunting for a
+  // scale in a cupboard.
+  const held = await page.evaluate(() => sessionStorage.getItem('brewkit.live.connected'));
+  t('nav guard: the tab remembers which scale it had, so coming back is silent',
+    held === 'mock:lefu', String(held));
+
+  // A dropout is not the same as "I am done": the flag survives one, because
+  // that is exactly when you want it picked back up. Pressing Disconnect is.
+  await page.evaluate(() => window.__mock.disconnect());
+  await page.waitForTimeout(1300);
+  const afterDrop = await page.evaluate(() => ({
+    held: sessionStorage.getItem('brewkit.live.connected'),
+    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
+      .map((a) => a.getAttribute('target') ?? '-').join(','),
+    note: document.getElementById('nav-note').hidden,
+  }));
+  t('nav guard: and it lets go the moment there is nothing to protect',
+    /^-(,-)*$/.test(afterDrop.targets) && afterDrop.note === true,
+    afterDrop.targets.slice(0, 20));
+  t('nav guard: a dropout is not a decision, so the scale stays remembered',
+    afterDrop.held === 'mock:lefu', String(afterDrop.held));
+
+  await page.evaluate(() => document.getElementById('disconnect').click());
+  await page.waitForTimeout(200);
+  t('nav guard: pressing Disconnect is a decision, and clears it',
+    await page.evaluate(() => sessionStorage.getItem('brewkit.live.connected')) === null,
+    'forgotten');
 
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');

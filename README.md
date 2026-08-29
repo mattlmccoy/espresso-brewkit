@@ -117,6 +117,25 @@ everything except that.
 syntax pass on its own, which is worth having because a shadowed identifier in a
 test file otherwise costs a full browser run to discover.
 
+## Leaving Live
+
+A page navigation destroys a GATT connection and a WebRTC peer connection
+alike — nothing in a web page can prevent that, and no worker can hold either
+one on a page's behalf. So Live does two things instead.
+
+**It does not need to reconnect by hand.** `navigator.bluetooth.getDevices()`
+returns the scales this origin already has permission for, so a scale this tab
+had open is picked back up on return with no chooser and no click. Only this
+tab's own last scale, and only where the browser supports it — a page that
+spontaneously starts talking to Bluetooth on load would be a worse bargain than
+one click. An unexpected dropout keeps that memory, because that is exactly when
+you want it back; pressing Disconnect clears it, because that was a decision.
+
+**And while a scale or a phone is attached, the other pages open in their own
+tab**, with a line on the page saying so. The phone is why: its pairing is per
+connection, so unlike the scale it cannot be picked back up silently, and losing
+it costs two pastes.
+
 ## Watching a pour on a phone
 
 No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is Safari
@@ -255,6 +274,14 @@ auto-tare bug this project shipped once already. And because a 30 g cup and a
 **arrived in one movement**: a cup is placed and is still within half a second,
 a dose is poured and takes seconds to stop climbing. Above 45 g no argument is
 needed, since no one pulls a 45 g shot.
+
+**There is a bar for it.** Under the big readout, the dose is drawn against the
+window you are aiming for: how far along you are, where the target sits, and how
+wide a miss still counts. The window is a region rather than a line because that
+is what it is — landing anywhere in it ends the step — and the scale runs past
+it so an overshoot has somewhere to go, since a bar pinned at full tells you
+that you are over but not by how much. The same bar follows the yield once the
+shot is pouring, and the phone draws it from the same numbers.
 
 **Reaching your target is what ends the step**, not a timer. Within about 12% of
 the dose you are aiming for, the reading is captured and the screen says to lift

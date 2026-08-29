@@ -79,6 +79,9 @@ export class ScaleLink extends EventTarget {
 
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
 
+  /** A live GATT server is the only honest definition of connected. */
+  get connected() { return !!this.server; }
+
   _bind(device) {
     this.device = device;
     device.addEventListener('gattserverdisconnected', () => {

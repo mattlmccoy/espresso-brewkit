@@ -38,6 +38,23 @@
     min-height:0; overflow:hidden; }
   .plot[hidden] { display:none !important; }
   #hint { font:600 13px/1.45 var(--sans); color:var(--ink-dim); margin:0; }
+  /* The same bar as the laptop, inheriting the tile's colour so it reads on
+     the accent ground rather than fighting it. */
+  .fill { margin-top:14px; min-width:min(74vw, 320px); color:inherit; }
+  .fill[hidden] { display:none !important; }
+  .fill-track { position:relative; height:12px; border:2px solid currentColor;
+    background:color-mix(in srgb, currentColor 14%, transparent); overflow:hidden; }
+  .fill-band { position:absolute; top:0; bottom:0;
+    background:color-mix(in srgb, currentColor 28%, transparent); }
+  .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
+  .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
+    transition:width .1s linear; }
+  .fill-txt { display:flex; justify-content:space-between; gap:10px; margin-top:6px;
+    font:700 11.5px/1 var(--mono); opacity:.88; }
+  /* Same reasoning as the laptop: the ground is already the accent, so the
+     window lighting up carries "in", and only overshoot changes hue. */
+  .fill.is-in .fill-band { background:color-mix(in srgb, currentColor 52%, transparent); }
+  .fill.is-over { color:var(--flag); }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -80,6 +97,14 @@
     <div class="big"><div>
       <div class="k" id="big-k">Weight</div>
       <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
+      <div class="fill" id="fill" hidden>
+        <div class="fill-track">
+          <span class="fill-band" id="fill-band"></span>
+          <span class="fill-mark" id="fill-mark"></span>
+          <span class="fill-now" id="fill-now"></span>
+        </div>
+        <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
+      </div>
     </div></div>
     <div class="strip">
       <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
@@ -93,6 +118,7 @@
 <script type="module">
 import { initTheme } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
+import { fillProgress } from './assets/js/core/session.js';
 import { livePlot } from './assets/js/core/chart.js';
 initTheme();
 
@@ -131,7 +157,26 @@ function paint(f) {
   $('coffee').textContent = f.coffee || 'No coffee chosen';
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';
+  paintFill(f);
   drawCurve(f);
+}
+
+/** The laptop's bar, redrawn here from the numbers rather than mirrored. */
+function paintFill(f) {
+  const box = $('fill');
+  const p = Number.isFinite(f.target) && f.tol
+    ? fillProgress(f.w, f.target, f.tol) : null;
+  const live = !!p && f.phase !== 'vessel';
+  box.hidden = !live;
+  if (!live) return;
+  box.className = `fill is-${p.state}`;
+  $('fill-now').style.width = `${(p.frac * 100).toFixed(1)}%`;
+  $('fill-band').style.left = `${(p.lo * 100).toFixed(1)}%`;
+  $('fill-band').style.width = `${((p.hi - p.lo) * 100).toFixed(1)}%`;
+  $('fill-mark').style.left = `${(p.mark * 100).toFixed(1)}%`;
+  $('fill-of').textContent = `${f.w.toFixed(1)} / ${f.target.toFixed(1)} g`;
+  $('fill-gap').textContent = p.state === 'in' ? 'in the window'
+    : p.delta < 0 ? `${(-p.delta).toFixed(1)} to go` : `+${p.delta.toFixed(1)} over`;
 }
 
 function drawCurve(f) {

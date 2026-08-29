@@ -43,6 +43,32 @@
   .capture-line { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .capture-line .val { font-family:var(--disp); font-size:34px; letter-spacing:-.03em; }
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
+  /* The dose as a bar, inside the tile the eye is already on. Colours carry the
+     state: neutral while filling, live once you are in the window, warm past
+     it — so a glance answers "am I there yet" without reading a number. */
+  .fill { margin-top:10px; }
+  .fill[hidden] { display:none; }
+  .fill-track { position:relative; height:10px; border:2px solid currentColor;
+    background:color-mix(in srgb, currentColor 12%, transparent); overflow:hidden; }
+  .fill-band { position:absolute; top:0; bottom:0;
+    background:color-mix(in srgb, currentColor 26%, transparent); }
+  .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor;
+    opacity:.75; }
+  .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
+    transition:width .1s linear; }
+  .fill-txt { display:flex; justify-content:space-between; gap:10px; margin-top:5px;
+    font:700 11px/1 var(--mono); letter-spacing:.04em; opacity:.85; }
+  /* Outside the hero tile the bar has no inherited colour to borrow. */
+  .fill.is-under { color:var(--ink-dim); }
+  .fill.is-in { color:var(--accent); }
+  .fill.is-over { color:var(--fit); }
+  /* On the hero the ground is already the accent, so hue cannot carry "under"
+     versus "in" — the bar's position against the window says that, and says it
+     better. What does need shouting is having gone past, which is the one state
+     you have to react to. */
+  .hero .fill.is-under, .hero .fill.is-in { color:inherit; }
+  .hero .fill.is-over { color:var(--flag); }
+  .fill.is-in .fill-band { background:color-mix(in srgb, currentColor 52%, transparent); }
   /* The fields the flow is waiting on, while it is waiting on them. A panel of
      selects sitting quietly beside a stepper is not something anyone knows to
      fill in first. */
@@ -187,6 +213,8 @@
                   style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
           <span class="badge" id="watch-state" hidden>&mdash;</span>
         </div>
+        <p class="msg" id="nav-note" hidden style="margin:4px 0 0">Other pages open in a new tab
+        while this one is connected, so the scale and the phone stay put.</p>
         <p class="hint" id="step-hint"></p>
         <div class="catch" id="catch" hidden>
           <span class="catch-v" id="catch-v">—</span>
@@ -196,7 +224,17 @@
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
         <div class="st bx hero big"><div class="k" id="w-label">Weight</div>
-          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div></div>
+          <div class="v"><span id="o-w">0.0</span><span class="u">g</span></div>
+          <!-- Where you are against where you are aiming. The window is a
+               region, not a line, because landing anywhere in it is a hit. -->
+          <div class="fill" id="fill" hidden>
+            <div class="fill-track">
+              <span class="fill-band" id="fill-band"></span>
+              <span class="fill-mark" id="fill-mark"></span>
+              <span class="fill-now" id="fill-now"></span>
+            </div>
+            <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
+          </div></div>
         <div class="mini">
           <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
           <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
@@ -398,7 +436,7 @@ import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
-import { SessionMachine, STEP_ORDER } from './assets/js/core/session.js';
+import { SessionMachine, STEP_ORDER, fillProgress } from './assets/js/core/session.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
 import { decodeCurve } from './assets/js/core/schema.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
@@ -673,8 +711,41 @@ function onFrame({ uuid, bytes, at }) {
   if (moved.advancedTo || moved.committed) paintSession();
 }
 
+/**
+ * What the number on screen is aiming at right now: your dose while weighing
+ * beans or grounds, your yield once it is pouring. Same bar, same reading.
+ */
+function currentTarget() {
+  if (sess.step === 'brew' || sess.step === 'rate') return targetYield();
+  return sess.targetFor();
+}
+
+/** The bar under the big readout. Redrawn every frame; it is the point. */
+function paintFill(net) {
+  const box = $('fill');
+  const target = currentTarget();
+  const weighing = sess.step === 'dose' || sess.step === 'grind';
+  // Nothing to aim at, or nothing on the scale yet: a bar sitting at zero for
+  // the whole of the vessel phase is just furniture.
+  const live = Number.isFinite(target) && target > 0
+    && (weighing ? sess.phase !== 'vessel' : brew.state !== 'idle');
+  box.hidden = !live;
+  if (!live) return;
+  const p = fillProgress(net, target, weighing ? sess.tolerance(target) : Math.max(1, target * 0.04));
+  if (!p) { box.hidden = true; return; }
+  box.className = `fill is-${p.state}`;
+  $('fill-now').style.width = `${(p.frac * 100).toFixed(1)}%`;
+  $('fill-band').style.left = `${(p.lo * 100).toFixed(1)}%`;
+  $('fill-band').style.width = `${((p.hi - p.lo) * 100).toFixed(1)}%`;
+  $('fill-mark').style.left = `${(p.mark * 100).toFixed(1)}%`;
+  $('fill-of').textContent = `${fmt(net, 1)} / ${fmt(target, 1)} g`;
+  $('fill-gap').textContent = p.state === 'in' ? 'in the window'
+    : p.delta < 0 ? `${fmt(-p.delta, 1)} g to go` : `+${fmt(p.delta, 1)} g over`;
+}
+
 function render(s) {
   $('o-w').textContent = fmt(s.net, 1);
+  paintFill(s.net);
   $('o-t').textContent = fmt(s.elapsed, 1);
   $('o-f').textContent = fmt(s.flow, 2);
 
@@ -807,8 +878,18 @@ function verifyWith(dec, uuid, { driver = null, save = true, askName = false } =
   }
 }
 
+/**
+ * Which scale this tab had open. Session-scoped on purpose: it is a fact about
+ * this browsing session, not a preference. A tab opened tomorrow should not go
+ * hunting for a scale that is switched off in a cupboard.
+ */
+const LAST_KEY = 'brewkit.live.connected';
+const rememberLink = (key) => { try { sessionStorage.setItem(LAST_KEY, key); } catch { /* ignore */ } };
+const forgetLink = () => { try { sessionStorage.removeItem(LAST_KEY); } catch { /* ignore */ } };
+
 async function afterConnect(name, id) {
   deviceKey = id ?? ('name:' + name);
+  rememberLink(deviceKey);
   profile = devices[deviceKey] ?? { name, bleName: name };
   $('conn-msg').textContent = `Connected to ${name}.`;
   await link.subscribeAll();
@@ -893,7 +974,7 @@ $('no-scale').addEventListener('click', () => {
   paintSession();
 });
 
-$('disconnect').addEventListener('click', () => link?.disconnect());
+$('disconnect').addEventListener('click', () => { forgetLink(); link?.disconnect(); });
 
 $('forget-all').addEventListener('click', () => {
   const n = Object.keys(devices).length;
@@ -1263,8 +1344,11 @@ function broadcast(snap) {
   if (now - lastSentAt < 100) return;
   lastSentAt = now;
   const bag = kit.bag($('p-bag').value);
+  const shown = currentTarget();
+  const weighing = sess.step === 'dose' || sess.step === 'grind';
   watcher.send(frameOf({
-    snap, sess: sess.snapshot(), target: targetYield(),
+    snap, sess: sess.snapshot(), target: shown,
+    tol: weighing ? sess.tolerance(shown) : Math.max(1, shown * 0.04),
     coffee: bag ? [bag.bean_name, bag.roaster].filter(Boolean).join(' · ') : null,
     elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
   }));
@@ -1738,6 +1822,49 @@ if (mock && !manualMock) {
 }
 
 setPhase('connect');
+
+/**
+ * Coming back to Live should not mean clicking Connect again.
+ *
+ * A page navigation destroys the GATT connection — there is no way around that
+ * from a web page — but it does not have to be visible. `getDevices()` returns
+ * the scales this origin already has permission for, so the reconnect needs no
+ * chooser and no click. Only this tab's own last scale is tried, and only when
+ * the browser can do it silently; anything else would be a page that
+ * spontaneously starts talking to Bluetooth on load.
+ */
+(async () => {
+  if (mock) return;
+  let key = null;
+  try { key = sessionStorage.getItem(LAST_KEY); } catch { /* ignore */ }
+  if (!key || !devices[key] || !navigator.bluetooth?.getDevices) return;
+  $('conn-msg').textContent = `Picking up where you left off with ${devices[key].name}…`;
+  try {
+    await reopenSaved(key);
+  } catch {
+    // Switched off, out of range, or permission revoked. The saved-scale
+    // buttons are right there; this was a convenience, not a promise.
+    forgetLink();
+    $('conn-msg').textContent = `${devices[key].name} did not answer. Connect when you are ready.`;
+  }
+})();
+
+/**
+ * Leaving Live drops the scale and any phone watching it, and the phone cannot
+ * be picked back up silently the way the scale can — its pairing is per
+ * connection. So while either is live, the other pages open in their own tab
+ * and this one keeps running.
+ */
+function guardNav() {
+  const busy = !!link?.connected || watcher.state === 'open';
+  for (const a of document.querySelectorAll('.nav a[href$=".html"]')) {
+    if (busy) { a.target = '_blank'; a.rel = 'noopener'; } else { a.removeAttribute('target'); }
+  }
+  const note = $('nav-note');
+  if (note) note.hidden = !busy;
+}
+setInterval(guardNav, 1000);
+guardNav();
 </script>
 </body>
 </html>
