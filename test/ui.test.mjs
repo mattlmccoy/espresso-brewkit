@@ -2313,6 +2313,49 @@ try {
     dir: getComputedStyle(document.getElementById('stage')).flexDirection,
     cols: getComputedStyle(document.getElementById('v-strip')).gridTemplateColumns.split(' ').length,
   }));
+  // ---- the rest of brewkit, without dropping the link ----
+  // The phone had one page. Tapping through to the log meant navigating, and a
+  // navigation destroys the peer connection — a WebRTC description is good for
+  // exactly one connection, so coming back meant pairing again. The log is
+  // already on this device, so the pages work here; the only thing that must
+  // not happen is this page unloading.
+  await watch.setViewportSize({ width: 390, height: 844 });
+  const browsed = await watch.evaluate(async () => {
+    // A sentinel that cannot survive a navigation, which is the whole claim.
+    window.__stillHere = 'yes';
+    document.querySelector('[data-go="shots.html"]').click();
+    await new Promise((r) => setTimeout(r, 60));
+    const open = {
+      shown: !document.getElementById('browse').hidden,
+      src: document.getElementById('browse-frame').getAttribute('src'),
+      locked: getComputedStyle(document.body).overflow,
+    };
+    // The pour does not pause because you looked away from it.
+    window.__view.paint({ k: 'f', w: 24.2, q: 1.9, t: 14.3, st: 'extracting', step: 'brew',
+      method: 'espresso', dose: 18, target: 36, curve: [] });
+    open.live = document.getElementById('browse-live').textContent;
+    open.conn = document.getElementById('browse-conn').textContent;
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 60));
+    return { ...open,
+      closed: document.getElementById('browse').hidden,
+      kept: document.getElementById('browse-frame').getAttribute('src'),
+      alive: window.__stillHere,
+      link: window.__view.link.state };
+  });
+  t('viewer: the other pages open over the shot instead of navigating to it',
+    browsed.shown === true && browsed.src === './shots.html' && browsed.locked === 'hidden',
+    `shown ${browsed.shown}, src ${browsed.src}, body overflow ${browsed.locked}`);
+  t('viewer: and the page underneath never unloads, so the link survives',
+    browsed.alive === 'yes' && browsed.link !== undefined,
+    `sentinel ${browsed.alive}, link ${browsed.link}`);
+  t('viewer: the pour stays on screen while you read the log',
+    browsed.live === '24.2 g \u00b7 14.3 s' && /linked|Waiting|Not linked/.test(browsed.conn),
+    `${browsed.live} / ${browsed.conn}`);
+  t('viewer: escape comes back, and the page you were on is still loaded',
+    browsed.closed === true && browsed.kept === './shots.html',
+    `closed ${browsed.closed}, frame kept ${browsed.kept}`);
+
   await watch.evaluate((had) => {
     if (had) localStorage.setItem('brewkit.theme', had);
     else localStorage.removeItem('brewkit.theme');

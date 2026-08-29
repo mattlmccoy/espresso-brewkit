@@ -638,6 +638,24 @@ bright region is the empty one, shrinking as coffee arrives. So what is drawn is
 the space *above* the level, washed out, and the coffee is the tile's own colour
 left alone.
 
+### The rest of brewkit, without dropping the link
+
+The phone had exactly one page. Tapping through to the shot log meant navigating
+away from `view.html`, and that destroys the peer connection — a WebRTC
+description is good for one connection, so coming back meant pairing again.
+
+But the log is already on the phone: every frame of the streamed log is written
+into local storage by `core/backup.js`, so Shots, Advisor, Kit and Lab all work
+on that device from data it already holds. The only thing that must not happen
+is this page unloading. So the other pages open in a same-origin iframe over the
+top, and the connection sits in a page that never navigates. The bar across the
+top carries the pour — grams and seconds, still updating — and the link's own
+status badge, because a link quietly dying behind an overlay is the one thing an
+overlay could hide.
+
+Escape or the back button returns to the shot, and the frame keeps its page, so
+going back and forth is instant rather than a reload each way.
+
 ### Following the laptop, until you disagree
 
 The viewer had no theme control at all, and no way to inherit one, so a dark
