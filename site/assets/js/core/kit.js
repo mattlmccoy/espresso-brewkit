@@ -16,7 +16,7 @@ const GRINDER_KEY = 'brewkit.grinders.v1';
 const MACHINE_KEY = 'brewkit.machines.v1';
 const SESSION_KEY = 'brewkit.session.v1';
 
-import { tombstone } from './sync.js';
+import { tombstone } from './backup.js';
 import { beanAge, fromFrozen } from './beans.js';
 
 const listeners = new Set();

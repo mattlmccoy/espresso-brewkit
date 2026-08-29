@@ -18,11 +18,20 @@
     border:var(--bw) solid var(--ink); background:var(--panel); box-shadow:none;
     font:700 12px/1 var(--sans); letter-spacing:.06em; text-transform:uppercase;
     color:var(--ink); cursor:pointer; }
-  .tab:hover { background:var(--flag); color:#100f0d; }
+  .tab { transition:background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out); }
+  .tab:hover { background:var(--flag); color:#100f0d; transform:translateY(-1px); }
   .tab[aria-selected="true"] { background:var(--ink); color:var(--tag-fg); }
   .tab[aria-selected="true"] .badge { background:var(--flag); color:#100f0d; }
   .tab .badge { padding:2px 7px; }
   .pane[hidden] { display:none; }
+  /* Switching drawers should feel like the drawer moved, not like the page was
+     replaced. One short slide is enough to carry that. */
+  .pane { animation:paneIn var(--t-slow) var(--ease-out); }
+  @keyframes paneIn { from { opacity:0; transform:translateY(7px); } }
+  /* Rows arrive in order rather than all at once — a full bag list is twenty
+     items, and twenty things appearing simultaneously reads as a flash. */
+  .rowin { animation:enter var(--t-slow) var(--ease-out) both; animation-delay:var(--d, 0ms); }
   /* The form is the exception, not the frame: you add a bag once and then look
      at bags for weeks. It opens itself while the list is empty. */
   .addbox { margin-bottom:18px; border-bottom:1px solid var(--hair); }
@@ -86,9 +95,8 @@
     <h1>Kit</h1>
     <p class="desc">Bags, grinders, machines and what is running out. A shot stores which ones it
     used, so days off roast is frozen at the moment you pulled it rather than recomputed later.</p>
-    <a class="ghost" href="./sync.html"
-       style="padding:9px 13px;text-decoration:none;font:700 12px/1 var(--sans);align-self:end;
-              margin-bottom:7px">Sync to phone</a>
+    <a class="btn-link small" href="./backup.html"
+       style="align-self:end;margin-bottom:7px">Back up this kit</a>
   </div>
 
   <nav class="tabs" id="kit-tabs" aria-label="What to manage">
@@ -288,6 +296,16 @@ function showTab(name, remember = true) {
     tab.setAttribute('aria-selected', String(tab.dataset.kitTab === pick));
   }
   if (remember) { try { localStorage.setItem(TAB_KEY, pick); } catch { /* ignore */ } }
+  // Replay the entrance for the pane that just became visible: an animation
+  // that ran while the pane was hidden never happened as far as anyone saw.
+  const holder = { bags: 'bags', grinders: 'grinders', machines: 'machines',
+                   consumables: 'consumables' }[pick];
+  const box = holder && $(holder);
+  if (box) {
+    for (const n of box.children) n.classList.remove('rowin');
+    void box.offsetWidth;
+    stagger(box);
+  }
 }
 
 for (const tab of document.querySelectorAll('[data-kit-tab]')) {
@@ -723,8 +741,27 @@ function renderConsumables() {
   }
 }
 
+/**
+ * Let a freshly-filled list arrive in order rather than all at once.
+ *
+ * Applied after the fact rather than threaded through four renderers: each of
+ * them replaces the whole holder, so "what is in here now" is exactly the set
+ * that wants staggering, and the renderers stay about kit rather than about
+ * timing. Capped, because the twentieth bag should not wait a second to exist.
+ */
+function stagger(holder, step = 34, cap = 10) {
+  [...holder.children].forEach((n, i) => {
+    n.style.setProperty('--d', `${Math.min(i, cap) * step}ms`);
+    n.classList.add('rowin');
+  });
+}
+
 function render() {
   renderBags(); renderGrinders(); renderMachines(); renderConsumables(); renderHabits();
+  for (const id of ['bags', 'grinders', 'machines', 'consumables']) {
+    const holder = $(id);
+    if (holder) stagger(holder);
+  }
 }
 kit.subscribe(render);
 /* ----------------------------------------------------------------- habit */

@@ -15,7 +15,7 @@
 const ADJ_KEY = 'brewkit.adjustments.v1';
 const CONS_KEY = 'brewkit.consumables.v1';
 
-import { tombstone } from './sync.js';
+import { tombstone } from './backup.js';
 
 const listeners = new Set();
 const emit = () => listeners.forEach((fn) => fn());

@@ -18,19 +18,6 @@ let pass = 0, fail = 0;
  * exactly as a person does. The add-box is opened too: it folds itself away
  * once a list has entries, and half these tests run against a list that does.
  */
-/**
- * A fork with no client id of its own. The repo ships one now, so the only way
- * to test the "you must supply one" half of the page is to serve the module a
- * deployment would have left empty.
- */
-const noShippedId = () => page.route('**/config.js', (route) => route.fulfill({
-  contentType: 'text/javascript', body: "export const GOOGLE_CLIENT_ID = '';\n" }));
-const shippedIdBack = () => page.unroute('**/config.js');
-/** The client-id box folds away once the site ships an id of its own. */
-const openClientBox = () => page.evaluate(() => {
-  document.getElementById('own-project').open = true;
-});
-
 const kitTab = async (name) => {
   await page.click(`[data-kit-tab="${name}"]`);
   await page.evaluate((n) => {
@@ -68,6 +55,113 @@ try {
   await page.waitForFunction(() => document.getElementById('sample-msg').textContent.includes('loaded'), {timeout:5000});
   const msg = await page.textContent('#sample-msg');
   t('index: sample data loads', msg.includes('15 shots loaded'), msg.trim());
+
+  // ---- the walkthrough on the home page ----
+  // It is the first thing anyone sees, and it is animated, which means it is
+  // also the easiest thing on the site to break silently. The timing half is
+  // pure, so it can be driven exactly rather than waited on.
+  const clock = await page.evaluate(async () => {
+    const T = await import('./assets/js/core/tour.js');
+    const tour = new T.Tour();
+    const seen = [tour.scene.id];
+    // Step a whole loop in 100 ms frames and record the order of the scenes.
+    for (let i = 0; i < Math.ceil(T.TOTAL_MS / 100) + 2; i++) {
+      if (tour.tick(100)) seen.push(tour.scene.id);
+    }
+    const jumpy = new T.Tour();
+    jumpy.tick(999999);            // a tab returning from the background
+    const once = new T.Tour({ loop: false });
+    for (let i = 0; i < 1000; i++) once.tick(100);
+    return { seen: seen.join(','), order: T.SCENES.map((x) => x.id).join(','),
+             cappedTo: jumpy.i, endsAt: once.scene.id, stopped: once.done && !once.playing };
+  });
+  t('tour: it walks the session in order and comes back round',
+    clock.seen.startsWith(clock.order + ',' + clock.order.split(',')[0]),
+    clock.seen);
+  t('tour: one enormous frame cannot skip the whole story',
+    clock.cappedTo <= 1, `advanced to scene ${clock.cappedTo} on a 999 s frame`);
+  t('tour: without looping it stops on the last scene rather than running on',
+    clock.endsAt === 'read' && clock.stopped, `${clock.endsAt}, stopped=${clock.stopped}`);
+
+  // The picture has to be a shot, not a shape. If the fake curve does not have
+  // a flat pre-infusion and a falling flow rate, the first impression of a tool
+  // that reads curves is a curve no espresso ever made.
+  const physics = await page.evaluate(async () => {
+    const T = await import('./assets/js/core/tour.js');
+    let peak = 0, peakAt = 0;
+    for (let x = 0; x < T.SHOT_S; x += 0.05) {
+      const f = T.flowAt(x);
+      if (f > peak) { peak = f; peakAt = x; }
+    }
+    const { weight } = T.curveTo(T.SHOT_S);
+    const rising = weight.every((pt, i) => i === 0 || pt[1] >= weight[i - 1][1] - 1e-9);
+    return { dry: T.flowAt(T.FIRST_DRIP_S - 0.5), peak, peakAt,
+             falling: T.flowAt(T.SHOT_S) < peak, final: T.FINAL_G, rising };
+  });
+  t('tour: nothing comes out during pre-infusion', physics.dry === 0, String(physics.dry));
+  t('tour: flow peaks and then sags, the way a puck actually behaves',
+    physics.falling && physics.peak > 1.4 && physics.peak < 3,
+    `peak ${physics.peak.toFixed(2)} g/s at ${physics.peakAt.toFixed(1)} s`);
+  t('tour: and the weight only ever goes up, landing on the yield target',
+    physics.rising && Math.abs(physics.final - 36) < 1.5, `${physics.final.toFixed(1)} g`);
+
+  // The dose beat has to actually pass through the number it claims to be
+  // filling to, and has to tare rather than pretending the cup weighs nothing.
+  const dose = await page.evaluate(async () => {
+    const T = await import('./assets/js/core/tour.js');
+    let hitWindow = false, sawTare = false, maxNet = 0;
+    for (let u = 0; u <= 1; u += 0.002) {
+      const p = T.dosePhase(u);
+      if (p.phase === 'tare' && p.raw > 40 && p.net === 0) sawTare = true;
+      if (p.phase !== 'vessel' && Math.abs(p.net - T.DOSE_TARGET) < 1.5) hitWindow = true;
+      // Only after the tare: before it, net is the cup, which is the point.
+      if (p.tare) maxNet = Math.max(maxNet, p.net);
+    }
+    const g = T.grindPhase(0.99);
+    return { hitWindow, sawTare, maxNet, pfTare: g.tare, pfNet: g.net };
+  });
+  t('tour: the dose reaches the window it is aiming at',
+    dose.hitWindow && dose.maxNet < 20, `tops out at ${dose.maxNet.toFixed(1)} g`);
+  t('tour: and the cup is tared away rather than counted',
+    dose.sawTare, 'raw shows the cup, net shows zero');
+  t('tour: the grind beat does the same three things with a portafilter',
+    dose.pfTare > 400 && Math.abs(dose.pfNet - 17.9) < 0.2,
+    `tare ${dose.pfTare} g, ${dose.pfNet} g of grounds`);
+
+  // And the page actually draws it: chapters, a scene visible, a curve.
+  await page.waitForSelector('#t-chapters button');
+  const stage = await page.evaluate(async () => {
+    const out = {};
+    window.__tour.pause();
+    out.chapters = [...document.querySelectorAll('#t-chapters button')]
+      .map((b) => b.textContent.trim()).join('|');
+    window.__tour.seek(1); window.__tour.t = 4200; window.__tourPaint();
+    out.doseShown = document.querySelector('.scene[data-scene="weigh"]').classList.contains('on');
+    out.doseNumber = document.getElementById('w-n').textContent;
+    window.__tour.seek(3); window.__tour.t = 6000; window.__tourPaint();
+    out.brewShown = document.querySelector('.scene[data-scene="brew"]').classList.contains('on');
+    out.curveDrawn = !!document.querySelector('#t-curve svg path');
+    window.__tour.seek(4); window.__tour.t = 6000; window.__tourPaint();
+    out.stars = document.querySelectorAll('#r-stars .on').length;
+    return out;
+  });
+  t('tour: the chapters name the steps the Live page uses',
+    stage.chapters === '00 Pair|01 Dose|02 Grind|03 Brew|04 Read', stage.chapters);
+  t('tour: seeking to a chapter draws that chapter',
+    stage.doseShown && Number(stage.doseNumber) > 0 && stage.brewShown && stage.curveDrawn,
+    `dose ${stage.doseNumber} g, curve drawn: ${stage.curveDrawn}`);
+  t('tour: the last beat ends on a rating', stage.stars === 4, `${stage.stars} stars`);
+
+  // Pausing has to actually stop it, or the control is a lie.
+  const paused = await page.evaluate(async () => {
+    window.__tour.seek(0);
+    window.__tour.pause();
+    const before = window.__tour.t;
+    for (let i = 0; i < 20; i++) window.__tour.tick(100);
+    return { before, after: window.__tour.t };
+  });
+  t('tour: paused means paused', paused.after === paused.before,
+    `${paused.before} -> ${paused.after}`);
 
   // 2. Logger table populated
   await page.goto(B + '/logger.html');
@@ -241,7 +335,18 @@ try {
     t(`layout: no horizontal overflow on ${name}`, overflow <= 1, overflow + 'px');
 
     // Items in one grid row must share a top edge — an adjacency margin leaking
-    // into grid children silently staircases them.
+    // into grid children silently staircases them. Measured only once every
+    // entrance has finished: a staggered card is mid-transform for a few hundred
+    // milliseconds, and a ruler held against a moving object measures nothing.
+    await page.evaluate(() => Promise.race([
+      Promise.all(document.getAnimations()
+        // Infinite animations never settle, and neither does one belonging to
+        // an element the page has since hidden. Both would hang this forever,
+        // and neither moves layout; the deadline covers what the filter misses.
+        .filter((a) => a.effect?.getTiming?.().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => {}))),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]));
     const rows = await page.evaluate(() => {
       const bad = [];
       for (const g of document.querySelectorAll('.grid')) {
@@ -1692,6 +1797,7 @@ try {
   const landed = await page.evaluate(() => ({
     cls: document.getElementById('fill').className,
     gap: document.getElementById('fill-gap').textContent,
+    hero: document.querySelector('.st.hero').className,
   }));
 
   t('bar: nothing to show while it is still waiting for the cup',
@@ -1702,6 +1808,18 @@ try {
     `${halfway.of} — ${halfway.gap} (${halfway.width})`);
   t('bar: and turns over to the live colour once you are in the window',
     /is-in/.test(landed.cls) && landed.gap === 'in the window', landed.gap);
+  // Across a kitchen the bar is a detail and the tile is a blue rectangle, so
+  // the tile is what has to change when you land.
+  t('bar: and the whole tile acknowledges it, not only the bar',
+    /in-window/.test(landed.hero), landed.hero);
+  const cleared = await page.evaluate(async () => {
+    window.__mock.grams = 0;
+    window.__sess.goto('setup');
+    await new Promise((r) => setTimeout(r, 400));
+    return document.querySelector('.st.hero').className;
+  });
+  t('bar: the acknowledgement clears when the bar does',
+    !/in-window/.test(cleared), cleared);
 
   // ---- leaving Live should not cost you the scale or the phone ----
   // A page navigation destroys a GATT connection and a peer connection alike;
@@ -2073,12 +2191,12 @@ try {
   const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
   t('lab: the daily loop is what the nav shows',
     navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html'
-      + ',./sync.html',
+      + ',./backup.html',
     navLinks.join(' '));
-  t('lab: and Sync rides in as the account chip, not as a sixth tab',
-    await page.locator('.nav a[data-account]').count() === 1
-    && (await page.getAttribute('.nav a[data-account]', 'href')) === './sync.html',
-    'one chip, last');
+  t('lab: and Backup rides in last, not as a sixth first-class tab',
+    await page.locator('.nav a[data-backup]').count() === 1
+    && (await page.getAttribute('.nav a[data-backup]', 'href')) === './backup.html',
+    'one link, last');
 
 
 
@@ -2155,356 +2273,70 @@ try {
 
 
 
-  // ---- the Google site-verification file ----
-  // It has to be served byte for byte at its exact path: Google fetches it and
-  // compares the contents. A build step that "helpfully" rewrites it, or a
-  // refactor that tidies it away, silently un-verifies the site.
-  const verify = await page.evaluate(async () => {
-    const res = await fetch('./google5caa7feb8604ab88.html');
-    return { ok: res.ok, status: res.status, body: (await res.text()).trim() };
-  });
-  t('verification: Google\u2019s file is served from the site root',
-    verify.ok, `HTTP ${verify.status}`);
-  t('verification: its contents are exactly what Google wrote',
-    verify.body === 'google-site-verification: google5caa7feb8604ab88.html', verify.body);
-  // The deploy refuses to ship a page missing its closing tag. This file has no
-  // opening one either, and must not be mistaken for a truncated page.
+  // The deploy refuses to ship a page missing its closing tag. Not everything
+  // with an .html extension is a page, though — a one-line stub has no opening
+  // tag either and must not be mistaken for a truncated one.
   const guard = await (async () => {
     const { readFile } = await import('node:fs/promises');
     const yml = await readFile('.github/workflows/pages.yml', 'utf8');
     return /grep -q '<html' "\$f" \|\| continue/.test(yml);
   })();
-  t('verification: the deploy guard skips files that are not pages', guard,
-    guard ? 'guarded' : 'the sanity check would reject the verification file');
+  t('deploy: the page guard skips files that are not pages', guard,
+    guard ? 'guarded' : 'the sanity check would reject a one-line stub');
 
-  // ---- signing in to Google, driven end to end against a fake ----
-  // The real popup needs a Google account CI cannot have, so the transport is
-  // injectable: everything except Google's own window is exercised here.
-  await noShippedId();
-  await page.goto(B + '/sync.html');
-  await page.evaluate(() => localStorage.removeItem('brewkit.sync.v1'));
-  await page.reload();
-  await page.waitForSelector('#gsignin', { timeout: 5000 });
+  // Nothing in the repo should still be reaching for the Google verification
+  // stub, the client id module, or the Sync page — all three are gone.
+  const ghosts = await (async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const files = (await readdir('site')).filter((f) => f.endsWith('.html'));
+    const hits = [];
+    for (const f of files) {
+      const body = await readFile(`site/${f}`, 'utf8');
+      if (/sync\.html|config\.js|google5caa7feb|accounts\.google/.test(body)) hits.push(f);
+    }
+    return hits;
+  })();
+  t('deploy: no page still reaches for the removed Google files',
+    ghosts.length === 0, ghosts.join(', ') || 'clean');
 
-  t('signin: the button is disabled until there is a client ID to authorise',
-    await page.locator('#gsignin').isDisabled()
-    && await page.locator('#no-client').isVisible(), 'blocked with a reason');
-  t('signin: every permission is named before you are asked for it',
-    (await page.locator('#scopes li').count()) === 3
-    && /private folder/i.test(await page.innerText('#scopes')),
-    (await page.innerText('#scopes')).replace(/\s+/g, ' ').slice(0, 80));
-  t('signin: it is Google\u2019s button, not one of ours',
-    (await page.locator('#gsignin svg path').count()) === 4
-    && /Sign in with Google/.test(await page.textContent('#gsignin')),
-    'four-colour G, official wording');
+  // ---- backing the log up to a file ----
+  // Google Drive sync is gone: github.io is on the Public Suffix List, so Google
+  // will not take it as an authorised domain, so the consent screen can never
+  // leave Testing, so every user would have to be added to a tester list by
+  // hand. A file is the transport instead. The merge underneath is unchanged
+  // and is still where the risk is, so it stays tested hard.
+  await page.goto(B + '/backup.html');
+  await page.waitForSelector('#counts div', { timeout: 5000 });
 
-  await page.fill('#client', '123-abc.apps.googleusercontent.com');
-  await page.click('#save-client');
-  await page.waitForTimeout(200);
-  t('signin: a valid client ID enables the button',
-    !(await page.locator('#gsignin').isDisabled()), 'enabled');
+  t('backup: no page still asks anyone to sign in to Google',
+    !/google|sign in|oauth/i.test(await page.innerText('body')),
+    'no account language on the page');
 
-  // Stand a fake Google in, then click the real button.
-  const flow = await page.evaluate(async () => {
-    const calls = { scopes: null, revoked: null, prompts: [] };
-    const gis = {
-      initTokenClient: (o) => {
-        calls.scopes = o.scope;
-        calls.prompts.push(o.prompt);
-        return { requestAccessToken: () => o.callback({ access_token: 'tok-abc' }) };
-      },
-      revoke: (t) => { calls.revoked = t; },
-    };
-    const fetchImpl = async (url) => {
-      if (String(url).includes('userinfo')) {
-        return { ok: true, json: async () => ({
-          name: 'Ada Lovelace', email: 'ada@example.com',
-          picture: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-        }) };
-      }
-      if (String(url).includes('files?')) return { ok: true, json: async () => ({ files: [] }) };
-      return { ok: true, json: async () => ({}) };
-    };
-    window.__syncTest.use(gis, fetchImpl);
-    return calls;
-  });
-  await page.click('#gsignin');
-  await page.waitForFunction(
-    () => document.getElementById('signed-in').style.display !== 'none', { timeout: 5000 });
+  const counts = await page.$$eval('#counts div', (ds) =>
+    ds.map((d) => d.querySelector('.k').textContent));
+  t('backup: every store that travels is counted on screen',
+    ['shots', 'bags', 'grinders', 'machines', 'supplies', 'adjustments']
+      .every((k) => counts.includes(k)), counts.join(' '));
 
-  const scopes = await page.evaluate(async () => (await import('./assets/js/core/sync.js')).SCOPE);
-  t('signin: it asks for identity and the narrowest Drive scope, nothing more',
-    scopes === 'openid email profile https://www.googleapis.com/auth/drive.appdata', scopes);
+  t('backup: the page says where the log actually lives, and what would lose it',
+    /shutting the machine down/i.test(await page.innerText('body'))
+    && /clearing site data/i.test(await page.innerText('body')),
+    'persistence and its one risk both stated');
+  t('backup: and is honest that a phone cannot stream the scale',
+    /no iOS browser has Web Bluetooth/i.test(await page.innerText('body')),
+    'iOS limitation stated');
 
-  t('signin: the account is shown once signed in',
-    (await page.textContent('#acct-name')) === 'Ada Lovelace'
-    && (await page.textContent('#acct-email')) === 'ada@example.com',
-    `${await page.textContent('#acct-name')} · ${await page.textContent('#acct-email')}`);
-  await page.waitForFunction(
-    () => /url\(/.test(document.getElementById('avatar').style.backgroundImage), { timeout: 4000 })
-    .catch(() => {});
-  t('signin: with their avatar',
-    /url\(/.test(await page.getAttribute('#avatar', 'style') ?? ''),
-    (await page.getAttribute('#avatar', 'style') ?? '').slice(0, 40));
-  t('signin: and it synced in the same action',
-    /Synced|First sync/.test(await page.textContent('#sync-msg')),
-    await page.textContent('#sync-msg'));
-
-  // A return visit: the account is remembered, the token deliberately is not.
-  await page.reload();
-  await page.waitForSelector('#signed-in', { timeout: 5000 });
-  const syncStored = await page.evaluate(() => localStorage.getItem('brewkit.sync.v1'));
-  t('signin: the account survives a reload so the page knows who you are',
-    (await page.textContent('#acct-name')) === 'Ada Lovelace',
-    await page.textContent('#acct-name'));
-  t('signin: the access token is never persisted',
-    !/tok-abc/.test(syncStored), 'no token in storage');
-  t('signin: an expired session says so rather than pretending',
-    /expired/i.test(await page.textContent('#status'))
-    && /Reconnect/.test(await page.textContent('#sync')),
-    `${await page.textContent('#status')} · ${await page.textContent('#sync')}`);
-
-  // Signing out hands the token back rather than just forgetting it.
-  const out = await page.evaluate(async () => {
-    let revoked = null;
-    const gis = { initTokenClient: (o) => ({ requestAccessToken: () => o.callback({ access_token: 'tok-xyz' }) }),
-                  revoke: (t) => { revoked = t; } };
-    const fetchImpl = async (url) => String(url).includes('userinfo')
-      ? { ok: true, json: async () => ({ name: 'Ada Lovelace', email: 'ada@example.com' }) }
-      : { ok: true, json: async () => ({ files: [] }) };
-    const c = window.__syncTest.use(gis, fetchImpl);
-    await c.signIn();
-    await c.signOut();
-    return { revoked, token: c.token,
-             stored: JSON.parse(localStorage.getItem('brewkit.sync.v1')).account };
-  });
-  t('signin: signing out revokes the token with Google',
-    out.revoked === 'tok-xyz' && out.token === null && out.stored === null,
-    `revoked ${out.revoked}, account cleared`);
-
-  // ---- a client id nobody has to type ----
-  // Asking each visitor for an OAuth client id meant asking them to make a
-  // Google Cloud project before they could use a coffee log. The id ships with
-  // the deployment instead — it can, because it is public by construction and
-  // secured by an origin allowlist rather than by secrecy.
-  await shippedIdBack();
-  await page.goto(B + '/sync.html');
-  const shipped = await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
-    const meta = document.createElement('meta');
-    meta.name = 'brewkit-client-id';
-    meta.content = 'shipped-999.apps.googleusercontent.com';
-    document.head.appendChild(meta);
-    localStorage.removeItem('brewkit.sync.v1');
-
-    const bare = sync.config();
-    // An override wins, and is the only thing written down.
-    sync.saveConfig({ clientId: 'mine-1.apps.googleusercontent.com' });
-    const overridden = sync.config();
-    const storedWith = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
-    // Clearing it returns to the shipped id rather than breaking sign-in.
-    sync.saveConfig({ clientId: '' });
-    const cleared = sync.config();
-    // Saving something else must not disturb the override, or the lack of one.
-    sync.saveConfig({ lastSync: '2026-08-28T00:00:00Z' });
-    const untouched = sync.config();
-    // Pasting the shipped id by hand is not an override, so it is not stored.
-    sync.saveConfig({ clientId: 'shipped-999.apps.googleusercontent.com' });
-    const same = JSON.parse(localStorage.getItem('brewkit.sync.v1'));
-    sync.saveConfig({ clientId: '', lastSync: null, account: null });
-    meta.remove();
-    return {
-      bare: [bare.clientId, bare.ownClientId, bare.shippedClientId].join('|'),
-      overridden: [overridden.clientId, overridden.ownClientId].join('|'),
-      storedWith: storedWith.clientId,
-      cleared: [cleared.clientId, cleared.ownClientId].join('|'),
-      untouched: untouched.clientId,
-      sameStored: same.clientId,
-      afterMeta: sync.config().shippedClientId,
-    };
-  });
-  t('client id: a shipped id is what sign-in uses when you have not set one',
-    shipped.bare === 'shipped-999.apps.googleusercontent.com||'
-      + 'shipped-999.apps.googleusercontent.com', shipped.bare);
-  t('client id: your own overrides it',
-    shipped.overridden === 'mine-1.apps.googleusercontent.com|mine-1.apps.googleusercontent.com',
-    shipped.overridden);
-  t('client id: and the override is the only part written to storage',
-    shipped.storedWith === 'mine-1.apps.googleusercontent.com', shipped.storedWith);
-  t('client id: clearing it falls back rather than breaking sign-in',
-    shipped.cleared === 'shipped-999.apps.googleusercontent.com|', shipped.cleared);
-  t('client id: saving anything else leaves it alone',
-    shipped.untouched === 'shipped-999.apps.googleusercontent.com', shipped.untouched);
-  t('client id: pasting the shipped id by hand is not stored as an override',
-    shipped.sameStored === '', `[${shipped.sameStored}]`);
-  t('client id: with the meta gone, the deployment id is what is left',
-    /\.apps\.googleusercontent\.com$/.test(shipped.afterMeta), shipped.afterMeta);
-
-  // The repo really does ship one — which is the whole point, and the one
-  // assertion that would quietly stop meaning anything if config.js emptied.
-  await page.goto(B + '/sync.html');
-  const fromRepo = await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
-    return { shipped: sync.shippedClientId(), disabled: document.getElementById('gsignin').disabled };
-  });
-  t('client id: this deployment ships one, so nobody is asked to make a project',
-    /^\d+-\w+\.apps\.googleusercontent\.com$/.test(fromRepo.shipped)
-    && fromRepo.disabled === false, fromRepo.shipped.slice(0, 22) + '…');
-
-  // The page has to change shape too: with an id, sign-in is one click and the
-  // console instructions stop being something you must do.
-  // Serve the page with the meta in it, the way a real deployment would,
-  // rather than injecting it after the module has already read it.
-  await page.route('**/sync.html', async (route) => {
-    const res = await route.fetch();
-    const body = (await res.text()).replace('<head>',
-      '<head>\n<meta name="brewkit-client-id" content="shipped-999.apps.googleusercontent.com">');
-    await route.fulfill({ response: res, body, headers: { 'content-type': 'text/html' } });
-  });
-  await page.goto(B + '/sync.html');
-  await page.waitForSelector('#gsignin', { timeout: 4000 });
-  const shippedUi = await page.evaluate(() => ({
-    disabled: document.getElementById('gsignin').disabled,
-    noClient: document.getElementById('no-client').style.display,
-    summary: document.getElementById('client-summary').textContent.replace(/\s+/g, ' ').trim(),
-    open: document.getElementById('own-project').open,
-    setup: document.getElementById('setup-tag').textContent,
-    box: document.getElementById('client').value,
-  }));
-  t('client id: shipped, the Google button is live with nothing typed in',
-    shippedUi.disabled === false && shippedUi.noClient === 'none', 'enabled');
-  t('client id: and the console steps become "deploying your own copy"',
-    shippedUi.setup === 'Deploying your own copy'
-    && shippedUi.summary === 'Use a different Google project',
-    `${shippedUi.setup} · ${shippedUi.summary}`);
-  t('client id: the panel is folded away and the box stays empty',
-    shippedUi.open === false && shippedUi.box === '',
-    `open=${shippedUi.open} box="${shippedUi.box}"`);
-
-  await page.unroute('**/sync.html');
-  await noShippedId();
-  await page.goto(B + '/sync.html');
-  const bareUi = await page.evaluate(() => ({
-    disabled: document.getElementById('gsignin').disabled,
-    setup: document.getElementById('setup-tag').textContent,
-    open: document.getElementById('own-project').open,
-  }));
-  t('client id: without one, the page still asks for yours and says so',
-    bareUi.disabled === true && bareUi.setup === 'Setting it up, once' && bareUi.open === true,
-    `${bareUi.setup}, panel open`);
-  await shippedIdBack();
-
-  // ---- the account, on every page ----
-  // The chip reads the stored profile, not a token — which is the whole reason
-  // a page holding no credential can still say whose log this is.
-  await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
-    sync.saveConfig({ account: { name: 'Ada Lovelace', email: 'ada@example.com', picture: '' } });
-  });
-  const chips = {};
-  for (const name of ['live.html', 'shots.html', 'kit.html', 'lab.html', 'advisor.html']) {
-    await page.goto(`${B}/${name}`);
-    await page.waitForSelector('.nav a[data-account]', { timeout: 4000 });
-    chips[name] = [await page.textContent('.nav a[data-account] .acct-face'),
-                   await page.textContent('.nav a[data-account] .acct-name')].join('|');
-  }
-  t('account: the signed-in face follows you across the tool',
-    Object.values(chips).every((v) => v === 'AL|Ada Lovelace')
-    && Object.keys(chips).length === 5, JSON.stringify(chips));
-  t('account: and says which account, not just that there is one',
-    /ada@example\.com/.test(await page.getAttribute('.nav a[data-account]', 'title') ?? ''),
-    await page.getAttribute('.nav a[data-account]', 'title'));
-
-  await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
-    sync.saveConfig({ account: null });
-  });
-  await page.goto(B + '/live.html');
-  t('account: signed out, the same control is the way in to Sync',
-    (await page.textContent('.nav a[data-account]')).trim() === 'Sync'
-    && await page.locator('.nav a[data-account] .acct-face').count() === 0,
-    await page.textContent('.nav a[data-account]'));
-
-  // ---- when Google refuses ----
-  // The commonest failure by far is an unpublished app whose owner never added
-  // themselves as a test user. Google's popup shows the reason on its own page
-  // and then never redirects back, so the page has to infer it.
-  const help = await page.evaluate(async () => {
-    const s = await import('./assets/js/core/sync.js');
-    const ids = (m) => s.signInHelp(m, { origin: 'https://x.test' }).map((c) => c.id).join(',');
-    return {
-      blocked: ids('Access blocked: has not completed the Google verification process'),
-      denied: ids('The user did not approve (access_denied)'),
-      closed: ids('Sign-in window was closed.'),
-      mismatch: ids('Error 400: redirect_uri_mismatch'),
-      badClient: ids('invalid_client'),
-      offline: ids('Could not load Google Sign-In. Check the network, and any content blocker.'),
-      originAdvice: s.signInHelp('Sign-in window was closed.', { origin: 'https://x.test' })[1],
-      testerAdvice: s.signInHelp('access_denied', {})[0].detail,
-    };
-  });
-  t('signin: a blocked app is diagnosed as the missing test user',
-    help.blocked === 'tester', help.blocked);
-  t('signin: so is a bare access_denied', help.denied === 'tester', help.denied);
-  t('signin: a closed window is indistinguishable, so it names both causes',
-    help.closed === 'tester,origin', help.closed);
-  t('signin: a mismatch points at the origin allowlist alone',
-    help.mismatch === 'origin', help.mismatch);
-  t('signin: a bad client id leads with the client id',
-    help.badClient === 'client,origin', help.badClient);
-  t('signin: failing to reach Google is not a setup mistake, and says nothing',
-    help.offline === '', `[${help.offline}]`);
-  t('signin: the origin advice quotes the exact origin to paste',
-    help.originAdvice.title.includes('https://x.test'), help.originAdvice.title);
-  t('signin: and separates the two fields people confuse',
-    /Authorised domains/.test(help.originAdvice.detail)
-    && /github\.io/.test(help.originAdvice.detail), 'origins vs domains named');
-  t('signin: the test-user advice says where the setting lives',
-    /Test users/.test(help.testerAdvice) && /Audience/.test(help.testerAdvice),
-    help.testerAdvice.slice(0, 60));
-
-  // And it has to reach the screen, not just exist as a function.
-  await page.goto(B + '/sync.html');
-  await openClientBox();
-  await page.fill('#client', '123-abc.apps.googleusercontent.com');
-  await page.click('#save-client');
-  await page.waitForTimeout(150);
-  const refused = await page.evaluate(async () => {
-    const gis = { initTokenClient: (o) => ({
-      requestAccessToken: () => o.error_callback({ type: 'popup_closed' }) }) };
-    window.__syncTest.use(gis, async () => ({ ok: true, json: async () => ({}) }));
-    document.getElementById('gsignin').click();
-    await new Promise((r) => setTimeout(r, 120));
-    const box = document.getElementById('signin-help');
-    return { hidden: box.hidden, text: box.textContent,
-             msg: document.getElementById('sync-msg').textContent };
-  });
-  t('signin: a refusal puts the fix on screen rather than "window was closed"',
-    !refused.hidden && /Test users/.test(refused.text),
-    `${refused.msg} → ${refused.text.replace(/\s+/g, ' ').slice(0, 70)}`);
-
-  // The setup instructions must carry the same answer, for someone reading
-  // before they hit the error rather than after.
-  const steps = (await page.innerText('.steps-list')).replace(/\s+/g, ' ');
-  t('setup: the step people miss is its own step, with the error it causes',
-    /Test users/.test(steps) && /Access blocked/.test(steps), 'named and quoted');
-  t('setup: and the origin field is distinguished from authorised domains',
-    /JavaScript origins/.test(steps) && /Authorised domains/.test(steps), 'both named');
-
-  // ---- syncing two devices ----
-  // The merge is pure and gets tested hard; the Drive half needs a real Google
-  // account, so it is kept thin and exercised here through a fake transport.
-  await page.goto(B + '/sync.html');
+  // The merge is pure, so it can be driven directly and hard.
   const merge = await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
+    const backup = await import('./assets/js/core/backup.js');
     const local = [{ shot_id: 'a', rating: 7, timestamp: '2026-08-01 09:00:00' },
                    { shot_id: 'b', rating: 5, timestamp: '2026-08-02 09:00:00' }];
     const remote = [{ shot_id: 'a', rating: 9, timestamp: '2026-08-05 09:00:00' },
                     { shot_id: 'c', rating: 6, timestamp: '2026-08-03 09:00:00' }];
-    const union = sync.mergeStore(local, remote, 'shot_id', 'shot');
-    const withDeath = sync.mergeStore(local, remote, 'shot_id', 'shot',
+    const union = backup.mergeStore(local, remote, 'shot_id', 'shot');
+    const withDeath = backup.mergeStore(local, remote, 'shot_id', 'shot',
       [{ type: 'shot', id: 'c' }, { type: 'bag', id: 'a' }]);
-    const noStamps = sync.mergeStore(
+    const noStamps = backup.mergeStore(
       [{ shot_id: 'x', rating: 1 }], [{ shot_id: 'x', rating: 2 }], 'shot_id', 'shot');
     return {
       ids: union.map((r) => r.shot_id).sort().join(','),
@@ -2513,23 +2345,23 @@ try {
       localWins: noStamps[0].rating,
     };
   });
-  t('sync: merging two devices loses nothing', merge.ids === 'a,b,c', merge.ids);
-  t('sync: the later edit wins a clash', merge.clash === 9,
-    `kept ${merge.clash} (remote, edited 08-05) over 7 (local, 08-01)`);
-  t('sync: a deletion travels, and only for its own type',
+  t('backup: merging two devices loses nothing', merge.ids === 'a,b,c', merge.ids);
+  t('backup: the later edit wins a clash', merge.clash === 9,
+    `kept ${merge.clash} (other device, edited 08-05) over 7 (local, 08-01)`);
+  t('backup: a deletion travels, and only for its own type',
     merge.afterDeath === 'a,b', `${merge.afterDeath} — the bag tombstone must not delete shot a`);
-  t('sync: with no usable timestamp, the device in front of you wins',
+  t('backup: with no usable timestamp, the device in front of you wins',
     merge.localWins === 1, String(merge.localWins));
 
-  // Round-trip the whole dataset through a fake Drive. The stores are shared
-  // fixture for everything after this, so put them back afterwards — a test
-  // that wrecks the fixture fails three unrelated ones further down.
+  // Round-trip the whole dataset. The stores are shared fixture for everything
+  // after this, so put them back afterwards — a test that wrecks the fixture
+  // fails three unrelated ones further down.
   const fixture = await page.evaluate(() => ({
     shots: localStorage.getItem('brewkit.shots.v1'),
     tombs: localStorage.getItem('brewkit.tombstones.v1'),
   }));
   const round = await page.evaluate(async () => {
-    const sync = await import('./assets/js/core/sync.js');
+    const backup = await import('./assets/js/core/backup.js');
     localStorage.setItem('brewkit.shots.v1', JSON.stringify(
       [{ shot_id: 'keep-1', dose_g: 18 }]));
     localStorage.setItem('brewkit.tombstones.v1', '[]');
@@ -2539,53 +2371,88 @@ try {
       data: { 'brewkit.shots.v1': [{ shot_id: 'phone-1', dose_g: 17 },
                                    { shot_id: 'gone-1', dose_g: 16 }] },
     };
-    const applied = sync.apply(fromOtherDevice);
+    const applied = backup.apply(fromOtherDevice);
     const after = JSON.parse(localStorage.getItem('brewkit.shots.v1')).map((r) => r.shot_id).sort();
-    const snap = sync.snapshot();
-    const badFormat = sync.apply({ format: 99 });
+    const snap = backup.snapshot();
+    const badFormat = backup.apply({ format: 99 });
     return { applied: applied.ok, after, snapFormat: snap.format,
              stores: Object.keys(snap.data).length, badFormat: badFormat.ok,
-             badMsg: badFormat.error };
+             badMsg: badFormat.error,
+             file: backup.filename(new Date('2026-03-07T12:00:00')),
+             described: backup.describe(snap).shots };
   });
-  t('sync: a remote snapshot merges into local storage',
+  t('backup: another device\u2019s file merges into local storage',
     round.applied && round.after.join(',') === 'keep-1,phone-1',
     round.after.join(',') + ' (gone-1 deleted on the other device)');
-  t('sync: a snapshot carries every store that travels',
+  t('backup: a snapshot carries every store that travels',
     round.snapFormat === 1 && round.stores === 6, round.stores + ' stores');
-  t('sync: an unknown format is refused rather than half-applied',
+  t('backup: an unknown format is refused rather than half-applied',
     round.badFormat === false && /format/i.test(round.badMsg), round.badMsg);
+  t('backup: the filename is dated so a folder of them sorts itself',
+    round.file === 'brewkit-2026-03-07.json', round.file);
+  t('backup: describe() counts what is in a snapshot before it is applied',
+    round.described === 2, `${round.described} shots`);
+
+  // A wrong file picked by mistake is the likeliest failure, so it has to fail
+  // with a sentence rather than a SyntaxError.
+  const bad = await page.evaluate(async () => {
+    const backup = await import('./assets/js/core/backup.js');
+    const grab = (fn) => { try { fn(); return 'no error'; } catch (e) { return e.message; } };
+    return {
+      notJson: grab(() => backup.parseBackup('dose,yield\n18,36')),
+      notBackup: grab(() => backup.parseBackup('[1,2,3]')),
+      wrongVersion: grab(() => backup.parseBackup('{"format":7,"data":{}}')),
+      noData: grab(() => backup.parseBackup('{"format":1}')),
+      good: backup.parseBackup('{"format":1,"data":{}}').format,
+    };
+  });
+  t('backup: a CSV picked by mistake is refused in English',
+    /not even JSON/.test(bad.notJson), bad.notJson);
+  t('backup: so is JSON that is not a backup',
+    /not a Brewkit backup/.test(bad.notBackup) && /format 7/.test(bad.wrongVersion)
+    && /no data/i.test(bad.noData),
+    [bad.notBackup, bad.wrongVersion, bad.noData].join(' | '));
+  t('backup: and a real one parses', bad.good === 1, String(bad.good));
 
   // Deleting really does leave a tombstone, through the app's own code paths.
   const deaths = await page.evaluate(async () => {
     const store = await import('./assets/js/core/store.js');
-    const sync = await import('./assets/js/core/sync.js');
+    const backup = await import('./assets/js/core/backup.js');
     localStorage.setItem('brewkit.tombstones.v1', '[]');
     localStorage.setItem('brewkit.shots.v1', JSON.stringify([{ shot_id: 'doomed', dose_g: 18 }]));
     store.remove('doomed');
-    return sync.tombstones().map((x) => `${x.type}:${x.id}`);
+    return backup.tombstones().map((x) => `${x.type}:${x.id}`);
   });
-  t('sync: deleting a shot records a tombstone, not just a removal',
+  t('backup: deleting a shot records a tombstone, not just a removal',
     deaths.includes('shot:doomed'), deaths.join(',') || 'none recorded');
+
+  // The nav dot is the only thing standing between a cleared browser and a
+  // year of shots, so it has to light up on a log that has outrun its backup.
+  const nudge = await page.evaluate(async () => {
+    const ui = await import('./assets/js/ui.js');
+    const backup = await import('./assets/js/core/backup.js');
+    localStorage.setItem('brewkit.shots.v1', JSON.stringify(
+      [{ shot_id: 'fresh', timestamp: '2026-08-28 09:00:00' }]));
+    backup.saveConfig({ lastBackup: '2026-08-01T00:00:00Z' });
+    const stale = ui.backupState();
+    backup.saveConfig({ lastBackup: '2026-08-29T00:00:00Z' });
+    const current = ui.backupState();
+    ui.paintBackup();
+    return { stale: stale.due, current: current.due,
+             lit: document.querySelector('[data-backup]').classList.contains('due') };
+  });
+  t('backup: the nav dot lights when shots have outrun the last backup',
+    nudge.stale === true, 'due after a shot newer than the file');
+  t('backup: and goes out once a backup is newer than every shot',
+    nudge.current === false && nudge.lit === false, 'clean');
 
   await page.evaluate((f) => {
     if (f.shots === null) localStorage.removeItem('brewkit.shots.v1');
     else localStorage.setItem('brewkit.shots.v1', f.shots);
     if (f.tombs === null) localStorage.removeItem('brewkit.tombstones.v1');
     else localStorage.setItem('brewkit.tombstones.v1', f.tombs);
+    localStorage.removeItem('brewkit.backup.v1');
   }, fixture);
-
-  const setup = await page.innerText('#client-msg, .steps-list');
-  t('sync: the page states what only the user can do',
-    /console\.cloud\.google\.com/i.test(await page.innerText('.steps-list')),
-    'setup steps present');
-  t('sync: and is honest that a phone cannot stream the scale',
-    /no iOS browser has Web Bluetooth/i.test(await page.innerText('body')),
-    'iOS limitation stated');
-  await page.fill('#client', 'not-a-client-id');
-  await page.click('#save-client');
-  t('sync: a client id that cannot work is refused up front',
-    /apps\.googleusercontent\.com/.test(await page.textContent('#client-msg')),
-    await page.textContent('#client-msg'));
 
   // ---- the Live page is a dashboard, and has to fit on one screen ----
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
@@ -3195,6 +3062,46 @@ try {
     t(`contrast (${scheme}): chrome pairs stay legible`, worst.r >= 4.5,
       `worst ${worst.sel} at ${worst.r}:1`);
     await c2.close();
+  }
+
+  // ---- the log survives the computer being shut down ----
+  // With no cloud copy behind it, "your shots stay on this machine" is the whole
+  // storage promise, and an ephemeral context proves nothing about it — every
+  // other test here runs in one, which is exactly why they all pass whether or
+  // not the claim is true. So: write shots, close the browser entirely, open a
+  // new one on the same profile directory, and look.
+  {
+    const { mkdtemp, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const profile = await mkdtemp(join(tmpdir(), 'brewkit-profile-'));
+    try {
+      const write = await chromium.launchPersistentContext(profile, {
+        ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+      });
+      const wp = await write.newPage();
+      await wp.goto(B + '/index.html');
+      await wp.evaluate(async () => {
+        const store = await import('./assets/js/core/store.js');
+        store.add({ shot_id: 'survives-restart', dose_g: 18, yield_g: 36, time_s: 28 });
+      });
+      await write.close();          // the browser quits, as it would at shutdown
+
+      const again = await chromium.launchPersistentContext(profile, {
+        ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+      });
+      const ap = await again.newPage();
+      await ap.goto(B + '/shots.html');
+      const found = await ap.evaluate(async () => {
+        const store = await import('./assets/js/core/store.js');
+        return store.all().map((r) => r.shot_id);
+      });
+      await again.close();
+      t('storage: shots outlive quitting the browser, not just the tab',
+        found.includes('survives-restart'), found.join(',') || 'the log came back empty');
+    } finally {
+      await rm(profile, { recursive: true, force: true });
+    }
   }
 
 } finally {

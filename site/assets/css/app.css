@@ -21,6 +21,7 @@
   --fit:       #ff5c1f;
   --flag:      #e8ff36;
   --tag-fg:    #e8ff36;   /* sits on --ink; see the dark override */
+  --warn:      #c2681a;
   --warn-bg:   #fff6c2;
 
   /* Consumed by chart.js, which knows nothing about this palette. */
@@ -40,6 +41,29 @@
   --band-a: .14;            /* confidence-band fill opacity */
   --bw: 2.5px;              /* border weight  */
   --sh: 5px;                /* offset shadow  */
+
+  /* Motion. Four durations and three curves, so every animation in the app is
+     picking from the same small set rather than inventing its own timing.
+     --ease-out for things arriving, --ease-in for things leaving, --spring for
+     anything that should feel like it has mass: a weight landing on a platter,
+     a step snapping into place. */
+  --t-fast: 120ms;
+  --t: 220ms;
+  --t-slow: 420ms;
+  --t-lazy: 900ms;
+  --ease-out: cubic-bezier(.22, .68, .32, 1);
+  --ease-in:  cubic-bezier(.55, .06, .68, .19);
+  --spring:   cubic-bezier(.34, 1.42, .64, 1);
+}
+
+/* One switch for the whole app. Everything below is written as though motion is
+   on; this is the single place that takes it away. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 1ms; --t: 1ms; --t-slow: 1ms; --t-lazy: 1ms; }
+  *, *::before, *::after {
+    animation-duration: 1ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important; scroll-behavior: auto !important;
+  }
 }
 
 @media (prefers-color-scheme: dark) {
@@ -48,7 +72,7 @@
     --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
     --band-a:.09;
-    --warn-bg:#2e2a12;
+    --warn:#e0a24a; --warn-bg:#2e2a12;
   }
 }
 :root[data-theme="dark"] {
@@ -56,7 +80,7 @@
   --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
   --band-a:.09;
-  --warn-bg:#2e2a12;
+  --warn:#e0a24a; --warn-bg:#2e2a12;
 }
 
 /* Green phosphor on black, and one typeface for everything.
@@ -70,7 +94,7 @@
   --accent:#7df9ff; --accent-ink:#031008; --fit:#ffb000; --flag:#ffcc33;
   --tag-fg:#031008;
   --band-a:.10;
-  --warn-bg:#2a2205;
+  --warn:#ffb000; --warn-bg:#2a2205;
   --disp: var(--mono);
   --sans: var(--mono);
   /* Thin rules and no offset shadow: a terminal draws boxes, it does not
@@ -128,20 +152,17 @@ a { color: var(--accent); }
 .nav a[target="_blank"]::after { content: ' \2197'; opacity: .7; }
 .nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
 
-/* The signed-in account, on every page. Signed out it is an ordinary nav item
-   and the only way in to Sync; signed in it grows a face, because "which
-   Google account is this log going to" is a question worth answering without
-   having to navigate to find out. */
-.nav a.acct { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px 5px 6px; }
-.nav a.acct.out { padding: 9px 13px; }
-.acct-face {
-  width: 22px; height: 22px; flex: none; display: grid; place-items: center;
-  border: 1px solid var(--ink); background: var(--panel-2) center/cover no-repeat;
-  font: 700 9.5px/1 var(--sans); letter-spacing: 0; color: var(--ink);
+/* The backup link, on every page. It grows a dot once there are shots that no
+   backup file contains — with no cloud copy behind the log, a nudge you cannot
+   help seeing is the whole safety net. */
+.nav a.backup-link { display: inline-flex; align-items: center; gap: 7px; }
+.nav a.backup-link .dot {
+  width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--warn, #c2681a);
+  opacity: 0; transform: scale(.4); transition: opacity .28s ease, transform .28s var(--ease-out);
 }
-.nav a.acct:hover .acct-face, .nav a.acct[aria-current="page"] .acct-face { color: #100f0d; }
-.acct-name { max-width: 11ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-@media (max-width: 640px) { .acct-name { display: none; } }
+.nav a.backup-link.due .dot { opacity: 1; transform: scale(1); animation: dot-breathe 2.6s ease-in-out infinite; }
+@keyframes dot-breathe { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .nav a.backup-link.due .dot { animation: none; } }
 
 .page-head { display: flex; align-items: flex-end; gap: 20px; margin: 6px 0 26px; flex-wrap: wrap; }
 h1 {
@@ -205,6 +226,11 @@ input[type="checkbox"], input[type="radio"] {
   color: var(--ink-dim);
 }
 input:focus, select:focus, textarea:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { transition: border-color var(--t-fast) var(--ease-out),
+  background var(--t-fast) var(--ease-out); }
+input:hover:not(:focus), select:hover:not(:focus), textarea:hover:not(:focus) {
+  background: var(--panel-2);
+}
 select { cursor: pointer; }
 .field { margin-bottom: 14px; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -216,9 +242,36 @@ button {
 }
 button:hover { background: var(--flag); color: #100f0d; }
 button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
+/* The offset shadow already implies a raised object; transitioning it is what
+   makes pressing one feel like pressing rather than like a repaint. Transform
+   and box-shadow only — both composite, so a row of these stays cheap. */
+button { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+  transform var(--t-fast) var(--ease-out), box-shadow var(--t-fast) var(--ease-out),
+  border-color var(--t-fast) var(--ease-out); }
+button:hover:not(:disabled):not([aria-pressed="true"]) { transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--ink); }
+button.ghost:hover:not(:disabled) { box-shadow: none; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+:where(button, a, summary, [tabindex]):focus-visible {
+  outline: 3px solid var(--accent); outline-offset: 2px;
+}
 button.primary { background: var(--accent); color: var(--accent-ink); }
 button.primary:hover { background: var(--ink); color: var(--tag-fg); }
 button.ghost { box-shadow: none; }
+/* An anchor that should look like a button. The button rules are typed to the
+   element, so a link wearing .ghost got none of them and rendered as blue text
+   sitting where a control was clearly meant to be. */
+a.btn-link {
+  display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+  font: 700 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase;
+  padding: 11px 16px; border: 2px solid var(--ink); background: var(--panel); color: var(--ink);
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+a.btn-link:hover { background: var(--flag); color: #100f0d; transform: translate(-1px, -1px); }
+a.btn-link.small { padding: 8px 12px; font-size: 11px; }
+a.btn-link.primary, a.primary { background: var(--accent); color: var(--accent-ink); }
+a.btn-link.primary:hover, a.primary:hover { background: var(--ink); color: var(--tag-fg); }
 button.danger:hover { background: var(--fit); color: #fff; }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
@@ -244,6 +297,11 @@ button.danger:hover { background: var(--fit); color: #fff; }
 }
 .note strong { color: var(--ink); }
 .note.warn { background: var(--warn-bg); }
+.note { transition: background var(--t) var(--ease-out), border-color var(--t) var(--ease-out); }
+/* A note that appears mid-session is telling you something changed, so it
+   arrives rather than blinks into place. */
+.note:not([hidden]) { animation: slide-in var(--t-slow) var(--ease-out); }
+@keyframes slide-in { from { opacity: 0; transform: translateY(-6px); } }
 .badge {
   display: inline-block; font: 700 10.5px/1 var(--sans); letter-spacing: .1em;
   text-transform: uppercase; padding: 5px 9px; border: 2px solid var(--ink); background: var(--panel);
@@ -251,6 +309,12 @@ button.danger:hover { background: var(--fit); color: #fff; }
 .badge.ok { background: var(--accent); color: var(--accent-ink); }
 .badge.flag { background: var(--flag); color: #100f0d; }
 .badge.warn { background: var(--fit); color: #fff; }
+/* Badges are live state — a battery level, a roast age, a connection. When one
+   changes it should catch the eye once and then stop. */
+.badge { transition: background var(--t) var(--ease-out), color var(--t) var(--ease-out),
+  border-color var(--t) var(--ease-out); }
+.badge.bump { animation: bump var(--t-slow) var(--spring); }
+@keyframes bump { 0% { transform: scale(1); } 40% { transform: scale(1.16); } 100% { transform: scale(1); } }
 .empty { color: var(--ink-mute); text-align: center; padding: 44px 20px; font-weight: 600; }
 .msg { font: 600 13px/1.5 var(--sans); color: var(--ink-dim); margin: 12px 0 0; }
 
@@ -264,6 +328,7 @@ th {
 th:first-child, td:first-child { text-align: left; }
 td { text-align: right; padding: 9px 12px; border-bottom: 2px solid var(--ink); font-weight: 700; white-space: nowrap; }
 tbody tr:hover td { background: var(--flag); color: #100f0d; }
+td, th { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
 tr.flagged td { background: var(--flag); color: #100f0d; }
 
 /* ---------- charts ---------- */
@@ -292,8 +357,11 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .tool-card {
   display: block; text-decoration: none; color: inherit; padding: 20px;
   border: var(--bw) solid var(--ink); background: var(--panel);
-  box-shadow: var(--sh) var(--sh) 0 var(--ink); transition: transform .1s, box-shadow .1s;
+  box-shadow: var(--sh) var(--sh) 0 var(--ink);
+  transition: transform var(--t) var(--ease-out), box-shadow var(--t) var(--ease-out);
 }
+.tool-card .ico { transition: transform var(--t) var(--spring); }
+.tool-card:hover .ico { transform: translateY(-2px) rotate(-2deg); }
 .tool-card:hover { transform: translate(-2px, -2px); box-shadow: calc(var(--sh) + 2px) calc(var(--sh) + 2px) 0 var(--ink); }
 .tool-card h3 { margin-bottom: 8px; }
 .tool-card p { color: var(--ink-dim); font-size: 13.5px; margin: 0; font-weight: 500; }
@@ -496,4 +564,25 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 @media (max-width: 1100px) {
   .dash-page .wrap { max-width: 1180px; }
   .cc-spark svg { width: 100%; }
+}
+
+
+/* ---------- shared motion ----------
+   Three entrances and one attention beat, used across the app so a panel
+   arriving on Live and a panel arriving on Kit move the same way. Staggering is
+   done with a custom property rather than nth-child, so a list of unknown
+   length still cascades. */
+.enter { animation: enter var(--t-slow) var(--ease-out) both; animation-delay: var(--d, 0ms); }
+@keyframes enter { from { opacity: 0; transform: translateY(9px); } }
+.enter-x { animation: enter-x var(--t-slow) var(--ease-out) both; animation-delay: var(--d, 0ms); }
+@keyframes enter-x { from { opacity: 0; transform: translateX(-10px); } }
+.pop-in { animation: pop-in var(--t-slow) var(--spring) both; animation-delay: var(--d, 0ms); }
+@keyframes pop-in { from { opacity: 0; transform: scale(.9); } }
+
+/* A value that just changed. One beat, then gone — the class is removed by the
+   code that set it, so it can fire again on the next change. */
+.tick-flash { animation: tick-flash var(--t-slow) var(--ease-out); }
+@keyframes tick-flash {
+  0% { background: color-mix(in srgb, var(--accent) 34%, transparent); }
+  100% { background: transparent; }
 }

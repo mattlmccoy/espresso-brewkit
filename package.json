@@ -6,7 +6,7 @@
   "scripts": {
     "test": "npm run --silent check && node test/ui.test.mjs",
     "serve": "node -e \"import('./test/server.mjs').then(m=>m.serve()).then(s=>console.log(s.origin))\"",
-    "check": "node --check test/ui.test.mjs && node --check test/server.mjs && node --check bin/dev.mjs",
+    "check": "node --check test/ui.test.mjs && node --check test/server.mjs && node --check bin/dev.mjs && node -e \"import('./bin/checksite.mjs')\"",
     "start": "node bin/dev.mjs",
     "start:lan": "node bin/dev.mjs --lan"
   },
