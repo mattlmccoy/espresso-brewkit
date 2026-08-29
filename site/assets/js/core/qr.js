@@ -424,6 +424,22 @@ export function readBack(qr) {
   return new TextDecoder().decode(Uint8Array.from(bytes));
 }
 
+/* ------------------------------------------------------- shared with the reader */
+// The decoder in core/qrscan.js needs the same field arithmetic, the same
+// version tables and the same idea of which cells are not data. Exported rather
+// than duplicated: two copies of the standard's tables is two chances to get
+// them wrong, and only one of them would have a test.
+
+export const GF = { EXP, LOG, mul };
+export { M_SPECS, blocksOf, MASKS, versionBits, size };
+
+/** Which cells are function patterns, so a reader skips exactly what we skipped. */
+export function reservation(version) {
+  const m = blank(version);
+  reserve(m, version);
+  return m;
+}
+
 /** The matrix as an SVG string, quiet zone included, scaling to its container. */
 export function svg(text, { margin = 4, title = 'Pairing code' } = {}) {
   const qr = encode(text);
