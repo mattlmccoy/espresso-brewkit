@@ -61,6 +61,16 @@
   .methods button { flex:1 1 0; padding:7px 6px; box-shadow:none; font-size:10.5px;
     letter-spacing:.05em; }
   .methods button[aria-pressed="true"] { background:var(--ink); color:var(--tag-fg); }
+  /* Step 00's own control. The selects are prefilled from the last session, so
+     "a coffee is chosen" was true before anyone looked at the screen; this is
+     the deliberate act that was missing. */
+  .begin { margin-top:10px; }
+  .begin[hidden] { display:none; }
+  .begin-what { margin:0 0 8px; font:600 12.5px/1.45 var(--sans); color:var(--ink-dim); }
+  .begin-what b { color:var(--ink); }
+  .begin-what .stale { color:var(--fit); }
+  .begin button { width:100%; }
+  .begin.wanted button { box-shadow:0 0 0 3px var(--flag); }
   .rate { display:flex; gap:5px; flex-wrap:wrap; }
   .rate button { width:44px; padding:10px 0; box-shadow:none; font-family:var(--mono); }
   .rate button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
@@ -346,6 +356,13 @@
         </div>
         <div class="methods" id="methods" role="group" aria-label="Brew method"></div>
 
+        <!-- Step 00 is a real step now. The selects above are prefilled from
+             last time, which makes them a proposal; this is the nod. -->
+        <div class="begin" id="begin-box">
+          <p class="begin-what" id="begin-what"></p>
+          <button class="primary" id="begin" type="button">Start with this coffee</button>
+        </div>
+
         <div class="state-strip" id="state">Idle</div>
 
         <p class="hint" id="step-hint"></p>
@@ -610,7 +627,7 @@ import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { compareToBest } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
-import { SessionMachine, STEP_ORDER, fillProgress } from './assets/js/core/session.js';
+import { SessionMachine, fillProgress } from './assets/js/core/session.js';
 import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, brewTarget }
   from './assets/js/core/method.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
@@ -954,42 +971,45 @@ function gestureDone(text, { ok = true } = {}) {
  * what a click does, and nothing a click cannot.
  */
 function onGesture(g) {
-  const step = sess.step;
-  const action = actionFor(step, g.type);
+  const snap = sess.snapshot();
+  const action = actionFor(snap.step, g.type, snap.phase);
   if (!action) return;
   // A press held for most of a second and released is a hold — and is also a
   // cup picked up and put back. The stream cannot tell them apart, so the
   // session does: while it is waiting for a vessel to land, cups are being
   // moved and a hold means nothing.
-  if (g.type === 'hold' && sess.phase === 'vessel') return;
+  if (g.type === 'hold' && snap.phase === 'vessel') return;
   // Whatever the gesture did, the platter is about to move — a tare drops the
-  // reading to zero, a capture lifts a cup off. Neither is a second gesture.
+  // reading to zero, a reset clears everything. Neither is a second gesture.
   taps.mute(0.8, g.at);
 
-  if (action === 'capture') {
-    if (sess.snapshot().candidate === null) {
-      gestureDone('Nothing to capture yet — fill to the target first.', { ok: false });
-      return;
-    }
-    $('catch-go').click();
-    gestureDone(`Captured ${fmt(sess.snapshot()[step === 'dose' ? 'dose' : 'grounds'], 1)} g.`);
+  if (action === 'begin') {
+    const to = sess.begin();
+    paintSession();
+    gestureDone(to
+      ? `Started with ${kit.bag($('p-bag').value)?.bean_name ?? 'this coffee'}.`
+      : 'Choose a coffee and grinder first.', { ok: !!to });
+  } else if (action === 'undo') {
+    // The one thing the scale cannot work out for itself. Everything else the
+    // session decides, it decides from the weight; "that was wrong" is
+    // information only the person holding the portafilter has.
+    const back = sess.undo();
+    if (!back) { gestureDone('Nothing to take back yet.', { ok: false }); return; }
+    brew.tare = 0;
+    paintSession();
+    gestureDone(`Took back ${fmt(back.was, 1)} g — back to ${back.step}.`);
   } else if (action === 'tare') {
     $('tare').click();
     gestureDone('Tared from the platter.');
-  } else if (action === 'stop') {
-    if (brew.state !== BREW.EXTRACTING) {
-      gestureDone('Nothing is pouring.', { ok: false });
-      return;
-    }
-    $('stop').click();
-    gestureDone('Stopped the shot.');
-  } else if (action === 'next') {
-    const i = STEP_ORDER.indexOf(step);
-    const to = STEP_ORDER[Math.min(STEP_ORDER.length - 1, i + 1)];
-    sess.goto(to);
-    if (to === 'brew') { est.reset(lastRaw); brew.arm(); }
-    paintSession();
-    gestureDone(`Moved on to ${to}.`);
+  } else if (action === 'next-shot') {
+    resetShot('Next shot, from the scale.');
+    gestureDone('Ready for the next one — choose the coffee to start.');
+  } else if (action === 'discard') {
+    // A fumbled shot saved is worse than a shot lost: it is in the log, in the
+    // model, and in every comparison from here on.
+    const had = Number.isFinite(draft.yield_g);
+    resetShot('Shot thrown away from the scale.');
+    gestureDone(had ? 'Threw that shot away — nothing was saved.' : 'Cleared.');
   } else if (action === 'method') {
     const m = cycleMethod();
     gestureDone(`Brew method: ${m.label}. Hold again to keep cycling.`);
@@ -999,7 +1019,8 @@ function onGesture(g) {
 function paintTapButton() {
   $('gestures').textContent = taps.enabled ? 'Taps on' : 'Taps off';
   $('gestures').setAttribute('aria-pressed', String(taps.enabled));
-  $('gesture-hint').textContent = taps.enabled ? gestureHint(sess.step) : '';
+  $('gesture-hint').textContent = taps.enabled
+    ? gestureHint(sess.step, sess.phase) : '';
 }
 
 $('gestures').addEventListener('click', () => {
@@ -1339,6 +1360,15 @@ function showBattery(level) {
 async function afterConnect(name, id) {
   deviceKey = id ?? ('name:' + name);
   rememberLink(deviceKey);
+  // A new connection is a new session, and a new session starts at step 00.
+  // The bag the app remembers is last time's bag, and last time might have been
+  // yesterday with a different bag — so the coffee gets chosen again, every
+  // time, rather than inherited from a select that was filled in before anyone
+  // looked at the screen.
+  sess.reset();
+  sess.setTarget(targetDose());
+  syncReady();
+  paintSession();
   link?.battery?.({ onChange: showBattery }).then(showBattery).catch(() => {});
   profile = devices[deviceKey] ?? { name, bleName: name };
   $('conn-msg').textContent = `Connected to ${name}.`;
@@ -1688,9 +1718,16 @@ const targetYield = () => brewTarget(sess.method, targetDose(), targetRatio());
  */
 function paintCatch(s) {
   $('step-hint').textContent = s.step === 'setup' ? setupHint() : s.hint;
-  // While the flow is waiting on them, the two fields it is waiting on say so.
+  // The highlight marks what the flow is actually waiting on, which moves: an
+  // empty select while it is empty, and then the start button, because once
+  // both are chosen the thing standing between you and a shot is the
+  // confirmation rather than the fields.
   const waiting = s.step === 'setup';
-  for (const f of document.querySelectorAll('.needs-setup')) f.classList.toggle('wanted', waiting);
+  for (const f of document.querySelectorAll('.needs-setup')) {
+    const empty = !f.querySelector('select')?.value;
+    f.classList.toggle('wanted', waiting && empty);
+  }
+  $('begin-box').classList.toggle('wanted', waiting && !$('begin').disabled);
   $('cell-side').classList.toggle('setting-up', waiting);
   const catching = s.candidate !== null && (s.step === 'dose' || s.step === 'grind');
   $('catch').hidden = !catching;
@@ -1716,7 +1753,38 @@ function setupHint() {
   }
   const want = [!$('p-bag').value ? 'coffee' : null, !$('p-grinder').value ? 'grinder' : null]
     .filter(Boolean);
-  return `Choose your ${want.join(' and ')} on the right to begin.`;
+  if (want.length) return `Choose your ${want.join(' and ')} to begin.`;
+  return 'Check the coffee is the one in the hopper, then start.';
+}
+
+/**
+ * What confirming would actually be confirming.
+ *
+ * A yes/no on a name nobody read is not a confirmation. The bag is the field
+ * most likely to be stale — you finish one and open another between sessions —
+ * so the things that would make it obviously wrong go next to the button: how
+ * old the roast is, and how much of the bag is left. Somebody about to confirm
+ * "Guji, 41 days off roast, 12 g left" will notice.
+ */
+function paintBegin() {
+  const ready = !!$('p-bag').value && !!$('p-grinder').value;
+  const box = $('begin-box');
+  box.hidden = sess.step !== 'setup';
+  $('begin').disabled = !ready;
+  const bag = kit.bag($('p-bag').value);
+  const what = $('begin-what');
+  if (!bag) { what.textContent = ''; return; }
+  const age = beans.freshness(bag);
+  const st = supply.bagStatus(bag, store.all());
+  const bits = [el('b', {}, bag.bean_name || 'this coffee')];
+  if (age?.label) {
+    bits.push(document.createTextNode(' · '));
+    bits.push(el('span', { class: age.tone === 'warn' ? 'stale' : '' }, age.label.toLowerCase()));
+  }
+  if (st?.known) {
+    bits.push(document.createTextNode(` · ${fmt(st.left, 0)} g left`));
+  }
+  what.replaceChildren(...bits);
 }
 
 /** Everything the session knows, redrawn from one place. */
@@ -1801,6 +1869,7 @@ function paintSession() {
   for (const b of $('methods').querySelectorAll('button')) {
     b.setAttribute('aria-pressed', String(b.dataset.method === s.method));
   }
+  paintBegin();
   paintTapButton();
   $('w-label').textContent = s.step === 'dose' ? 'Beans'
     : s.step === 'grind' ? 'Grounds'
@@ -1834,6 +1903,12 @@ function paintSession() {
     + `${bm.measures === 'in' ? 'water' : 'out'} at 1:${fmt(targetRatio(), 1)}`;
   $('o-target').textContent = fmt(targetYield(), 1);
 }
+
+$('begin').addEventListener('click', () => {
+  if (!sess.begin()) return;
+  paintSession();
+  $('scale-msg').textContent = '';
+});
 
 $('send-log').addEventListener('click', () => sendLogToPhone());
 
@@ -2009,6 +2084,7 @@ $('p-machine').addEventListener('change', () => {
  */
 function syncReady() {
   sess.setReady(!!$('p-bag').value && !!$('p-grinder').value);
+  paintBegin();
   // Always a full repaint: this fires on a change event, not in the frame loop,
   // and the stepper has to follow the step whether or not this call moved it.
   paintSession();

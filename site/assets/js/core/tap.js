@@ -56,7 +56,31 @@ export class TapListener {
     this.taps = [];       // times of taps in the chord being assembled
     this.lastT = null;
     this.quietUntil = null;
+    this._still = [];     // recent samples, for spotting a new resting level
     return this;
+  }
+
+  /**
+   * Snap the baseline whenever the platter is demonstrably still somewhere new.
+   *
+   * Without this the baseline only creeps, and creeping is too slow after a
+   * real event: lift a 70 g cup off and the baseline is still somewhere near 10
+   * a second and a half later, so the first tap after it returns to a level the
+   * baseline does not recognise and is thrown away. Which is precisely the
+   * moment someone reaches over to undo.
+   *
+   * A tap can never trigger this, because a tap is not still — it is up and
+   * back inside 300 ms, and this wants a third of a second of quiet.
+   */
+  _resettle(at, w) {
+    this._still.push([at, w]);
+    while (this._still.length && at - this._still[0][0] > 0.35) this._still.shift();
+    if (this._still.length < 3) return false;
+    const vals = this._still.map((r) => r[1]);
+    const quiet = Math.max(...vals) - Math.min(...vals) < this.opt.returnBand;
+    if (!quiet || Math.abs(w - this.baseline) <= this.opt.returnBand) return false;
+    this.baseline = w;
+    return true;
   }
 
   /** Ignore the platter for a while — used across a tare or a step change. */
@@ -95,11 +119,11 @@ export class TapListener {
         this.press = { startT: at, peak: dev };
         return null;
       }
-      // Not pressed: track the baseline slowly. Slowly, because this has to
-      // follow a scale warming up and drifting without chasing a real pour, and
-      // because a baseline that snapped to every sample would make the return
-      // test meaningless.
-      this.baseline += (w - this.baseline) * 0.12;
+      // Not pressed. The baseline creeps, to follow a scale warming up without
+      // chasing a real pour — and snaps outright once the platter has been
+      // demonstrably still at a new level, which is what a cup landing or
+      // coming off actually looks like.
+      if (!this._resettle(at, w)) this.baseline += (w - this.baseline) * 0.12;
       return this.settle(at);
     }
 
@@ -163,44 +187,74 @@ export class TapListener {
 /* ------------------------------------------------------------------ binding */
 
 /**
- * What each gesture means, given where the session is.
+ * What each gesture means, and — more importantly — where it means nothing.
  *
- * Kept as data rather than a switch inside the page, because this table is the
- * thing that will grow: the gestures are a control surface, and the next things
- * to hang off it — switching brew method, starting a pour-over timer — are new
- * rows here rather than new code anywhere.
+ * THE RULE: a gesture is never bound while the scale is measuring something.
  *
- * `hold` is deliberately the same everywhere. A gesture that means five things
- * depending on invisible state is a gesture nobody trusts.
+ * This is a correctness constraint, not a preference. A tap is a sixty-gram
+ * excursion, and sixty grams arriving in one frame is not noise to a flow
+ * estimator: driven through the real filter, a two-tap gesture during a shot
+ * takes the reported flow rate from 1.51 g/s to 167 g/s. That would trip the
+ * predictive stop, corrupt the stored curve, and poison every model downstream
+ * that reads it. The gesture would have destroyed the measurement it was part
+ * of.
+ *
+ * So the vocabulary lives in the gaps: choosing what to make, correcting a
+ * mistake, and starting again. Which turns out to be exactly where gestures
+ * were needed anyway, because those are the things the scale cannot work out
+ * for itself. Capturing a dose and stopping a shot are automated already —
+ * binding a gesture to them spent the vocabulary on nothing.
+ *
+ * `live` says which phases accept gestures at all. Everything else in a step
+ * is measuring, and is left alone.
  */
 export const BINDINGS = {
-  dose:  { double: 'capture', triple: 'tare', hold: 'method' },
-  grind: { double: 'capture', triple: 'tare', hold: 'method' },
-  brew:  { double: 'stop',    triple: 'tare', hold: 'method' },
-  rate:  { double: 'next',    triple: null,   hold: 'method' },
-  setup: { double: 'next',    triple: 'tare', hold: 'method' },
+  setup: { live: null, double: 'begin', triple: null, hold: 'method' },
+  // Only while looking for a vessel: during a fill there is a weight being
+  // taken, and a tap would land in the middle of it.
+  dose:  { live: ['vessel'], double: 'undo', triple: 'tare', hold: 'method' },
+  grind: { live: ['vessel'], double: 'undo', triple: 'tare', hold: 'method' },
+  milk:  { live: ['vessel'], double: 'undo', triple: 'tare', hold: 'method' },
+  // Nothing at all. The cup is on the platter and the curve is being recorded.
+  brew:  { live: [], double: null, triple: null, hold: null },
+  rate:  { live: null, double: 'next-shot', triple: 'discard', hold: 'method' },
 };
 
 /** Human-readable, for the hint line and for the help panel. */
 export const ACTION_LABEL = {
-  capture: 'take this weight and move on',
+  begin: 'start with this coffee',
+  undo: 'take back the last weight',
   tare: 'tare',
-  stop: 'stop the shot',
-  next: 'next step',
+  'next-shot': 'start the next shot',
+  discard: 'throw this shot away',
   method: 'change brew method',
 };
 
-export function actionFor(step, gesture) {
-  return BINDINGS[step]?.[gesture] ?? null;
+/**
+ * The action for a gesture here, or null.
+ *
+ * @param phase the session's phase; when the step restricts gestures to certain
+ *              phases and this is not one of them, nothing fires.
+ */
+export function actionFor(step, gesture, phase = null) {
+  const b = BINDINGS[step];
+  if (!b) return null;
+  if (Array.isArray(b.live) && !b.live.includes(phase)) return null;
+  return b[gesture] ?? null;
 }
 
 /** The one-line reminder of what the platter will do right now. */
-export function gestureHint(step) {
+export function gestureHint(step, phase = null) {
   const b = BINDINGS[step];
   if (!b) return '';
+  if (Array.isArray(b.live) && !b.live.includes(phase)) {
+    return b.live.length === 0
+      ? 'Taps are off while the shot is pouring — one would land in the curve.'
+      : 'Taps are off while a weight is being taken.';
+  }
   const parts = [];
-  if (b.double) parts.push(`double-tap the scale to ${ACTION_LABEL[b.double]}`);
+  if (b.double) parts.push(`double-tap to ${ACTION_LABEL[b.double]}`);
   if (b.triple) parts.push(`triple-tap to ${ACTION_LABEL[b.triple]}`);
   if (b.hold) parts.push(`double-tap then hold to ${ACTION_LABEL[b.hold]}`);
-  return parts.join(', ') + '.';
+  return parts.length ? `${parts.join(', ')}.` : '';
 }

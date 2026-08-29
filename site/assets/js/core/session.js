@@ -261,17 +261,35 @@ export class SessionMachine {
    * beside the flow is not something a first user knows to fill in, and a shot
    * that does not know its coffee is a shot no model can use afterwards.
    */
+  /**
+   * Record whether setup has everything it needs. Deliberately does NOT advance.
+   *
+   * It used to. The selects are prefilled from the last session, so having a
+   * coffee chosen was true the instant the page loaded, and step 00 was over
+   * before anyone saw it — which meant the bag was never re-confirmed. The bag
+   * is the field most likely to have changed since yesterday (you finish one
+   * and open another) and the one that quietly poisons the most: roast age, the
+   * per-bag model, and what is left in the hopper all key off it. A remembered
+   * value is a good proposal and a bad assumption.
+   */
   setReady(ready) {
     this.ready = !!ready;
-    if (this.ready && this.step === STEP.SETUP) {
-      this.step = this.m.order[1];
-      // Nothing preceded this step, so whatever is on the scale is the cup you
-      // meant to put there.
-      this._enterVessel(true);
-      this._log(this._t, 'Coffee and grinder chosen.');
-      return STEP.DOSE;
-    }
     return null;
+  }
+
+  /**
+   * Leave setup, on purpose. The one deliberate act that starts a session.
+   *
+   * @returns the step it moved to, or null if it could not or did not need to.
+   */
+  begin() {
+    if (!this.ready || this.step !== STEP.SETUP) return null;
+    this.step = this.m.order[1];
+    // Nothing preceded this step, so whatever is on the scale is the cup you
+    // meant to put there.
+    this._enterVessel(true);
+    this._log(this._t, 'Coffee and grinder confirmed.');
+    return this.step;
   }
 
   /** Jump to a step by hand. Automation continues from wherever you land. */
@@ -514,6 +532,40 @@ export class SessionMachine {
   /** The same capture, asked for by hand rather than waited for. */
   commit() {
     return this._commit(this._t, 'because you said so');
+  }
+
+  /**
+   * Take back the last capture and go back to the step that made it.
+   *
+   * The one thing automation cannot do for you. Everything else the session
+   * decides, it decides from the scale — but "that was wrong" is information
+   * only a person has, and until now correcting it meant walking to the laptop,
+   * which is the exact situation the whole hands-free flow exists to avoid.
+   *
+   * Only ever undoes a weighing. There is nothing to take back at setup, and a
+   * poured shot is not undone by forgetting its weight.
+   */
+  undo() {
+    const order = this.m.order;
+    const here = order.indexOf(this.step);
+    for (let i = here; i > 0; i--) {
+      const step = order[i - 1] ?? null;
+      const w = this.m.weigh[step];
+      if (!w || !Number.isFinite(this[w.key])) continue;
+      const was = this[w.key];
+      this[w.key] = null;
+      this.auto[w.key] = false;
+      if (this.at) delete this.at[w.key];
+      this.step = step;
+      this._clearCandidate();
+      // Back to looking for a vessel, and trusting the platform as it stands:
+      // undoing is a deliberate act by someone standing at the scale, who can
+      // see what is on it.
+      this._enterVessel(true);
+      this._log(this._t, `Took back the ${was} g ${w.key === 'grounds' ? 'grounds' : w.key}.`);
+      return { step, key: w.key, was };
+    }
+    return null;
   }
 
   /**

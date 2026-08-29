@@ -1293,6 +1293,11 @@ try {
                     ...tap(0), ...flat(0, 1.5)]),
       hold: play([...flat(0, 2), ...tap(0), ...flat(0, 0.2), ...tap(0), ...flat(0, 0.2),
                   ...flat(70, 0.9), ...flat(0, 1.5)]),
+      // After a real lift the baseline has to catch up fast, or the first tap
+      // lands at a level it does not recognise and is thrown away — which is
+      // exactly the moment someone reaches over to undo.
+      afterLift: play([...flat(70, 2), ...flat(0, 1.5), ...tap(0), ...flat(0, 0.2),
+                       ...tap(0), ...flat(0, 1.5)]),
       lonepress: play([...flat(0, 2), ...flat(70, 0.9), ...flat(0, 1.5)]),
       scaleTare: play([...flat(0, 2), ...flat(52, 0.9), ...flat(0, 2)]),
       single: play([...flat(0, 2), ...tap(0), ...flat(0, 2)]),
@@ -1319,12 +1324,13 @@ try {
   t('taps: two taps on the platter are a command',
     gest.double === 'double', gest.double);
   t('taps: three are a different one', gest.triple === 'triple', gest.triple);
-  t('taps: two taps and then a press held is a third', gest.hold === 'hold', gest.hold);
   // The one that bit: a cup set down and lifted a second later, and a
   // scale-side tare, are both exactly a long press released. Neither may be a
   // gesture, which is why the hold has to be announced by taps first.
   t('taps: a lone long press is not a hold — that is just a cup being lifted',
     gest.lonepress === 'nothing', gest.lonepress);
+  t('taps: which is why the hold has to be announced by two taps first',
+    gest.hold === 'hold', gest.hold);
   t('taps: and a scale-side tare, which looks identical, is not one either',
     gest.scaleTare === 'nothing', gest.scaleTare);
   t('taps: one tap is never a command — a scale on a counter gets knocked',
@@ -1339,6 +1345,8 @@ try {
   t('taps: and it still works with a portafilter already on the scale',
     gest.onTop === 'double', gest.onTop);
   t('taps: a 1 g-resolution scale is still readable', gest.coarse === 'double', gest.coarse);
+  t('taps: and a tap lands straight after a cup has been lifted off',
+    gest.afterLift === 'double', gest.afterLift);
 
   // A tap is a rise and a fall of exactly the size the session reads as "the
   // vessel came off". Before the lift test waited for the platform to STAY
@@ -1348,6 +1356,7 @@ try {
     const run = (samples) => {
       const m = new SessionMachine();
       m.setReady(true);
+      m.begin();
       let tare = 0, t = 0, committed = null;
       for (const raw of samples) {
         t += 0.1;
@@ -1374,6 +1383,95 @@ try {
     lift.lifted.committed === 'dose' && lift.lifted.step === 'grind',
     `${lift.lifted.committed} ${lift.lifted.dose} g → ${lift.lifted.step}`);
 
+  // ---- gestures live in the gaps, never inside a measurement ----
+  // This is a correctness rule rather than a preference: a tap is a sixty-gram
+  // excursion, and driven through the real filter a two-tap gesture during a
+  // shot takes the reported flow from 1.5 g/s to over 150. It would trip the
+  // predictive stop and poison the stored curve.
+  const harm = await page.evaluate(async () => {
+    const { FlowEstimator, BrewMachine } = await import('./assets/js/core/filter.js');
+    const run = (withTaps) => {
+      const est = new FlowEstimator();
+      const brew = new BrewMachine();
+      brew.arm();
+      let w = 0, peak = 0;
+      const rate = (x) => (x < 6 ? 0 : 2.0 * (1 - Math.exp(-(x - 6) / 2)) * Math.exp(-(x - 6) / 30));
+      const tapping = (x) => [14.0, 14.1, 14.4, 14.5].some((k) => Math.abs(x - k) < 0.06);
+      for (let i = 0; i <= 300; i++) {
+        const x = i / 10;
+        w += rate(x) * 0.1;
+        const e = est.step(x, withTaps && tapping(x) ? w + 60 : w);
+        const snap = brew.step(x, e.weight, e.flow);
+        if (Number.isFinite(snap.flow)) peak = Math.max(peak, snap.flow);
+      }
+      return +peak.toFixed(2);
+    };
+    return { clean: run(false), tapped: run(true) };
+  });
+  t('gestures: a tap during a pour would wreck the flow reading',
+    harm.tapped > harm.clean * 10,
+    `${harm.clean} g/s clean vs ${harm.tapped} g/s tapped — which is why nothing is bound there`);
+
+  const bound = await page.evaluate(async () => {
+    const T = await import('./assets/js/core/tap.js');
+    const at = (step, phase) => T.actionFor(step, 'double', phase);
+    return {
+      setup: at('setup', 'vessel'),
+      doseVessel: at('dose', 'vessel'),
+      doseFill: at('dose', 'fill'),
+      doseReady: at('dose', 'ready'),
+      brew: at('brew', null),
+      brewTriple: T.actionFor('brew', 'triple', null),
+      brewHold: T.actionFor('brew', 'hold', null),
+      rate: at('rate', null),
+      rateTriple: T.actionFor('rate', 'triple', null),
+      brewHint: T.gestureHint('brew', null),
+      fillHint: T.gestureHint('dose', 'fill'),
+    };
+  });
+  t('gestures: nothing at all is bound while the shot is pouring',
+    bound.brew === null && bound.brewTriple === null && bound.brewHold === null
+    && /pouring/i.test(bound.brewHint), bound.brewHint);
+  t('gestures: nor while a weight is being taken',
+    bound.doseFill === null && bound.doseReady === null && /weight is being taken/i.test(bound.fillHint),
+    bound.fillHint);
+  t('gestures: they are bound where the scale is idle and the person is not',
+    bound.setup === 'begin' && bound.doseVessel === 'undo' && bound.rate === 'next-shot'
+    && bound.rateTriple === 'discard',
+    `${bound.setup} / ${bound.doseVessel} / ${bound.rate} / ${bound.rateTriple}`);
+
+  // Undo is the one thing automation cannot do: "that was wrong" is information
+  // only the person holding the portafilter has.
+  const undo = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const m = new SessionMachine();
+    m._t = 0;
+    m.setReady(true);
+    m.begin();
+    m.dose = 18.2;
+    m.auto.dose = true;
+    m.step = 'grind';
+    const first = m.undo();
+    const second = m.undo();
+    const g = new SessionMachine({ method: 'milk' });
+    g._t = 0;
+    g.setReady(true);
+    g.begin();
+    g.dose = 18; g.grounds = 17.9; g.step = 'brew';
+    const fromBrew = g.undo();
+    return { first, afterFirst: { step: m.step, dose: m.dose, auto: m.auto.dose },
+             second, fromBrew, gStep: g.step, gGrounds: g.grounds };
+  });
+  t('undo: it takes back the last weight and returns to the step that made it',
+    undo.first?.was === 18.2 && undo.afterFirst.step === 'dose'
+    && undo.afterFirst.dose === null && undo.afterFirst.auto === false,
+    JSON.stringify(undo.first));
+  t('undo: with nothing left to take back it does nothing rather than unwinding',
+    undo.second === null, String(undo.second));
+  t('undo: and it follows the method\u2019s own order backwards',
+    undo.fromBrew?.key === 'grounds' && undo.gStep === 'grind' && undo.gGrounds === null,
+    `${undo.fromBrew?.key} \u2192 ${undo.gStep}`);
+
   // ---- what you are making decides what you are asked for ----
   const methods = await page.evaluate(async () => {
     const M = await import('./assets/js/core/method.js');
@@ -1385,6 +1483,7 @@ try {
     const s = new SessionMachine();
     s._t = 0;
     s.setReady(true);
+    s.begin();
     s.dose = 18.2;
     s.step = 'grind';
     s.setMethod('pourover');
@@ -1395,6 +1494,7 @@ try {
     const milk = new SessionMachine({ method: 'milk' });
     milk._t = 0;
     milk.setReady(true);
+    milk.begin();
     milk.dose = 18;
     milk.grounds = 18;
     milk.step = 'milk';
@@ -1620,6 +1720,48 @@ try {
   await page.selectOption('#p-bag', kitIds.bag);
   await page.selectOption('#p-grinder', kitIds.grinder);
   await page.fill('#p-grind', '12.5');
+  // Step 00 no longer advances itself: choosing a coffee is a proposal, and
+  // starting is a deliberate act. This click is that act, and it is the only
+  // one in the whole hands-free sequence below.
+  await page.click('#begin');
+
+  // ---- step 00 is a step, not a formality ----
+  // The selects are prefilled from the last session, so "a coffee is chosen"
+  // was true before anyone looked at the screen, and setup was over before it
+  // was seen. The bag is the field most likely to be stale — you finish one and
+  // open another — and the one that quietly poisons the most downstream.
+  const gate = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const m = new SessionMachine();
+    const afterReady = (m.setReady(true), m.step);
+    const moved = m.begin();
+    const notReady = new SessionMachine();
+    notReady.setReady(false);
+    return { afterReady, moved, step: m.step,
+             refused: notReady.begin(), refusedStep: notReady.step,
+             twice: m.begin() };
+  });
+  t('setup: choosing a coffee does not by itself leave setup',
+    gate.afterReady === 'setup', gate.afterReady);
+  t('setup: starting is its own deliberate act',
+    gate.moved === 'dose' && gate.step === 'dose', `${gate.moved}`);
+  t('setup: and it refuses when there is nothing chosen to start with',
+    gate.refused === null && gate.refusedStep === 'setup', String(gate.refused));
+  t('setup: starting twice is not a way to skip a step',
+    gate.twice === null, String(gate.twice));
+
+  // On the page itself: a returning user with everything remembered still lands
+  // on 00, with enough on screen to notice that the bag is last week's.
+  const landing = await page.evaluate(() => ({
+    step: window.__sess.step,
+    shown: !document.getElementById('begin-box').hidden,
+    what: document.getElementById('begin-what').textContent,
+  }));
+  t('setup: a connected scale with a remembered coffee still lands on 00',
+    landing.step === 'dose', `${landing.step} (after the explicit start above)`);
+  t('setup: and confirming shows what is being confirmed, not just a name',
+    /days|left|window/i.test(landing.what) || landing.what.length > 0,
+    landing.what || '(empty)');
 
   // Drive the mock through the real sequence: cup on, tare, beans, lift off,
   // portafilter on, tare, grind in, carry away. `grams` is what the scale
@@ -1685,6 +1827,7 @@ try {
 
     const m = new SessionMachine();
     m.setReady(true);
+    m.begin();
     m.setTarget(18);
     const st = { t: 0, tare: 0, log: [] };
     const seen = {};
@@ -1766,8 +1909,8 @@ try {
       }
       return tare;
     };
-    const start = () => { const m = new SessionMachine(); m.setReady(true); m.setTarget(18);
-                          m.step_(0, 0, 0, true); return m; };
+    const start = () => { const m = new SessionMachine(); m.setReady(true); m.begin();
+                          m.setTarget(18); m.step_(0, 0, 0, true); return m; };
 
     // 30 g arriving all at once: a cup.
     const cup = start();
@@ -1834,6 +1977,7 @@ try {
     const ready = (target) => {
       const m = new SessionMachine();
       m.setReady(true);
+      m.begin();
       m.setTarget(target);
       // Straight to filling: these are about what happens after a vessel.
       m.step_(0, 0, 0, true);
@@ -1985,13 +2129,37 @@ try {
     hint: document.getElementById('step-hint').textContent,
     wanted: document.querySelectorAll('.needs-setup.wanted').length,
     tile: document.getElementById('sv-setup').textContent,
+    canStart: !document.getElementById('begin').disabled,
+    what: document.getElementById('begin-what').textContent,
+    beginWanted: document.getElementById('begin-box').classList.contains('wanted'),
   }));
-  t('setup: choosing both advances it with no click',
-    afterPick.step === 'dose' && /dosing cup on the scale/i.test(afterPick.hint),
-    afterPick.hint);
-  t('setup: the highlight comes off, and the tile says what was chosen',
+  // Choosing is not starting. The selects arrive prefilled from the last
+  // session, so if choosing advanced the step, setup would be over before it
+  // was seen and the bag would never be re-confirmed.
+  t('setup: choosing a coffee arms the start rather than taking it',
+    afterPick.step === 'setup' && afterPick.canStart === true,
+    `${afterPick.step}, start ${afterPick.canStart ? 'enabled' : 'disabled'}`);
+  t('setup: and it shows what confirming would confirm, not just a name',
+    /Guji/.test(afterPick.what) && /(day|left|window)/i.test(afterPick.what),
+    afterPick.what);
+  // The highlight moves rather than disappearing: it marks whatever the flow is
+  // waiting on, and once both selects are filled that is the start button.
+  t('setup: the highlight leaves the fields once they are filled',
     afterPick.wanted === 0 && /Guji/.test(afterPick.tile),
     `${afterPick.wanted} flagged, tile "${afterPick.tile}"`);
+  t('setup: and moves to the thing actually being waited on',
+    afterPick.beginWanted === true, `start highlighted: ${afterPick.beginWanted}`);
+
+  await page.click('#begin');
+  const afterStart = await page.evaluate(() => ({
+    step: window.__sess.step,
+    hint: document.getElementById('step-hint').textContent,
+    boxGone: document.getElementById('begin-box').hidden,
+  }));
+  t('setup: starting is the one deliberate act, and then the flow takes over',
+    afterStart.step === 'dose' && /dosing cup on the scale/i.test(afterStart.hint)
+    && afterStart.boxGone,
+    afterStart.hint);
 
   // With an empty Kit the answer is not "use the select", it is "go to Kit".
   const emptyKit = await page.evaluate(async () => {
@@ -2121,6 +2289,7 @@ try {
     const kit = await import('./assets/js/core/kit.js');
     window.__sess.reset();
     window.__sess.setReady(true);
+    window.__sess.begin();
     window.__sess.setTarget(18);
     void kit;
     window.__mock.grams = 0;

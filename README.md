@@ -93,37 +93,93 @@ metres away. The scale is already under your fingers and already streaming ten
 times a second, which makes it the only control surface in the room you can
 actually reach.
 
-**Two taps** capture the weight and move on, **three** tare, and **two taps then
-a press** cycle the brew method. Every gesture says out loud and in writing what
-it just did, because a control nobody can see firing is a control nobody trusts.
+**The rule: nothing is bound while the scale is measuring.**
+
+That is a correctness constraint, not a preference. A tap is a sixty-gram
+excursion, and sixty grams arriving in one frame is not noise to a flow
+estimator. Driven through the real filter, a two-tap gesture during a shot takes
+the reported flow rate from **1.51 g/s to 167 g/s** — enough to trip the
+predictive stop, corrupt the stored curve, and poison every model that later
+reads it. The gesture would have destroyed the measurement it was part of. The
+suite asserts that number, because it is the reason the table below has so many
+blanks in it.
+
+| Where | Double tap | Triple tap | Two taps, then hold |
+|---|---|---|---|
+| **Setup (00)** | start with this coffee | — | change brew method |
+| **Dose / Grind / Milk**, waiting for a vessel | take back the last weight | tare | change brew method |
+| **Dose / Grind / Milk**, filling | — | — | — |
+| **Brew** | — | — | — |
+| **Rate** | start the next shot | throw this shot away | change brew method |
+
+The blanks are the design. The first version bound *capture* and *stop*, which
+was spending the vocabulary on nothing: the app already captures when you lift
+the vessel off and already stops on the predicted target. What is left over —
+which coffee, that was wrong, start again, bin this one — is exactly the set of
+things the scale cannot work out for itself, and all of it happens while the
+platter is idle. The constraint and the useful vocabulary turned out to be the
+same shape.
+
+**Undo is the one that could not be automated.** Everything else the session
+decides, it decides from the weight; "that was wrong" is information only the
+person holding the portafilter has, and correcting it used to mean walking to
+the laptop — the exact situation the hands-free flow exists to avoid.
+
+### What a tap looks like, and what it does not
 
 A tap is unmistakable in the raw stream: tens of grams for a couple of hundred
 milliseconds, returning to exactly the level it started from. Nothing else a
 scale sees does that — a cup steps up and *stays* up, coffee climbs at a couple
 of grams a second, a drip lands and stays. The signature is not the size of the
-excursion, it is the return. `core/tap.js` reads the **raw** stream deliberately:
+excursion, it is the return. `core/tap.js` reads the **raw** stream on purpose:
 the Kalman filter's whole job is to treat a 40 g spike lasting 150 ms as noise
 and delete it, which is right for weighing and fatal for this.
 
-Two things fell out of building it, both of which were bugs rather than tuning:
+Three things had to be got right, and each was a bug first:
 
 - **A tap looked exactly like lifting the vessel off** — a rise and then a fall
   of the same size — so tapping the scale committed the step whatever the tap
-  meant. The session now requires a fall to *stay* fallen for a fifth of a
-  second, measured against where the platter was resting 0.6 s ago rather than
-  against the previous sample. A rolling average would have been wrong here:
-  averages converge on the new level, so a real lift stops looking like a fall
-  within a few frames. A fixed lag does not converge. This also rules out
-  knocks, which were always a false positive.
-- **A lone long press is indistinguishable from a scale-side tare.** Both are
-  "weight appears, then returns to baseline with nothing having moved". The
-  first version fired the method switch on the app's own normal dosing sequence.
-  So the hold is a compound gesture: nothing anyone does with a cup taps the
-  platter twice first.
+  meant. A fall now has to *stay* fallen for a fifth of a second, measured
+  against where the platter was resting 0.6 s ago rather than against the
+  previous sample. A rolling average would have been wrong here: averages
+  converge on the new level, so a real lift stops looking like a fall within a
+  few frames. A fixed lag does not converge. This also rules out knocks.
+- **A lone long press is indistinguishable from a scale-side tare** — both are
+  "weight appears, then returns to baseline with nothing having moved" — and the
+  first version fired the method switch during normal dosing. So the hold is a
+  compound gesture. Nothing anyone does with a cup taps the platter twice first.
+- **The first tap after a lift was being eaten.** The baseline only crept, so a
+  second after a 70 g cup came off it was still somewhere near 10 and the tap
+  returned to a level it did not recognise. It now *snaps* once the platter has
+  been demonstrably still at a new level for a third of a second — which a tap
+  can never be, being up and back inside 300 ms.
 
-A single tap is never a command. A scale on a counter beside a machine gets
-knocked, and a one-tap vocabulary would fire the moment someone set a spoon
+A single tap is never a command either. A scale on a counter beside a machine
+gets knocked, and a one-tap vocabulary would fire the moment someone set a spoon
 down.
+
+## Step 00 is a step, not a formality
+
+The coffee gets chosen every session, on purpose.
+
+It used to advance itself. The selects are prefilled from the last session, so
+"a coffee is chosen" was true the instant the page loaded, and setup was over
+before anyone saw it. That is wrong in the one place it matters most: the bag is
+the field most likely to have changed since yesterday — you finish one and open
+another — and the one that quietly poisons the most, since roast age, the
+per-bag model and what is left in the hopper all key off it. A remembered value
+is a good proposal and a bad assumption.
+
+So connecting a scale resets to step 00, `setReady()` records readiness without
+moving, and `begin()` is the one deliberate act that starts a session. Next to
+the button sits what confirming would actually confirm — *"Guji · 9 days —
+coming into its window · 250 g left"* — because a yes/no on a name nobody read
+is not a confirmation. Somebody about to start on *"41 days off roast, 12 g
+left"* will notice.
+
+The highlight follows what the flow is waiting on rather than sitting still: an
+empty select while it is empty, then the start button, because once both are
+chosen the thing between you and a shot is the confirmation.
 
 ## Espresso is not the only thing a scale can weigh
 
@@ -223,9 +279,10 @@ than averaged in.
 
 ## The session steps itself
 
-The Live page is **Dose → Grind → Brew → Rate**, and the scale drives it. You weigh
-beans, grind into the portafilter, lock in and pull; the only thing you touch is the
-rating at the end. It produces a single row with 35 fields in it, including the flow
+The Live page is **Setup → Dose → Grind → Brew → Rate**, and after setup the scale
+drives it. You confirm the coffee, then weigh beans, grind into the portafilter,
+lock in and pull; the only things you touch are that confirmation and the rating
+at the end — or neither, if you use the scale itself for both. It produces a single row with 35 fields in it, including the flow
 curve, and every other tool reads that row.
 
 What makes this readable is not clever event detection. A scale-side tare and a
@@ -244,7 +301,8 @@ carry to machine -521 g    → COMMIT 17.9 g
 ```
 
 So: remember the last settled reading that could plausibly be coffee, and commit it
-when the weight falls away. A drop with **no** candidate behind it is a tare or a
+when the weight falls away — once the platform has *stayed* fallen for a fifth of a
+second, so that a tap on the platter is not mistaken for a lift. A drop with **no** candidate behind it is a tare or a
 vessel being swapped, and it means nothing — which is exactly why the machine has to
 sit still through it rather than advance.
 
