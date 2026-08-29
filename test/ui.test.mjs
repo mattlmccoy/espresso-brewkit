@@ -1180,6 +1180,9 @@ try {
   const ways = await page.evaluate(async () => {
     const { SessionMachine, STEP_HINT, STEP_CATCH } =
       await import('./assets/js/core/session.js');
+    // A machine with its coffee chosen; setup is a step now, and these are
+    // about what happens after it.
+    const ready = () => { const m = new SessionMachine(); m.setReady(true); return m; };
     const run = (m, from, to, at, step = 0.2) => {
       let first = null;
       for (let t = from; t <= to + 1e-9; t = +(t + step).toFixed(2)) {
@@ -1191,17 +1194,17 @@ try {
     };
 
     // Holding still, with nothing lifted.
-    const held = new SessionMachine();
+    const held = ready();
     held.step_(0, 0, 0, true);
     const heldAt = run(held, 0.2, 9, 18.2);
 
     // A pour that never rests must not be captured half-way.
-    const pouring = new SessionMachine();
+    const pouring = ready();
     pouring.step_(0, 0, 0, true);
     const pourAt = run(pouring, 0.2, 12, (t) => +(t * 2).toFixed(2));
 
     // The button.
-    const asked = new SessionMachine();
+    const asked = ready();
     asked.step_(0, 0, 0, true);
     run(asked, 0.2, 1.2, 18.2);
     const candidate = asked.candidate;
@@ -1209,18 +1212,18 @@ try {
 
     // The lift: raw falls away and net leaves the plausible band on the same
     // frame. The candidate has to survive that frame to be committed by it.
-    const lifted = new SessionMachine();
+    const lifted = ready();
     lifted.step_(0, 52, 0, true);
     lifted.step_(0.2, 70.2, 18.2, true);
     lifted.step_(1.0, 70.2, 18.2, true);
     const onLift = lifted.step_(1.2, 0, -52, true);
 
     // A drop with nothing behind it is a tare, and still means nothing.
-    const tared = new SessionMachine();
+    const tared = ready();
     tared.step_(0, 52, 52, true);
     const onTare = tared.step_(0.2, 0, 0, true);
 
-    const quiet = new SessionMachine();
+    const quiet = ready();
     quiet.step_(0, 0, 0, true);
     const before = quiet.snapshot();
     run(quiet, 0.2, 1.0, 18.2);
@@ -1310,6 +1313,71 @@ try {
     /19\.4 g/.test(await page.textContent('#sv-dose'))
     && (await page.evaluate(() => window.__sess.step)) === 'grind',
     await page.textContent('#sv-dose'));
+
+  // ---- setup is a step, not a panel you are expected to notice ----
+  // The coffee and grinder selects sat quietly beside the flow, and nothing
+  // said to fill them in first. A shot that does not know its coffee is a shot
+  // no model can use afterwards, so the flow now waits for them by name.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  await page.evaluate(async () => {
+    // The page remembers the last coffee you used, so forget it first —
+    // otherwise refilling the selects puts the choice straight back.
+    const kit = await import('./assets/js/core/kit.js');
+    kit.saveSession({ bag_id: '', grinder_id: '', machine_id: '' });
+    window.__sess.reset();
+    document.getElementById('p-bag').value = '';
+    document.getElementById('p-grinder').value = '';
+    document.getElementById('p-bag').dispatchEvent(new Event('change'));
+  });
+  const waiting = await page.evaluate(() => ({
+    step: window.__sess.step,
+    hint: document.getElementById('step-hint').textContent,
+    wanted: document.querySelectorAll('.needs-setup.wanted').length,
+    current: document.querySelector('#stepper [aria-current="step"]')?.dataset.step,
+  }));
+  t('setup: the flow starts on setup rather than on dose',
+    waiting.step === 'setup' && waiting.current === 'setup',
+    `${waiting.step}/${waiting.current}`);
+  t('setup: and names what it is waiting for rather than implying it',
+    /coffee and grinder/i.test(waiting.hint), waiting.hint);
+  t('setup: with the two fields it is waiting on marked',
+    waiting.wanted === 2, `${waiting.wanted} fields flagged`);
+
+  await page.evaluate((ids) => {
+    document.getElementById('p-bag').value = ids.bag;
+    document.getElementById('p-grinder').value = ids.grinder;
+    document.getElementById('p-grinder').dispatchEvent(new Event('change'));
+  }, kitIds);
+  const afterPick = await page.evaluate(() => ({
+    step: window.__sess.step,
+    hint: document.getElementById('step-hint').textContent,
+    wanted: document.querySelectorAll('.needs-setup.wanted').length,
+    tile: document.getElementById('sv-setup').textContent,
+  }));
+  t('setup: choosing both advances it with no click',
+    afterPick.step === 'dose' && /beans on the scale/i.test(afterPick.hint), afterPick.hint);
+  t('setup: the highlight comes off, and the tile says what was chosen',
+    afterPick.wanted === 0 && /Guji/.test(afterPick.tile),
+    `${afterPick.wanted} flagged, tile "${afterPick.tile}"`);
+
+  // With an empty Kit the answer is not "use the select", it is "go to Kit".
+  const emptyKit = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const bags = kit.bags().map((b) => ({ ...b }));
+    const grinders = kit.grinders().map((g) => ({ ...g }));
+    for (const b of bags) kit.removeBag(b.id);
+    for (const g of grinders) kit.removeGrinder(g.id);
+    window.__sess.reset();
+    document.getElementById('p-bag').dispatchEvent(new Event('change'));
+    const hint = document.getElementById('step-hint').textContent;
+    // Put the fixture back before anything else reads it.
+    for (const b of bags) kit.saveBag(b);
+    for (const g of grinders) kit.saveGrinder(g);
+    return hint;
+  });
+  t('setup: with nothing in Kit it sends you to Kit, not to an empty select',
+    /Kit page/.test(emptyKit) && /coffee and a grinder/.test(emptyKit), emptyKit);
 
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');
