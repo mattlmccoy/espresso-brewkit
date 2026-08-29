@@ -3122,6 +3122,10 @@ try {
     const svg = document.querySelector('#pair-qr svg');
     const side = Math.round(svg.getBoundingClientRect().width);
     return new Promise((res) => {
+      // A promise that only settles on load or error is a test that hangs
+      // rather than fails, and page.evaluate has no timeout of its own.
+      const bail = setTimeout(() => res(false), 8000);
+      const done = (v) => { clearTimeout(bail); res(v); };
       const url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
       const img = new Image();
       img.onload = () => {
@@ -3132,9 +3136,9 @@ try {
         g.drawImage(img, 0, 0, side, side);
         const got = S.scan(g.getImageData(0, 0, side, side));
         URL.revokeObjectURL(url);
-        res(typeof got === 'string' && got.includes('view.html#p='));
+        done(typeof got === 'string' && got.includes('view.html#p='));
       };
-      img.onerror = () => res(false);
+      img.onerror = () => done(false);
       img.src = url;
     });
   });
