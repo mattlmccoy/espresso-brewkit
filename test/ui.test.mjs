@@ -1964,6 +1964,106 @@ try {
     where.stepper && where.bag && where.grinder && !where.machine,
     'stepper, coffee and grinder on the left; machine stays with the shot settings');
 
+  // ---- the middle column changes with the step ----
+  // Before a shot there is nothing on the chart worth the biggest panel on the
+  // page, and the dial is what is actually being read.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+  await page.evaluate(() => { window.__sess.goto('dose'); window.__sess.setTarget(18); });
+  await page.waitForTimeout(300);
+  const weighing = await page.evaluate(() => ({
+    tag: document.getElementById('mid-tag').textContent,
+    prep: document.getElementById('slide-prep').dataset.off,
+    pour: document.getElementById('slide-pour').dataset.off,
+    cells: document.querySelectorAll('#prep-grid .c').length,
+  }));
+  await page.evaluate(() => window.__sess.goto('brew'));
+  await page.waitForTimeout(400);
+  const pouring = await page.evaluate(() => ({
+    tag: document.getElementById('mid-tag').textContent,
+    prep: document.getElementById('slide-prep').dataset.off,
+    pour: document.getElementById('slide-pour').dataset.off,
+  }));
+  t('mid: weighing gets the dial, not an empty chart',
+    weighing.tag === 'Weighing' && weighing.prep === '' && weighing.pour === 'right'
+    && weighing.cells === 6, `${weighing.tag}, ${weighing.cells} recall cells`);
+  t('mid: and the chart slides in when the shot does',
+    pouring.tag === 'The pour' && pouring.pour === '' && pouring.prep === 'left',
+    `${pouring.tag}, prep ${pouring.prep}`);
+
+  // The dial is the fill bar's geometry on an arc, so it moves with the weight.
+  const dial = await page.evaluate(async () => {
+    const read = () => ({
+      off: Number(document.getElementById('dial-now').style.strokeDashoffset),
+      n: document.getElementById('dial-n').textContent,
+      sub: document.getElementById('dial-sub').textContent,
+      cls: document.getElementById('slide-prep').className,
+      band: document.getElementById('dial-band').getAttribute('d') ?? '',
+    });
+    window.__sess.goto('dose');
+    window.__sess.setTarget(18);
+    const { fillProgress } = await import('./assets/js/core/session.js');
+    return { empty: fillProgress(0, 18).frac, mid: fillProgress(9, 18).frac,
+             at: fillProgress(18.2, 18).frac, read: read() };
+  });
+  // The track sweeps left to right, so an 18 g window belongs on the right half
+  // — drawing it on the left was the first version of this and looked absurd.
+  const bandXs = (dial.read.band.match(/-?\d+(?:\.\d+)?/g) ?? []).map(Number);
+  t('mid: the dial runs left to right, and its window sits where the arc reaches it',
+    dial.empty === 0 && dial.mid > 0.3 && dial.mid < 0.5 && dial.at > 0.7
+    && bandXs[0] > 100 && bandXs.at(-2) > bandXs[0],
+    `window from x=${bandXs[0]} to x=${bandXs.at(-2)} on a 14–186 track`);
+
+  // ---- cues, for when you are not looking at the screen ----
+  const cues = await page.evaluate(async () => {
+    const cue = await import('./assets/js/core/cue.js');
+    const g = new cue.CueGate({ enabled: true });
+    let fired = 0;
+    const bump = () => { fired += 1; };
+    const edges = [
+      g.edge('a', false, bump), g.edge('a', true, bump), g.edge('a', true, bump),
+      g.edge('a', true, bump), g.edge('a', false, bump), g.edge('a', true, bump),
+    ];
+    let ticks = 0;
+    const tock = () => { ticks += 1; };
+    // A 10 Hz stream counting down: one tick per whole second, not per frame.
+    for (let i = 50; i >= 1; i--) g.every('eta', i / 10, tock);
+    const off = new cue.CueGate({ enabled: false });
+    off.edge('a', true, bump);
+    return { edges, fired, ticks, armed: cue.isArmed() };
+  });
+  t('cues: a cue fires on the edge, not on every frame of a 10 Hz stream',
+    cues.edges.join(',') === 'false,true,false,false,false,true' && cues.fired === 2,
+    `${cues.fired} tones over six frames`);
+  t('cues: the countdown ticks once a second, not fifty times',
+    cues.ticks === 5, `${cues.ticks} ticks over the last five seconds`);
+  t('cues: and nothing sounds until audio has been allowed',
+    cues.armed === false, 'silent until a gesture arms it');
+
+  const cueUi = await page.evaluate(() => {
+    const b = document.getElementById('cues');
+    const before = b.textContent;
+    b.click();
+    return { before, after: b.textContent, pressed: b.getAttribute('aria-pressed'),
+             saved: localStorage.getItem('brewkit.cues') };
+  });
+  t('cues: the switch says which of the three states it is in',
+    cueUi.before === 'Sound off' && /Sound on|Sound blocked/.test(cueUi.after)
+    && cueUi.pressed === 'true' && cueUi.saved === 'on',
+    `${cueUi.before} → ${cueUi.after}`);
+
+  // ---- the scale's battery, which its own display shows and a laptop does not ----
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => !document.getElementById('battery').hidden, { timeout: 8000 }).catch(() => {});
+  const batt = await page.evaluate(() => ({
+    hidden: document.getElementById('battery').hidden,
+    text: document.getElementById('battery').textContent,
+    cls: document.getElementById('battery').className,
+  }));
+  t('battery: the scale reports it and the page shows it',
+    batt.hidden === false && batt.text === '76%' && /ok/.test(batt.cls), batt.text);
+
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');
   const labLinks = await page.$$eval('.tool-card', (as) => as.map((a) => a.getAttribute('href')));

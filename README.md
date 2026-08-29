@@ -282,6 +282,31 @@ cannot stream the scale. It can read shots and curves, rate a shot, check what
 is running low, and take weights by hand. Scale streaming stays on the computer.
 That is Apple's decision, not something this project can work around.
 
+## Cues, for when you are not looking at the screen
+
+The point of the phone viewer is that the laptop is elsewhere and your hands are
+full. A number changing on a screen nobody is watching is not feedback. So both
+ends can make noise: a rising pair when the dose lands in its window, a tick per
+second over the last five before the yield target, a falling pair at the cut,
+and a low buzz if flow starts climbing mid-shot. Pitch carries the meaning, so
+they stay distinguishable across a room; the phone vibrates as well.
+
+The tones are synthesised rather than shipped — three files to host and cache is
+three ways to be silent on the device it matters most on. Audio cannot start
+without a user gesture, strictest on iOS, so the switch says which of three
+states it is in: off, on, or *tap to allow*.
+
+Every cue fires on an **edge**. The conditions are sampled from a 10 Hz stream,
+and a tone that repeats ten times a second is an alarm.
+
+## The scale's battery
+
+Every scale worth buying shows this on its own display, and a scale being driven
+from a laptop across the room shows it to nobody. It is the standard SIG service
+(`0x180F/0x2A19`), so this is a read rather than a decoder, with notifications
+subscribed where offered since a level read once at connect is stale within the
+hour. A scale that has no battery service simply does not get a badge.
+
 ## The flow, and how it reads the scale
 
 The stepper, the prompt and the two things step 00 asks for all sit at the top
@@ -319,6 +344,12 @@ auto-tare bug this project shipped once already. And because a 30 g cup and a
 **arrived in one movement**: a cup is placed and is still within half a second,
 a dose is poured and takes seconds to stop climbing. Above 45 g no argument is
 needed, since no one pulls a 45 g shot.
+
+**The middle column changes with the step.** While you are weighing there is
+nothing on the chart worth the biggest panel on the page, so that space is a
+dial — the same window geometry as the bar, on an arc big enough to read from
+the machine — with what the last shot on this coffee did underneath it. The
+chart slides in as the shot begins and the dial slides out.
 
 **There is a bar for it.** Under the big readout, the dose is drawn against the
 window you are aiming for: how far along you are, where the target sits, and how

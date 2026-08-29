@@ -38,7 +38,12 @@ export const VENDOR_SERVICES = [
 ];
 
 /** Service UUIDs worth asking for when we do not know what we are talking to. */
+/** The SIG battery service. Standard, and nearly every BLE scale implements it. */
+export const BATTERY_SERVICE = short(0x180f);
+export const BATTERY_LEVEL = short(0x2a19);
+
 export const COMMON_SERVICES = [
+  BATTERY_SERVICE,
   short(0x181d),  // Weight Scale (SIG standard — rare in practice, but correct)
   short(0x181b),  // Body Composition
   short(0xffe0), short(0xffe5), short(0xfff0), short(0xff00), short(0xffb0),
@@ -218,6 +223,34 @@ export class ScaleLink extends EventTarget {
     const data = Uint8Array.from(bytes);
     if (c.ref.properties.writeWithoutResponse) await c.ref.writeValueWithoutResponse(data);
     else await c.ref.writeValue(data);
+  }
+
+  /**
+   * Battery percentage, or null if the scale does not say.
+   *
+   * Every scale worth buying shows this on its own display, and a scale being
+   * driven from a laptop across the room shows it to nobody. It is the standard
+   * SIG service, so this is a read rather than a decoder: 0x180F/0x2A19, one
+   * byte, percent. Notifications are subscribed to where offered, since a level
+   * read once at connect is stale within the hour.
+   */
+  async battery({ onChange = null } = {}) {
+    if (!this.server) return null;
+    try {
+      const svc = await this.server.getPrimaryService(BATTERY_SERVICE);
+      const ch = await svc.getCharacteristic(BATTERY_LEVEL);
+      const level = (await ch.readValue()).getUint8(0);
+      if (onChange && ch.properties?.notify) {
+        ch.addEventListener('characteristicvaluechanged',
+          (e) => onChange(e.target.value.getUint8(0)));
+        await ch.startNotifications().catch(() => {});
+      }
+      return level;
+    } catch {
+      // No battery service, or it refused the read. Not worth a message: a
+      // missing battery reading is a scale that never had one to give.
+      return null;
+    }
   }
 
   disconnect() {

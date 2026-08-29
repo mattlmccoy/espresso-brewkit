@@ -83,8 +83,10 @@
   <div class="head">
     <a class="brand" href="./index.html" style="font-size:15px;padding:5px 9px">Brewkit</a>
     <span class="badge" id="conn">Not linked</span>
+    <button class="ghost" id="cues" type="button" aria-pressed="false" hidden
+            style="margin-left:auto;padding:6px 10px;box-shadow:none;font-size:11px">Sound off</button>
     <button class="ghost" id="unpair" type="button" hidden
-            style="margin-left:auto;padding:6px 10px;box-shadow:none;font-size:11px">Unlink</button>
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Unlink</button>
   </div>
 
   <!-- Pairing: two pastes, and only until it is linked. -->
@@ -158,6 +160,7 @@
 import { initTheme } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
+import * as cue from './assets/js/core/cue.js';
 import { livePlot } from './assets/js/core/chart.js';
 initTheme();
 
@@ -176,6 +179,7 @@ function setConn(state) {
   $('pairing').hidden = live;
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
+  $('cues').hidden = !live;
   if (state === 'failed') {
     $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
       + 'Wi-Fi — this connects directly rather than through a server, which is also why nothing '
@@ -302,13 +306,44 @@ function drawCurve(f) {
 }
 
 link.onState = setConn;
+/* The phone is the device standing next to the machine, so it is the one that
+   should make the noise. Same cues, driven off the same frames. */
+const CUE_KEY = 'brewkit.view.cues';
+const gate = new cue.CueGate({ enabled: false });
+try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }
+function paintCueButton() {
+  $('cues').textContent = gate.enabled ? (cue.isArmed() ? 'Sound on' : 'Tap to allow') : 'Sound off';
+  $('cues').setAttribute('aria-pressed', String(gate.enabled));
+}
+$('cues').addEventListener('click', () => {
+  gate.enabled = !gate.enabled;
+  if (gate.enabled && cue.arm()) cue.CUES.tick();
+  try { localStorage.setItem(CUE_KEY, gate.enabled ? 'on' : 'off'); } catch { /* ignore */ }
+  paintCueButton();
+});
+paintCueButton();
+
+/** Edges only, from the same frames the screen is drawn from. */
+function soundCues(f) {
+  const weighing = f.step === 'dose' || f.step === 'grind';
+  gate.edge('window', weighing && f.phase === 'ready', cue.CUES.target);
+  const brewing = f.st === 'extracting';
+  const eta = brewing && Number.isFinite(f.q) && f.q > 0.05 && Number.isFinite(f.target)
+    ? (f.target - f.w) / f.q : NaN;
+  if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
+  gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
+  if (!brewing) gate.state.delete('stop');
+}
+
 link.onMessage = (m) => {
   if (m?.k !== 'f') return;
   // Back to weighing means a new shot, so the last one's rating is not this
   // one's — leaving it lit would invite tapping "the same again" by accident.
   if (m.step === 'dose' || m.step === 'setup') {
     if (rated !== null) { rated = null; buildRating(); $('rate-msg').textContent = ''; }
+    gate.reset();
   }
+  soundCues(m);
   paint(m);
 };
 

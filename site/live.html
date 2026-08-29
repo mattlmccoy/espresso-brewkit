@@ -43,6 +43,48 @@
   .capture-line { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; }
   .capture-line .val { font-family:var(--disp); font-size:34px; letter-spacing:-.03em; }
   .hint { font:600 13px/1.5 var(--sans); color:var(--ink-dim); }
+  /* Two views of the middle column, one sliding aside as the other arrives.
+     Before a shot there is nothing on the chart worth the biggest panel on the
+     page; the dial is what you are actually reading. */
+  .slides { position:relative; flex:1 1 auto; min-height:0; overflow:hidden; }
+  .slide { position:absolute; inset:0; display:flex; flex-direction:column; min-height:0;
+    transition:transform .42s cubic-bezier(.22,.68,.3,1), opacity .28s ease; }
+  .slide[data-off="left"] { transform:translateX(-6%); opacity:0; pointer-events:none; }
+  .slide[data-off="right"] { transform:translateX(6%); opacity:0; pointer-events:none; }
+  @media (prefers-reduced-motion: reduce) { .slide { transition:none; } }
+
+  .dial-wrap { position:relative; display:grid; place-items:center; padding:6px 0 0;
+    flex:0 0 auto; }
+  .dial { width:min(100%, 420px); height:auto; overflow:visible; }
+  .dial path { fill:none; stroke-linecap:round; }
+  .dial-track { stroke:var(--hair); stroke-width:15; }
+  .dial-band { stroke:color-mix(in srgb, var(--accent) 30%, transparent); stroke-width:15; }
+  .dial-now { stroke:var(--ink-dim); stroke-width:15;
+    transition:stroke-dashoffset .12s linear, stroke .25s ease; }
+  .dial-mark { stroke:var(--ink); stroke-width:2.5; opacity:.55; }
+  .is-in .dial-now { stroke:var(--accent); }
+  .is-over .dial-now { stroke:var(--fit); }
+  .dial-read { position:absolute; bottom:2px; text-align:center; }
+  .dial-n { font:800 clamp(38px, 6vw, 62px)/1 var(--disp); font-variant-numeric:tabular-nums; }
+  .dial-u { font:700 18px/1 var(--sans); color:var(--ink-mute); margin-left:3px; }
+  .dial-sub { font:700 12px/1.3 var(--mono); letter-spacing:.06em; color:var(--ink-dim);
+    margin-top:6px; }
+  .prep-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(108px, 1fr)); gap:9px;
+    margin-top:14px; }
+  .prep-grid .c { border:2px solid var(--hair); background:var(--panel-2); padding:9px 11px; }
+  .prep-grid .k { font:700 9.5px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .prep-grid .v { font:800 21px/1.1 var(--sans); font-variant-numeric:tabular-nums; margin-top:5px; }
+  .prep-grid .v small { font-size:.5em; font-weight:700; opacity:.6; margin-left:2px; }
+
+  /* A capture is worth one beat of acknowledgement. */
+  @keyframes caught { 0% { transform:scale(1); } 38% { transform:scale(1.045); } 100% { transform:scale(1); } }
+  .hero.caught { animation:caught .34s ease-out; }
+  .steps button { transition:background .2s ease, color .2s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    .hero.caught { animation:none; }
+    .dial-now { transition:none; }
+  }
   /* The stepper moved into the narrower left column; these are the same
      concessions the side panel used to make for it. */
   #cell-now .steps { margin-top:2px; }
@@ -206,6 +248,7 @@
         <div class="cell-head">
           <span class="tag" id="device-chip">Live</span>
           <span class="badge" id="settled">—</span>
+          <span class="badge" id="battery" hidden title="Scale battery">—</span>
           <button class="ghost" id="disconnect" type="button">Disconnect</button>
         </div>
         <p class="msg" id="decoder-note" style="margin:0 0 8px"></p>
@@ -245,6 +288,8 @@
         <div class="btn-row" style="margin:6px 0 2px">
           <button class="ghost" id="watch-phone" type="button"
                   style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
+          <button class="ghost" id="cues" type="button" aria-pressed="false"
+                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
           <span class="badge" id="watch-state" hidden>&mdash;</span>
         </div>
 
@@ -289,15 +334,42 @@
 
       <!-- The pour, against a reference -->
       <section class="bx cell" id="cell-pour">
-        <div class="cell-head">
-          <span class="tag">The pour</span>
-          <span class="legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow <i class="sw-g"></i>
+        <div class="cell-head" id="pour-head">
+          <span class="tag" id="mid-tag">The pour</span>
+          <span class="legend" id="pour-legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow
+            <i class="sw-g"></i>
             <select id="ghost-pick" aria-label="Reference shot"></select></span>
           <span class="msg" id="p-target" style="margin:0 0 0 auto"></span>
         </div>
-        <div class="fillchart" id="curve"></div>
-        <p class="note warn" id="live-warn" style="display:none"></p>
-        <div id="b-summary"></div>
+
+        <div class="slides" id="slides">
+          <!-- Weighing: the dial is the thing worth looking at, and the chart
+               has nothing on it yet. -->
+          <div class="slide" id="slide-prep">
+            <div class="dial-wrap">
+              <svg class="dial" id="dial" viewBox="0 0 200 116" role="img" aria-label="Dose so far">
+                <path class="dial-track" d="M14 108 A86 86 0 0 1 186 108"></path>
+                <path class="dial-band" id="dial-band"></path>
+                <path class="dial-now" id="dial-now" d="M14 108 A86 86 0 0 1 186 108"></path>
+                <line class="dial-mark" id="dial-mark" x1="100" y1="22" x2="100" y2="34"></line>
+              </svg>
+              <div class="dial-read">
+                <span class="dial-n" id="dial-n">0.0</span><span class="dial-u">g</span>
+                <div class="dial-sub" id="dial-sub">—</div>
+              </div>
+            </div>
+            <div class="prep-grid" id="prep-grid"></div>
+            <p class="msg" id="prep-note" style="margin:10px 0 0"></p>
+          </div>
+
+          <!-- Brewing: the chart, which slides across as the shot begins. -->
+          <div class="slide" id="slide-pour">
+            <div class="fillchart" id="curve"></div>
+            <p class="note warn" id="live-warn" style="display:none"></p>
+            <div id="b-summary"></div>
+          </div>
+        </div>
+
         <div class="histstrip" id="history"></div>
       </section>
 
@@ -458,6 +530,7 @@ import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight, updateStopLag } from './assets/js/core/filter.js';
 import { SessionMachine, STEP_ORDER, fillProgress } from './assets/js/core/session.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
+import * as cue from './assets/js/core/cue.js';
 import { decodeCurve } from './assets/js/core/schema.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { initNotices, restoreControl, isDismissed } from './assets/js/core/notice.js';
@@ -728,6 +801,12 @@ function onFrame({ uuid, bytes, at }) {
   // The countdown moves every frame; the rest of the session panel only moves
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
+  if (moved.committed) {
+    const tile = document.querySelector('#cell-now .hero');
+    tile.classList.remove('caught');
+    void tile.offsetWidth;             // restart the animation rather than skip it
+    tile.classList.add('caught');
+  }
   if (moved.advancedTo || moved.committed) paintSession();
 }
 
@@ -738,6 +817,122 @@ function onFrame({ uuid, bytes, at }) {
 function currentTarget() {
   if (sess.step === 'brew' || sess.step === 'rate') return targetYield();
   return sess.targetFor();
+}
+
+/* ------------------------------------------------------------------- cues */
+// The laptop is across the room and your hands are full; a number changing on
+// a screen you are not looking at is not feedback.
+const CUE_KEY = 'brewkit.cues';
+const gate = new cue.CueGate({ enabled: false });
+try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }
+
+function paintCueButton() {
+  const on = gate.enabled && cue.isArmed();
+  $('cues').textContent = gate.enabled ? (on ? 'Sound on' : 'Sound blocked') : 'Sound off';
+  $('cues').setAttribute('aria-pressed', String(gate.enabled));
+}
+
+$('cues').addEventListener('click', () => {
+  gate.enabled = !gate.enabled;
+  // Audio can only start from a gesture, and this click is one.
+  if (gate.enabled && cue.arm()) cue.CUES.tick();
+  try { localStorage.setItem(CUE_KEY, gate.enabled ? 'on' : 'off'); } catch { /* ignore */ }
+  paintCueButton();
+});
+paintCueButton();
+
+/**
+ * Which cue, if any, this frame has earned. Edges only: a tone that repeats ten
+ * times a second is an alarm, not a cue.
+ */
+function soundCues(snap) {
+  const s = sess.snapshot();
+  const weighing = s.step === 'dose' || s.step === 'grind';
+  gate.edge('window', weighing && s.phase === 'ready', cue.CUES.target);
+  const brewing = snap.state === 'extracting';
+  const eta = brewing && Number.isFinite(snap.flow) && snap.flow > 0.05
+    ? (targetYield() - snap.net) / snap.flow : NaN;
+  // The last five seconds get a tick each; the target itself gets the stop.
+  if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
+  gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
+  gate.edge('channel', brewing && Number.isFinite(snap.trend) && snap.trend > 0.05,
+    cue.CUES.warn);
+  if (!brewing && snap.state !== 'dripping') { gate.state.delete('stop'); gate.state.delete('channel'); }
+}
+
+/* ------------------------------------------------------ the middle column */
+// Two views, one sliding aside as the other arrives. Which one is showing is a
+// property of the step, not of the brew state.
+
+const ARC = 86 * Math.PI;                        // length of a 180° r=86 arc
+// The track runs left to right, so frac 0 is the left end: angle 0, not π.
+// Getting that backwards puts the target band on the opposite side of the dial
+// from the arc that is supposed to reach it.
+const arcPoint = (frac) => {
+  const a = Math.PI * Math.max(0, Math.min(1, frac));
+  return [100 - 86 * Math.cos(a), 108 - 86 * Math.sin(a)];
+};
+
+function paintDial(net) {
+  const target = currentTarget();
+  const p = Number.isFinite(target) && target > 0
+    ? fillProgress(net, target, sess.tolerance(target)) : null;
+  const wrap = $('slide-prep');
+  wrap.className = `slide${p ? ` is-${p.state}` : ''}`;
+  const now = $('dial-now');
+  now.style.strokeDasharray = String(ARC);
+  now.style.strokeDashoffset = String(ARC * (1 - (p ? p.frac : 0)));
+  if (p) {
+    const [ax, ay] = arcPoint(p.lo);
+    const [bx, by] = arcPoint(p.hi);
+    $('dial-band').setAttribute('d', `M${ax.toFixed(1)} ${ay.toFixed(1)} `
+      + `A86 86 0 0 1 ${bx.toFixed(1)} ${by.toFixed(1)}`);
+    const [mx, my] = arcPoint(p.mark);
+    const [ix, iy] = [100 + (mx - 100) * 0.86, 108 + (my - 108) * 0.86];
+    const mark = $('dial-mark');
+    mark.setAttribute('x1', mx.toFixed(1)); mark.setAttribute('y1', my.toFixed(1));
+    mark.setAttribute('x2', ix.toFixed(1)); mark.setAttribute('y2', iy.toFixed(1));
+  } else {
+    $('dial-band').setAttribute('d', '');
+  }
+  $('dial-n').textContent = fmt(net, 1);
+  $('dial-sub').textContent = !p ? 'no target set'
+    : p.state === 'in' ? `in the window · ${fmt(target, 1)} g`
+      : p.delta < 0 ? `${fmt(-p.delta, 1)} g to go · ${fmt(target, 1)} g`
+        : `${fmt(p.delta, 1)} g over · ${fmt(target, 1)} g`;
+}
+
+/** What the last shot on this coffee did, which is the best guess at this one. */
+function paintPrep() {
+  const bagId = $('p-bag').value || null;
+  const past = store.all().filter((r) => (!bagId || r.bag_id === bagId)
+    && Number.isFinite(Number(r.dose_g)));
+  const last = past.at(-1) ?? null;
+  const cell = (k, v, u = '') => el('div', { class: 'c' },
+    el('div', { class: 'k' }, k),
+    el('div', { class: 'v' }, v, u ? el('small', {}, u) : null));
+  const n = (v, dp = 1) => (Number.isFinite(Number(v)) ? fmt(Number(v), dp) : '—');
+  $('prep-grid').replaceChildren(
+    cell('Last dose', n(last?.dose_g), 'g'),
+    cell('Last yield', n(last?.yield_g), 'g'),
+    cell('Last time', n(last?.time_s), 's'),
+    cell('Last grind', n(last?.grind_setting, 1)),
+    cell('Rated', last?.rating ? `${last.rating}` : '—', last?.rating ? '/10' : ''),
+    cell('Shots here', String(past.length)));
+  $('prep-note').textContent = last
+    ? `Last shot ${(last.timestamp ?? '').slice(0, 16)}`
+    : 'No shots on this coffee yet.';
+}
+
+/** Slide whichever view the step calls for into place. */
+function paintSlides() {
+  const brewing = sess.step === 'brew' || sess.step === 'rate';
+  $('slide-prep').dataset.off = brewing ? 'left' : '';
+  $('slide-pour').dataset.off = brewing ? '' : 'right';
+  $('mid-tag').textContent = brewing ? 'The pour' : 'Weighing';
+  // The swatches describe a chart that is not on screen; the reference picker
+  // is chosen *before* pouring, so it stays reachable throughout.
+  for (const sw of $('pour-legend').querySelectorAll('i')) sw.hidden = !brewing;
 }
 
 /** The bar under the big readout. Redrawn every frame; it is the point. */
@@ -766,6 +961,9 @@ function paintFill(net) {
 function render(s) {
   $('o-w').textContent = fmt(s.net, 1);
   paintFill(s.net);
+  paintDial(s.net);
+  paintSlides();
+  soundCues(s);
   $('o-t').textContent = fmt(s.elapsed, 1);
   $('o-f').textContent = fmt(s.flow, 2);
 
@@ -907,9 +1105,19 @@ const LAST_KEY = 'brewkit.live.connected';
 const rememberLink = (key) => { try { sessionStorage.setItem(LAST_KEY, key); } catch { /* ignore */ } };
 const forgetLink = () => { try { sessionStorage.removeItem(LAST_KEY); } catch { /* ignore */ } };
 
+/** The scale's own display shows this; a scale driven from another room does not. */
+function showBattery(level) {
+  const b = $('battery');
+  if (!Number.isFinite(level)) { b.hidden = true; return; }
+  b.hidden = false;
+  b.textContent = `${Math.round(level)}%`;
+  b.className = `badge ${level <= 15 ? 'warn' : level <= 30 ? 'flag' : 'ok'}`;
+}
+
 async function afterConnect(name, id) {
   deviceKey = id ?? ('name:' + name);
   rememberLink(deviceKey);
+  link?.battery?.({ onChange: showBattery }).then(showBattery).catch(() => {});
   profile = devices[deviceKey] ?? { name, bleName: name };
   $('conn-msg').textContent = `Connected to ${name}.`;
   await link.subscribeAll();
@@ -994,7 +1202,11 @@ $('no-scale').addEventListener('click', () => {
   paintSession();
 });
 
-$('disconnect').addEventListener('click', () => { forgetLink(); link?.disconnect(); });
+$('disconnect').addEventListener('click', () => {
+  forgetLink();
+  showBattery(NaN);
+  link?.disconnect();
+});
 
 $('forget-all').addEventListener('click', () => {
   const n = Object.keys(devices).length;
@@ -1288,6 +1500,8 @@ function setupHint() {
 function paintSession() {
   const s = sess.snapshot();
   paintCatch(s);
+  paintSlides();
+  paintPrep();
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
   const chosen = kit.bag($('p-bag').value)?.bean_name;
@@ -1673,6 +1887,7 @@ function resetShot(why = 'Session reset.') {
   sess.setTarget(targetDose());
   stopArmed = false; stopSeen = null;
   ghostCurve = []; ghostFlowCurve = [];
+  gate.reset();
   buildRateControls();
   for (const id of ['r-brix', 'r-yield', 'r-notes', 'd-manual', 'g-manual']) $(id).value = '';
   $('r-diag').replaceChildren();
