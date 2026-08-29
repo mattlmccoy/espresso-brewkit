@@ -89,6 +89,39 @@ Machine *type* is recorded too, and is not decoration: a lever's pressure is
 whatever the spring or your arm is doing at that instant, which means something
 quite different from a pump machine's gauge reading.
 
+## Watching a pour on a phone
+
+No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is Safari
+underneath — so an iPad can never be the thing holding the scale. It can be the
+thing watching, and until now the only way to get data onto it was Drive sync:
+an account on both ends, and a pull-merge-push against Google's servers for a
+number that changes ten times a second. That is the wrong shape twice over, and
+a sign-in problem turns the whole viewer into a blank page.
+
+[Watch](https://mattlmccoy.github.io/espresso-brewkit/view.html) takes the
+frames straight off the laptop instead — **WebRTC, peer to peer**, no server, no
+account, nothing hosted. The two devices are usually a metre apart on the same
+Wi-Fi; the data has no reason to visit California first.
+
+The awkward part is introductions. WebRTC peers cannot start without exchanging
+a description of each other, and that is normally a signalling server's job.
+There isn't one, so you do it: the laptop makes a code, the phone takes it and
+makes a reply, the laptop takes the reply. Two copies and two pastes, once per
+session, about fifteen seconds. On a Mac and an iPhone signed into the same
+Apple account, Universal Clipboard means copying on one is pasting on the other.
+
+**No ICE servers are configured**, which is a decision rather than an omission.
+With none, the browser offers only host candidates — addresses on the local
+network — so the link works on the same Wi-Fi and nowhere else. Across networks
+it fails and says so, rather than quietly relaying your shots through someone
+else's TURN server.
+
+The channel is unordered and unreliable, and every frame carries the whole
+current state rather than a delta: weight, flow, elapsed, brew state, session
+step, dose, target, coffee, and the last 240 points of the curve. Losing a frame
+therefore costs nothing, and a phone that joins mid-shot is not staring at a
+blank chart.
+
 ## Two devices, no server
 
 [Sync](https://mattlmccoy.github.io/espresso-brewkit/sync.html) keeps a computer

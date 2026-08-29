@@ -44,9 +44,13 @@ const t = (name, ok, extra = '') => {
   console.log((ok ? '  ok   ' : '  FAIL ') + name + (extra ? '  — ' + extra : ''));
 };
 
-const browser = await chromium.launch(
-  process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
-);
+const browser = await chromium.launch({
+  ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}),
+  // The phone link is real WebRTC. Chromium normally hides local IPs behind
+  // mDNS names, which nothing resolves in a headless container, so the two
+  // pages would gather candidates they could never use.
+  args: ['--disable-features=WebRtcHideLocalIpsWithMdns'],
+});
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
 const page = await ctx.newPage();
 const errs = [];
@@ -1379,6 +1383,80 @@ try {
   t('setup: with nothing in Kit it sends you to Kit, not to an empty select',
     /Kit page/.test(emptyKit) && /coffee and a grinder/.test(emptyKit), emptyKit);
 
+  // ---- watching from a phone, with nothing in between ----
+  // No iOS browser has Web Bluetooth, so an iPad can never hold the scale. It
+  // can watch — and Drive sync is the wrong shape for that: an account on both
+  // ends and seconds of latency for a number that moves ten times a second.
+  const codes = await page.evaluate(async () => {
+    const link = await import('./assets/js/core/link.js');
+    const bad = link.readCode('not a code at all', 'offer');
+    const wrongWay = link.readCode(btoa(JSON.stringify({ v: 1, t: 'answer', sdp: 'x' }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), 'offer');
+    const oldVersion = link.readCode(btoa(JSON.stringify({ v: 99, t: 'offer', sdp: 'x' }))
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), 'offer');
+    const frame = link.frameOf({
+      snap: { net: 18.234, flow: 1.8765, state: 'extracting' },
+      sess: { step: 'brew', hint: 'go', dose: 18.2, grounds: null },
+      target: 36.04, coffee: 'Guji · Onyx', elapsed: 12.34,
+      curve: Array.from({ length: 400 }, (_, i) => ({ t: i * 0.1, w: i * 0.09 })),
+    });
+    return { bad: bad.error, wrongWay: wrongWay.error, oldVersion: oldVersion.error, frame };
+  });
+  t('link: nonsense is refused as nonsense', /does not look like/.test(codes.bad), codes.bad);
+  t('link: and a code pasted on the wrong device says which device it belongs on',
+    /Paste it on the laptop/.test(codes.wrongWay), codes.wrongWay);
+  t('link: a code from another version is not silently half-understood',
+    /different version/.test(codes.oldVersion), codes.oldVersion);
+  t('link: a frame carries the whole picture, not a delta',
+    codes.frame.w === 18.23 && codes.frame.q === 1.877 && codes.frame.t === 12.3
+    && codes.frame.step === 'brew' && codes.frame.target === 36
+    && codes.frame.coffee === 'Guji · Onyx',
+    `${codes.frame.w} g, ${codes.frame.q} g/s, ${codes.frame.t} s`);
+  t('link: with a bounded tail of the curve, so a late joiner is not blank',
+    codes.frame.curve.length === 240 && codes.frame.curve[0].length === 2,
+    `${codes.frame.curve.length} points of 400`);
+
+  // The real handshake, between two real pages.
+  const phone = await ctx.newPage();
+  await phone.goto(B + '/view.html');
+  await phone.waitForFunction(() => window.__view, null, { timeout: 5000 });
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+
+  await page.click('#watch-phone');
+  await page.waitForFunction(
+    () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+  const offer = await page.inputValue('#pair-offer');
+  await phone.fill('#offer', offer);
+  await phone.click('#link');
+  await phone.waitForFunction(
+    () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+  const reply = await phone.inputValue('#reply');
+  await page.fill('#pair-answer', reply);
+  await page.click('#pair-accept');
+
+  const linked = await phone.waitForFunction(
+    () => window.__view.link.state === 'open', { timeout: 20000 }).then(() => true).catch(() => false);
+  t('link: two pages introduce themselves with two pastes and no server',
+    linked, linked ? 'data channel open' : 'never connected');
+
+  if (linked) {
+    await page.evaluate(() => { window.__mock.grams = 21.7; });
+    const arrived = await phone.waitForFunction(
+      () => Math.abs(Number(document.getElementById('w').textContent) - 21.7) < 0.4,
+      { timeout: 10000 }).then(() => true).catch(() => false);
+    t('link: and the phone shows the weight the laptop is reading',
+      arrived, await phone.textContent('#w'));
+    t('link: with the pairing panel put away once it is watching',
+      await phone.evaluate(() => document.getElementById('pairing').hidden
+        && !document.getElementById('watching').hidden), 'watching, not pairing');
+    const said = await page.textContent('#watch-state');
+    t('link: and the laptop says a phone is watching',
+      /watching/i.test(said), said);
+  }
+  await phone.close();
+  await page.evaluate(() => document.getElementById('pair-dlg').close());
+
   // ---- Lab holds the analysis tools ----
   await page.goto(B + '/lab.html');
   const labLinks = await page.$$eval('.tool-card', (as) => as.map((a) => a.getAttribute('href')));
@@ -1408,7 +1486,7 @@ try {
   await page.selectOption('#p-bag', kitIds.bag);
   await page.waitForTimeout(400);
 
-  const ctx = await page.evaluate(() => ({
+  const shotCtx = await page.evaluate(() => ({
     name: document.getElementById('cc-name').textContent,
     age: document.getElementById('cc-age').textContent,
     facts: document.getElementById('cc-facts').textContent,
@@ -1417,14 +1495,14 @@ try {
     ghosts: [...document.getElementById('ghost-pick').options].map((o) => o.textContent),
   }));
   t('dashboard: the coffee in front of you is on screen',
-    /Test Guji/.test(ctx.name) && /9 d/.test(ctx.age), `${ctx.name} · ${ctx.age}`);
+    /Test Guji/.test(shotCtx.name) && /9 d/.test(shotCtx.age), `${shotCtx.name} · ${shotCtx.age}`);
   t('dashboard: with how much is left and how it has been going',
-    /g left/.test(ctx.facts) && /shot/.test(ctx.facts), ctx.facts);
+    /g left/.test(shotCtx.facts) && /shot/.test(shotCtx.facts), shotCtx.facts);
   t('dashboard: past pours are shown as shapes, not just numbers',
-    ctx.hist >= 1, ctx.hist + ' in the history strip');
+    shotCtx.hist >= 1, shotCtx.hist + ' in the history strip');
   // Pouring against a curve you already liked beats aiming for a number.
   t('dashboard: a reference shot can be poured against',
-    ctx.ghosts.some((o) => /best rated/.test(o)), ctx.ghosts.join(' | ').slice(0, 70));
+    shotCtx.ghosts.some((o) => /best rated/.test(o)), shotCtx.ghosts.join(' | ').slice(0, 70));
 
   await page.selectOption('#ghost-pick', { index: 1 });
   await page.waitForTimeout(300);

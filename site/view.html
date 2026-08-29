@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Watch · espresso·brewkit</title>
+<meta name="description" content="Watch a shot live on a phone, straight from the laptop with the scale.">
+<link rel="stylesheet" href="./assets/css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
+<style>
+  /* Built for a phone held at arm's length beside a machine: one number that
+     matters, big enough to read without leaning in, and nothing that scrolls. */
+  body { overscroll-behavior: none; }
+  .watch { display:flex; flex-direction:column; gap:12px; min-height:100svh;
+    padding:12px 12px calc(12px + env(safe-area-inset-bottom)); box-sizing:border-box; }
+  .pair { display:flex; flex-direction:column; gap:10px; }
+  .pair textarea { width:100%; min-height:84px; font:600 12px/1.4 var(--mono);
+    background:var(--panel-2); color:var(--ink); border:var(--bw) solid var(--ink);
+    padding:9px 10px; box-sizing:border-box; resize:vertical; }
+  /* The number and the curve share what is left, rather than the number
+     swallowing the screen and leaving the curve a letterbox. */
+  .big { flex:3 1 0; display:grid; place-items:center; border:var(--bw) solid var(--ink);
+    background:var(--accent); color:var(--accent-ink); min-height:150px; padding:10px; }
+  .big .n { font:800 clamp(58px, 22vw, 150px)/0.9 var(--sans); letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums; }
+  .big .u { font:700 clamp(15px, 4vw, 22px)/1 var(--sans); opacity:.75; margin-left:4px; }
+  .big .k { font:700 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    opacity:.8; margin-bottom:8px; text-align:center; }
+  .strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+  .strip .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:8px 10px; }
+  .strip .k { font:700 9.5px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .strip .v { font:800 clamp(19px, 6vw, 27px)/1.1 var(--sans); font-variant-numeric:tabular-nums; }
+  .strip .v small { font-size:.5em; font-weight:700; opacity:.6; }
+  .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
+  .head .who { font:700 13px/1.2 var(--sans); }
+  .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
+    min-height:0; overflow:hidden; }
+  .plot[hidden] { display:none !important; }
+  #hint { font:600 13px/1.45 var(--sans); color:var(--ink-dim); margin:0; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap watch">
+  <div class="head">
+    <a class="brand" href="./index.html" style="font-size:15px;padding:5px 9px">Brewkit</a>
+    <span class="badge" id="conn">Not linked</span>
+    <button class="ghost" id="unpair" type="button" hidden
+            style="margin-left:auto;padding:6px 10px;box-shadow:none;font-size:11px">Unlink</button>
+  </div>
+
+  <!-- Pairing: two pastes, and only until it is linked. -->
+  <section class="bx panel pair" id="pairing">
+    <div class="tag">Watch a shot</div>
+    <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
+    browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
+    peer to peer, with no account and nothing in between. Same Wi-Fi, and it takes two pastes.</p>
+    <ol class="msg" style="margin:0;padding-left:20px">
+      <li>On the laptop’s Live page, press <strong>Watch on phone</strong> and copy the code.</li>
+      <li>Paste it below and press <strong>Link</strong>.</li>
+      <li>Copy the reply this gives you, and paste it back on the laptop.</li>
+    </ol>
+    <textarea id="offer" placeholder="Paste the laptop’s code here"
+              autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
+    <p class="msg" id="pair-msg" style="margin:0"></p>
+    <div id="reply-wrap" hidden>
+      <p class="msg" style="margin:10px 0 6px"><strong>Now paste this back on the laptop.</strong></p>
+      <textarea id="reply" readonly autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <div class="btn-row"><button class="primary" id="copy-reply" type="button">Copy reply</button></div>
+    </div>
+  </section>
+
+  <!-- Watching. -->
+  <section id="watching" hidden style="display:contents">
+    <div class="head" id="coffee-line"><span class="who" id="coffee">—</span>
+      <span class="badge" id="step">—</span></div>
+    <p id="hint"></p>
+    <div class="big"><div>
+      <div class="k" id="big-k">Weight</div>
+      <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
+    </div></div>
+    <div class="strip">
+      <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
+      <div class="c"><div class="k">Flow</div><div class="v" id="q">0.00<small>g/s</small></div></div>
+      <div class="c"><div class="k">Target</div><div class="v" id="target">—</div></div>
+    </div>
+    <div class="plot" id="plot"></div>
+  </section>
+</div>
+
+<script type="module">
+import { initTheme } from './assets/js/ui.js';
+import { LiveLink } from './assets/js/core/link.js';
+import { livePlot } from './assets/js/core/chart.js';
+initTheme();
+
+const $ = (id) => document.getElementById(id);
+const link = new LiveLink({ role: 'viewer' });
+let last = null;
+
+const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew', rate: 'Rate' };
+
+function setConn(state) {
+  const label = { idle: 'Not linked', waiting: 'Waiting for the laptop', open: 'Linked',
+                  closed: 'Link closed', failed: 'Could not connect' }[state] ?? state;
+  $('conn').textContent = label;
+  $('conn').className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
+  const live = state === 'open';
+  $('pairing').hidden = live;
+  $('watching').hidden = !live;
+  $('unpair').hidden = !live;
+  if (state === 'failed') {
+    $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
+      + 'Wi-Fi — this connects directly rather than through a server, which is also why nothing '
+      + 'about your shots leaves the room.';
+  }
+}
+
+function paint(f) {
+  last = f;
+  const brewing = f.st === 'extracting' || f.st === 'dripping';
+  $('big-k').textContent = brewing ? 'In the cup'
+    : f.step === 'dose' ? 'Beans' : f.step === 'grind' ? 'Grounds' : 'Weight';
+  $('w').textContent = Number.isFinite(f.w) ? f.w.toFixed(1) : '—';
+  $('t').innerHTML = `${Number.isFinite(f.t) ? f.t.toFixed(1) : '—'}<small>s</small>`;
+  $('q').innerHTML = `${Number.isFinite(f.q) ? f.q.toFixed(2) : '—'}<small>g/s</small>`;
+  $('target').innerHTML = Number.isFinite(f.target)
+    ? `${f.target.toFixed(1)}<small>g</small>` : '—';
+  $('coffee').textContent = f.coffee || 'No coffee chosen';
+  $('step').textContent = STEP_LABEL[f.step] ?? '—';
+  $('hint').textContent = f.hint ?? '';
+  drawCurve(f);
+}
+
+function drawCurve(f) {
+  // livePlot takes [t, w] pairs, which is exactly what a frame carries.
+  const pts = f.curve ?? [];
+  // An empty framed box is worse than no box: before a shot starts there is
+  // simply nothing to draw, and the number should have the room instead.
+  $('plot').hidden = pts.length < 2;
+  if (pts.length < 2) { $('plot').replaceChildren(); return; }
+  livePlot($('plot'), {
+    weight: pts,
+    target: Number.isFinite(f.target) ? f.target : NaN,
+    width: 720, height: 300,
+  });
+}
+
+link.onState = setConn;
+link.onMessage = (m) => { if (m?.k === 'f') paint(m); };
+
+$('link').addEventListener('click', async () => {
+  const code = $('offer').value.trim();
+  if (!code) { $('pair-msg').textContent = 'Paste the laptop’s code first.'; return; }
+  $('pair-msg').textContent = 'Linking…';
+  try {
+    const reply = await link.answer(code);
+    $('reply').value = reply;
+    $('reply-wrap').hidden = false;
+    $('pair-msg').textContent = 'Almost there — paste the reply back on the laptop.';
+    $('reply').focus();
+    $('reply').setSelectionRange(0, reply.length);
+  } catch (err) {
+    $('pair-msg').textContent = err.message;
+  }
+});
+
+$('copy-reply').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText($('reply').value);
+    $('pair-msg').textContent = 'Copied. Paste it on the laptop.';
+  } catch {
+    $('reply').focus();
+    $('reply').setSelectionRange(0, $('reply').value.length);
+    $('pair-msg').textContent = 'Select the reply above and copy it by hand.';
+  }
+});
+
+$('unpair').addEventListener('click', () => {
+  link.close();
+  $('offer').value = '';
+  $('reply-wrap').hidden = true;
+  $('pair-msg').textContent = '';
+});
+
+// Keep the screen awake while watching: a phone that sleeps mid-shot is a
+// phone that was not worth setting up.
+let lock = null;
+async function keepAwake(on) {
+  try {
+    if (on && !lock && 'wakeLock' in navigator) lock = await navigator.wakeLock.request('screen');
+    if (!on && lock) { await lock.release(); lock = null; }
+  } catch { /* denied, or not supported — the shot still shows */ }
+}
+link.onState = (s) => { setConn(s); keepAwake(s === 'open'); };
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && link.state === 'open') keepAwake(true);
+});
+
+setConn('idle');
+window.__view = { link, paint, last: () => last };
+</script>
+</body>
+</html>
