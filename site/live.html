@@ -202,6 +202,37 @@
   .hero .fill.is-under, .hero .fill.is-in { color:inherit; }
   .hero .fill.is-over { color:var(--flag); }
   .fill.is-in .fill-band { background:color-mix(in srgb, currentColor 52%, transparent); }
+  /* Where the three drinks live, and how long until each one.
+     A dose has three defensible yields, not one, and which you get is decided
+     mid-pour. The track carries the metric truth — ticks at their real weights
+     — while the row underneath carries the reading, because three labels
+     positioned proportionally collide at exactly the ratios espresso uses. */
+  .ladder { margin-top:9px; }
+  .ladder[hidden] { display:none; }
+  .st.bx[hidden] { display:none; }
+  .ladder-track { position:relative; height:7px; background:var(--hair);
+    border:2px solid var(--ink); overflow:hidden; }
+  .ladder-now { position:absolute; top:0; bottom:0; left:0; background:var(--accent);
+    transition:width .1s linear; }
+  .ladder-tick { position:absolute; top:0; bottom:0; width:2px; background:var(--ink);
+    opacity:.55; }
+  .ladder-tick.is-target { opacity:1; box-shadow:0 0 0 1px var(--panel); }
+  .ladder-row { display:flex; gap:6px; margin-top:6px; }
+  .ladder-cell { flex:1 1 0; min-width:0; padding:5px 7px; border:2px solid var(--hair);
+    background:var(--panel-2); transition:border-color var(--t) var(--ease-out), opacity var(--t) var(--ease-out); }
+  .ladder-k { font:700 9.5px/1 var(--sans); letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ladder-g { font:700 14px/1.15 var(--mono); margin-top:3px; }
+  .ladder-e { font:700 10.5px/1 var(--mono); margin-top:3px; color:var(--ink-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* Gone by: dimmed, because it is history you can no longer act on. */
+  .ladder-cell.is-passed { opacity:.42; }
+  /* The one you could cut for right now. This is the only cell worth reacting
+     to, so it is the only one that gets the accent. */
+  .ladder-cell.is-near { border-color:var(--accent); }
+  .ladder-cell.is-near .ladder-e { color:var(--accent); }
+  .ladder-cell.is-target { border-style:dashed; }
+  .ladder-cell.is-target.is-near { border-style:solid; }
   /* The fields the flow is waiting on, while it is waiting on them. A panel of
      selects sitting quietly beside a stepper is not something anyone knows to
      fill in first. */
@@ -443,6 +474,12 @@
           <span class="qbar"><span class="band"></span><span class="now"></span></span>
           <span class="qv">—</span>
         </div>
+        <!-- The three drinks inside this shot. Only ever during the pour: before
+             it there is nothing to be partway through. -->
+        <div class="ladder brew-only" id="ladder" hidden>
+          <div class="ladder-track"><span class="ladder-now" id="ladder-now"></span></div>
+          <div class="ladder-row" id="ladder-row"></div>
+        </div>
         <!-- Four of these six mean nothing until something is pouring, and a
              dashboard that shows six dashes while you are weighing beans is
              four rows of furniture between you and the number you want. -->
@@ -451,7 +488,7 @@
           <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
           <div class="st bx"><div class="k">Target</div><div class="v"><span id="o-target">—</span><span class="u">g</span></div></div>
           <div class="st bx brew-only"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
-          <div class="st bx brew-only"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
+          <div class="st bx brew-only" id="tile-eta"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
           <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
         </div>
 
@@ -717,6 +754,8 @@ import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, bre
   from './assets/js/core/method.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
+import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
+  from './assets/js/core/styles.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
 import { TapListener, actionFor, gestureHint, thresholdFor,
@@ -812,7 +851,7 @@ let shotStartedAt = null;
 function blankDraft() {
   return { dose_g: null, grounds_out_g: null, yield_g: null, time_s: null,
            rating: null, tags: new Set(), curve: [], metrics: {},
-           puck_prep_s: null, method: null };
+           puck_prep_s: null, method: null, style: null };
 }
 
 const displayName = () => profile?.name || profile?.bleName || 'Scale';
@@ -1225,9 +1264,21 @@ function soundCues(snap) {
   // The last five seconds get a tick each; the target itself gets the stop.
   if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
   gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
+  // Crossing from one drink into the next. Each landmark gets its own gate, so
+  // passing ristretto and then espresso is two notes rather than one repeated.
+  if (brewing) {
+    for (const r of shotLadder(sess.method, targetDose(), { net: snap.net, flow: snap.flow,
+      elapsed: snap.elapsed, lag: 0, target: null })) {
+      gate.edge(`style:${r.id}`, r.state === 'passed', cue.CUES.landmark);
+    }
+  }
   gate.edge('channel', brewing && Number.isFinite(snap.trend) && snap.trend > 0.05,
     cue.CUES.warn);
-  if (!brewing && snap.state !== 'dripping') { gate.state.delete('stop'); gate.state.delete('channel'); }
+  if (!brewing && snap.state !== 'dripping') {
+    gate.state.delete('stop');
+    gate.state.delete('channel');
+    for (const k of [...gate.state.keys()]) if (k.startsWith('style:')) gate.state.delete(k);
+  }
 }
 
 /* ------------------------------------------------------ the middle column */
@@ -1354,9 +1405,85 @@ function paintFill(net) {
     : p.delta < 0 ? `${fmt(-p.delta, 1)} g to go` : `+${fmt(p.delta, 1)} g over`;
 }
 
+/**
+ * The three drinks inside this shot, and how long until each.
+ *
+ * The weights are exact and could be drawn from the first drop. The times
+ * cannot: espresso flow ramps for the first several seconds, so dividing the
+ * remaining grams by the flow you have at 4 s is dividing by less than half the
+ * flow you are about to have. `project` refuses to answer until the ramp is
+ * done, and this only prints what it is given.
+ */
+let ladderCells = new Map();
+// Which marks have already been close enough to count down; see `settle`.
+const ladderSeen = new Set();
+function paintLadder(s) {
+  const box = $('ladder');
+  const dose = targetDose();
+  const on = !!stylesFor(sess.method) && brew.state !== 'idle' && Number.isFinite(dose) && dose > 0;
+  box.hidden = !on;
+  if (!on) { $('tile-eta').hidden = false; ladderSeen.clear(); return; }
+
+  const rungs = shotLadder(sess.method, dose, {
+    net: s.net,
+    flow: s.flow,
+    elapsed: s.elapsed,
+    lag: kit.stopLag($('p-machine').value).seconds,
+    target: targetYield(),
+    seen: ladderSeen,
+  });
+  const scale = ladderScale(rungs);
+  const track = box.querySelector('.ladder-track');
+
+  // Ticks are rebuilt only when the marks themselves move, which is when the
+  // dose or the target changes — not ten times a second.
+  const sig = rungs.map((r) => `${r.id}:${r.grams}`).join('|');
+  if (track.dataset.sig !== sig) {
+    track.dataset.sig = sig;
+    for (const old of track.querySelectorAll('.ladder-tick')) old.remove();
+    for (const r of rungs) {
+      const tick = el('span', { class: `ladder-tick${r.isTarget ? ' is-target' : ''}` });
+      tick.style.left = `${((r.grams / scale) * 100).toFixed(1)}%`;
+      track.append(tick);
+    }
+    const row = $('ladder-row');
+    row.replaceChildren(...rungs.map((r) => {
+      const cell = el('div', { class: 'ladder-cell' },
+        el('div', { class: 'ladder-k' }, r.isTarget && r.id === 'target' ? 'Your target' : r.label),
+        el('div', { class: 'ladder-g' }, `${fmt(r.grams, 1)} g`),
+        el('div', { class: 'ladder-e' }, '—'));
+      cell.title = `1:${r.ratio} — ${r.blurb}`;
+      return cell;
+    }));
+    ladderCells = new Map(rungs.map((r, i) => [r.id, row.children[i]]));
+  }
+
+  // The ladder already carries the target as a rung; the tile would be the
+  // same number twice on one screen.
+  $('tile-eta').hidden = true;
+  $('ladder-now').style.width = `${Math.min(100, (s.net / scale) * 100).toFixed(1)}%`;
+  for (const r of rungs) {
+    const cell = ladderCells.get(r.id);
+    if (!cell) continue;
+    cell.classList.toggle('is-passed', r.state === 'passed');
+    cell.classList.toggle('is-near', r.state === 'near');
+    cell.classList.toggle('is-target', !!r.isTarget);
+    // Four states, four different things worth saying. "Settling" is the one
+    // that matters: it is the app declining to guess rather than having no
+    // opinion, and saying nothing there would read as a bug.
+    cell.lastElementChild.textContent =
+      r.state === 'passed' ? 'passed'
+        : r.state === 'near' ? `cut in ${fmt(r.eta, 1)} s`
+          : r.state === 'far' ? `~${Math.round(r.eta)} s`
+            : r.state === 'stalled' ? 'not flowing'
+              : 'settling';
+  }
+}
+
 function render(s) {
   $('o-w').textContent = fmt(s.net, 1);
   paintFill(s.net);
+  paintLadder(s);
   paintDial(s.net);
   paintSlides();
   soundCues(s);
@@ -2213,6 +2340,7 @@ function broadcast(snap) {
     tol: weighing ? sess.tolerance(shown) : Math.max(1, shown * 0.04),
     coffee: bag ? [bag.bean_name, bag.roaster].filter(Boolean).join(' · ') : null,
     elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
+    lag: kit.stopLag($('p-machine').value).seconds,
   }));
 }
 
@@ -2547,9 +2675,15 @@ function finishShot() {
   // thirty seconds.
   draft.puck_prep_s = sess.puckPrep(shotStartedAt ?? Date.now());
   draft.method = sess.method;
+  // What it turned out to be, rather than what you set out to make. Aiming at
+  // 36 g and cutting at 27 is a ristretto, and the log should say so — a ratio
+  // is a number you have to interpret every time you read it.
+  draft.style = styleOf(sess.method, draft.dose_g, draft.yield_g)?.id ?? null;
 
   const m = draft.metrics;
-  $('live-msg').textContent = `${fmt(draft.yield_g, 1)} g in ${fmt(draft.time_s, 1)} s.`;
+  const made = styleOf(sess.method, draft.dose_g, draft.yield_g);
+  $('live-msg').textContent = `${fmt(draft.yield_g, 1)} g in ${fmt(draft.time_s, 1)} s`
+    + (made ? ` — a ${made.label.toLowerCase()} at 1:${made.ratio}.` : '.');
   $('b-summary').replaceChildren(el('div', { class: 'grid g3' },
     stat('First drip', m.t_first_drip_s, 's', 1),
     stat('Peak flow', m.peak_flow_gs, 'g/s', 2),
@@ -2661,6 +2795,7 @@ $('save').addEventListener('click', () => {
     method: draft.method ?? sess.method,
     milk_g: Number.isFinite(sess.milk) ? sess.milk : null,
     puck_prep_s: draft.puck_prep_s ?? null,
+    style: draft.style ?? null,
     curve: encodeCurve(draft.curve),
     brix: num('r-brix'), rating: draft.rating,
     tags: [...draft.tags].join(' '),

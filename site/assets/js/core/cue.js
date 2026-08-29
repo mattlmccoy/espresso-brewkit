@@ -79,6 +79,10 @@ export const CUES = {
   tick: () => tone(520, { ms: 55, gain: 0.1 }),
   // Cut it now: a falling pair, and a longer buzz.
   stop: () => { tone(880, { ms: 90 }); setTimeout(() => tone(520, { ms: 170 }), 95); buzz([50, 40, 90]); },
+  // You have just crossed from one drink into the next. One short soft note,
+  // no vibration: this is information, not an instruction. Nothing needs doing
+  // about passing ristretto — it only tells you where in the shot you are.
+  landmark: () => tone(700, { ms: 45, gain: 0.07 }),
   // Something is wrong with the shot while it is still running.
   warn: () => { tone(320, { ms: 220, type: 'square', gain: 0.09 }); buzz([30, 60, 30]); },
 };

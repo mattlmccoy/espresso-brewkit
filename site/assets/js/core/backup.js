@@ -242,6 +242,7 @@ export function interchange({ shots = [], bags = [], grinders = [], machines = [
     units: {
       dose_g: 'grams', yield_g: 'grams', water_g: 'grams', milk_g: 'grams',
       time_s: 'seconds', puck_prep_s: 'seconds', temperature_c: 'celsius',
+      style: 'ristretto | espresso | lungo, by ratio',
       pressure_bar: 'bar', flow_g_per_s: 'grams per second',
       curve: 'array of [seconds, grams] pairs, cumulative weight',
     },
@@ -275,6 +276,7 @@ export function interchange({ shots = [], bags = [], grinders = [], machines = [
       time_s: num(r.time_s),
       preinfusion_s: num(r.preinfusion_s),
       puck_prep_s: num(r.puck_prep_s),
+      style: r.style || null,
       temperature_c: num(r.temp_c),
       pressure_bar: num(r.pressure_bar),
       first_drip_s: num(r.t_first_drip_s),
