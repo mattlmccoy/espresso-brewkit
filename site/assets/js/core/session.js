@@ -110,6 +110,22 @@ export function prompt(s, method = 'espresso') {
   if (s.phase === PHASE.VESSEL) {
     return `Put your ${w.vessel} on the scale — it tares itself once it settles.`;
   }
+  // Settled, and nowhere near what was asked for. Saying "dose your beans"
+  // here would be the app keeping its doubts to itself: it has a reading, it
+  // has decided not to act on it, and the only person who can resolve that is
+  // holding the cup.
+  if (Number.isFinite(s.offTarget) && s.offTarget !== 0 && Number.isFinite(s.candidate)) {
+    const off = Math.abs(s.offTarget).toFixed(1);
+    return `${s.candidate.toFixed(1)} g — ${off} g ${s.offTarget < 0 ? 'under' : 'over'} your `
+      + `target, so nothing is being captured on its own. Keep going, or lift the `
+      + `${w.vessel} off to use it anyway.`;
+  }
+  // A clock is running and the panel below is showing it tick. Saying "dose
+  // your beans" over the top of that is the app telling you two things at once.
+  if (Number.isFinite(s.holdLeft) && Number.isFinite(s.candidate)) {
+    return `${s.candidate.toFixed(1)} g — capturing that in ${Math.ceil(s.holdLeft)} s. `
+      + `Keep going to change it, or lift the ${w.vessel} off now.`;
+  }
   if (s.phase === PHASE.FILL) {
     const to = Number.isFinite(s.target) && s.target > 0 ? ` to ${s.target.toFixed(1)} g` : '';
     return `Tared. ${w.fill}${to}.`;
@@ -259,6 +275,7 @@ export class SessionMachine {
     this._recent = [];
     this._t = 0;
     this.holdLeft = null;       // seconds until an unattended capture, or null
+    this.offTarget = null;      // how far a held reading is from the target, or null
     this.events = [];
   }
 
@@ -393,7 +410,7 @@ export class SessionMachine {
     if (prevRaw === null) return out;
 
     const weighing = this.step === STEP.DOSE || this.step === STEP.GRIND;
-    if (!weighing) { this.holdLeft = null; return out; }
+    if (!weighing) { this.holdLeft = null; this.offTarget = null; return out; }
 
     // Asked for by goto() or by a commit: clear the software tare so the next
     // vessel is measured from the platform rather than from the last one.
@@ -483,17 +500,37 @@ export class SessionMachine {
     if (settled && plausible) {
       if (this._plateau(t, net, settled, 0.3, this.o.settleFor)) {
         this.candidate = +net.toFixed(2);
-        if (this.nearTarget(net)) {
-          // It knows you are done, so it says so and waits. Running a clock at
-          // someone who has been told exactly what to do next is just noise.
-          this.phase = PHASE.READY;
+        const tgt = this.targetFor();
+        const aimed = Number.isFinite(tgt) && tgt > 0;
+        // WHICH WAY ROUND THIS GOES IS THE WHOLE BEHAVIOUR, and it was wrong.
+        //
+        // It used to count down when the reading was nowhere near the target
+        // and wait when it was on it, reasoning that a reading on target has
+        // already told you what to do. Read back as behaviour that is exactly
+        // inverted: 8 g of beans against an 18 g target auto-advanced after
+        // five seconds, and 17.4 g — a perfectly good dose — sat there asking.
+        // The app was confidently accepting the readings it had most reason to
+        // doubt, and doubting the ones it should have been sure of.
+        //
+        // Confidence has to run the other way. A settled plateau inside the
+        // window is a finished dose, so it commits on a countdown you can see
+        // and interrupt. A settled plateau well outside it is either a dose in
+        // progress or a mistake, and neither is something to advance past on a
+        // timer: it holds, says what is odd, and waits to be told.
+        if (aimed && !this.nearTarget(net)) {
+          // Still filling, and that is not a hedge: 8 g when you asked for 18
+          // means keep going, which is what this phase means. The candidate is
+          // kept so the button can take it if you disagree.
+          this.offTarget = +(net - tgt).toFixed(1);
           this.holdLeft = null;
         } else {
-          // No target, or nowhere near it: the app cannot tell finished from
-          // paused, so the countdown is the fallback it had before.
+          this.offTarget = null;
           const held = t - this._settledSince;
           this.holdLeft = Math.max(0, +(this.o.holdFor - held).toFixed(1));
-          if (held >= this.o.holdFor) return this._commit(t, 'after holding still', out);
+          if (held >= this.o.holdFor) {
+            return this._commit(t, aimed ? 'once the dose settled on target'
+              : 'after holding still', out);
+          }
         }
       }
     } else if (!plausible) {
@@ -565,6 +602,7 @@ export class SessionMachine {
     this._settledAt = null;
     this._settledSince = null;
     this.holdLeft = null;
+    this.offTarget = null;
   }
 
   /** Nothing on the platform is a dose any more, candidate included. */
@@ -588,6 +626,10 @@ export class SessionMachine {
     // scale's clock is only monotonic within a connection.
     this.at = { ...(this.at ?? {}), [w.key]: Date.now() };
     out.committed = w.key;
+    // The value and the reason ride along so a trace can record which rule
+    // fired, which is the whole question when a capture surprises somebody.
+    out.value = this[w.key];
+    out.why = why;
     const name = w.key === 'grounds' ? 'Grounds' : w.key[0].toUpperCase() + w.key.slice(1);
     this._log(t, `${name} ${this[w.key]} g captured ${why}.`);
     const i = this.m.order.indexOf(this.step);
@@ -677,12 +719,15 @@ export class SessionMachine {
       vessel: this.weighFor()?.vessel ?? null,
       target: this.targetFor(),
       hint: prompt({ step: this.step, phase: this.phase, candidate: this.candidate,
-                     target: this.targetFor(), disturbed: this.disturbed }, this.m.id),
+                     target: this.targetFor(), disturbed: this.disturbed,
+                     offTarget: this.candidate === null ? null : this.offTarget,
+                     holdLeft: this.candidate === null ? null : this.holdLeft }, this.m.id),
       dose: this.dose,
       grounds: this.grounds,
       milk: this.milk,
       candidate: this.candidate,
       holdLeft: this.candidate === null ? null : this.holdLeft,
+      offTarget: this.candidate === null ? null : this.offTarget,
       retention: this.retention,
       auto: { ...this.auto },
       events: this.events.slice(-6).reverse(),

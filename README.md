@@ -336,6 +336,65 @@ the link except the machine's drip lag, because the phone already has the
 method, the dose, the weight and the flow — sending the finished ladder ten
 times a second would be sending arithmetic.
 
+## Which way round the confidence goes
+
+Reported from a real kitchen, and worth writing down because the code that
+caused it read perfectly well:
+
+> I will have 8 g of beans put on it and it will continue, but if I put 17.4, it
+> just sits there and asks if I want to use it.
+
+Both halves were true and both were the same line. A settled dose used to be
+handled like this: if it is near the target, say so and wait, because a reading
+on target has already told you what to do; otherwise run a five-second countdown
+and take it, because the app cannot tell finished from paused. Defensible in
+prose, and exactly inverted in practice. Against an 18 g target, 8 g is not near
+it, so 8 g auto-advanced. 17.4 g is, so 17.4 g sat there. **The app was
+confidently accepting the readings it had most reason to doubt.**
+
+Confidence has to run the other way, so now it does. A settled plateau inside
+the window is a finished dose and commits on a countdown you can watch and
+interrupt. A settled plateau well outside it is either a dose in progress or a
+mistake, and neither is something to advance past on a timer — it holds, says
+which way it is out and by how much, and waits for you to lift the cup or press
+the button. Only when there is no target at all does a bare timer decide
+anything, because then it is the only thing there is.
+
+Reaching in to take beans back out still cancels the countdown: a hand on the
+platter reads as hundreds of grams, which is already understood as a
+disturbance, and it restarts the plateau rather than capturing through it.
+
+## Calibrating against readings rather than against reasoning
+
+That bug survived being written down carefully, and it survived a test suite —
+because the tests asserted the behaviour the prose described. Six of them had to
+be rewritten when the polarity was fixed; they had been locking the bug in.
+
+The deeper problem is that every threshold in the capture rules — how heavy is
+too heavy to be a dose, how still counts as still, how long a plateau has to
+last — was picked by reasoning about what a scale probably does. Nothing in the
+repo had ever seen what this scale actually does.
+
+So Live records the whole session and will hand it over: **Export this
+session's readings**, under Manual controls. One row per sample at 10 Hz, with
+the raw weight, the tared weight, the filtered weight and flow, the step, the
+phase, the target, the pending candidate, the countdown, the disturbance flag
+and the brew state — and, on the row that caused it, whatever the app decided
+and which rule fired:
+
+```
+t_s,raw_g,net_g,filtered_g,flow_gs,settled,step,phase,...,event
+12.4,70.2,18.2,18.19,0.01,true,dose,fill,...,
+12.5,70.2,18.2,18.20,0.00,true,dose,fill,...,captured dose=18.2 g once the dose settled on target; advanced to grind
+```
+
+The thresholds in force are written into the header as comments, because a
+column of weights explains nothing without the numbers it was being judged
+against — and those are exactly what is under discussion. It is a ring buffer
+holding about an hour, always on, and nothing leaves the machine until the
+button is pressed. `core/trace.js` also parses the file back and summarises it,
+so a session can be replayed against the rules offline rather than argued about.
+
 ## The gap between grinding and brewing
 
 Ground coffee starts degassing and cooling the moment it leaves the burrs, and

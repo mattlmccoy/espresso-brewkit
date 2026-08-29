@@ -210,6 +210,22 @@
   .ladder { margin-top:9px; }
   .ladder[hidden] { display:none; }
   .st.bx[hidden] { display:none; }
+  /* The controls that are not part of any step, kept where they can be reached.
+     The left column is scoped to the step you are on rather than scrolled,
+     because scrolling it was annoying — but a short laptop window still
+     overflows it, and what overflowed was this row. Watch on phone was 55 px
+     below the fold and not clickable at all, so pairing looked like it did not
+     exist rather than like it was further down. Sticky to the bottom of the
+     column, it cannot fall off it. */
+  /* A column that scrolls in the middle and not at the ends. Sticky was tried
+     first and is worse: the row stays put but everything else slides underneath
+     it, so the tiles end up hidden behind a bar. A real footer takes its height
+     out of the scrolling part instead of covering it. */
+  #cell-now { display:flex; flex-direction:column; overflow:hidden; }
+  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+  #cell-now .chrome-row { flex:none; margin:8px 0 0; padding-top:8px;
+    border-top:2px solid var(--hair); }
+  #cell-now .chrome-row button { padding:5px 10px; box-shadow:none; font-size:11.5px; }
   .ladder-track { position:relative; height:7px; background:var(--hair);
     border:2px solid var(--ink); overflow:hidden; }
   .ladder-now { position:absolute; top:0; bottom:0; left:0; background:var(--accent);
@@ -401,6 +417,7 @@
           <span class="badge" id="battery" hidden title="Scale battery">—</span>
           <button class="ghost" id="disconnect" type="button">Disconnect</button>
         </div>
+        <div class="cell-body">
         <div id="name-row" style="display:none">
           <div class="row" style="grid-template-columns:1fr auto;gap:8px;align-items:end">
             <div class="field" style="margin:0"><label for="device-name">Name this scale</label>
@@ -492,19 +509,6 @@
           <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
         </div>
 
-        <div class="btn-row" style="margin:6px 0 2px">
-          <button class="ghost" id="watch-phone" type="button"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Watch on phone</button>
-          <button class="ghost" id="cues" type="button" aria-pressed="false"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Sound off</button>
-          <button class="ghost" id="gestures" type="button" aria-pressed="true"
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Taps on</button>
-          <button class="ghost" id="send-log" type="button" hidden
-                  style="padding:5px 10px;box-shadow:none;font-size:11.5px">Send log to phone</button>
-          <span class="badge" id="watch-state" hidden>&mdash;</span>
-        </div>
-        <p class="msg" id="watch-msg" style="margin:4px 0 0"></p>
-
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
         <!-- Escape hatches. Needed, and needed rarely: folded away so they are
@@ -517,11 +521,33 @@
             <button class="ghost" id="start" type="button">Start</button>
             <button class="ghost" id="discard" type="button">Reset</button>
           </div>
+          <!-- The readings behind whatever just happened. The capture rules are
+               thresholds picked by reasoning rather than measured, so when one
+               of them misfires the file is the only way to find out why. -->
+          <div class="btn-row tight" style="margin-top:6px">
+            <button class="ghost" id="save-trace" type="button">Export this session's readings</button>
+          </div>
+          <p class="msg" id="trace-note" style="margin:4px 0 0"></p>
         </details>
         <p class="msg" id="decoder-note" style="margin:8px 0 0"></p>
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
         <p class="msg" id="lag-note" hidden></p>
+        </div><!-- /.cell-body -->
+
+        <!-- Outside the scrolling part on purpose. These are session controls
+             rather than step content, and the way into pairing is one of them:
+             when the column overflowed a short window this row went with it,
+             55 px past the bottom and not clickable, so "watch on phone" looked
+             like a feature that did not exist. A footer cannot fall off. -->
+        <div class="btn-row chrome-row">
+          <button class="ghost" id="watch-phone" type="button">Watch on phone</button>
+          <button class="ghost" id="cues" type="button" aria-pressed="false">Sound off</button>
+          <button class="ghost" id="gestures" type="button" aria-pressed="true">Taps on</button>
+          <button class="ghost" id="send-log" type="button" hidden>Send log to phone</button>
+          <span class="badge" id="watch-state" hidden>&mdash;</span>
+        </div>
+        <p class="msg" id="watch-msg" style="margin:4px 0 0"></p>
       </section>
 
       <!-- The pour, against a reference -->
@@ -756,6 +782,8 @@ import { LiveLink, frameOf } from './assets/js/core/link.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
 import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
+import { Trace } from './assets/js/core/trace.js';
+import { scan as scanQr } from './assets/js/core/qrscan.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
 import { TapListener, actionFor, gestureHint, thresholdFor,
@@ -1034,9 +1062,15 @@ function onFrame({ uuid, bytes, at }) {
   // The session decides what counts as a container; the brew machine owns the
   // tare. This is the one line where the two meet.
   if (moved.tareTo !== null) brew.tare = moved.tareTo;
+  recordSample(at, grams, snap, sess.snapshot(), settled, weight, flow);
+  if (moved.committed) {
+    trace.mark(`captured ${moved.committed}=${moved.value} g ${moved.why ?? ''}`.trim());
+  }
+  if (moved.advancedTo) trace.mark(`advanced to ${moved.advancedTo}`);
+  if (moved.tareTo !== null) trace.mark(`tare set to ${moved.tareTo}`);
   render(snap);
   broadcast(snap);
-  if (gesture) onGesture(gesture);
+  if (gesture) { trace.mark(`gesture: ${gesture}`); onGesture(gesture); }
   // The countdown moves every frame; the rest of the session panel only moves
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
@@ -1048,6 +1082,36 @@ function onFrame({ uuid, bytes, at }) {
     tile.classList.add('caught');
   }
   if (moved.advancedTo || moved.committed) paintSession();
+}
+
+/* ------------------------------------------------------ the workflow trace */
+// Always recording, never leaving the machine unless you export it. The capture
+// thresholds in session.js were all set by reasoning about what a scale
+// probably does, which is how a rule that fired backwards for every dose
+// survived being written down carefully — the prose was fine and the behaviour
+// was inverted. A file of real readings with the decisions marked on them is
+// the only way to set those numbers rather than argue about them.
+const trace = new Trace();
+
+function recordSample(at, raw, snap, sessSnap, settled, weight, flow) {
+  trace.push({
+    raw_g: +raw.toFixed(2),
+    net_g: Number.isFinite(snap.net) ? +snap.net.toFixed(2) : null,
+    filtered_g: +weight.toFixed(3),
+    flow_gs: +flow.toFixed(3),
+    settled: settled === null || settled === undefined ? '' : settled,
+    step: sessSnap.step,
+    phase: sessSnap.phase,
+    method: sessSnap.method,
+    target_g: Number.isFinite(sessSnap.target) ? +sessSnap.target.toFixed(2) : null,
+    candidate_g: sessSnap.candidate,
+    hold_left_s: sessSnap.holdLeft,
+    off_target_g: sessSnap.offTarget,
+    disturbed: sessSnap.disturbed,
+    brew_state: snap.state,
+    elapsed_s: Number.isFinite(snap.elapsed) ? +snap.elapsed.toFixed(2) : null,
+    event: '',
+  });
 }
 
 /**
@@ -2390,7 +2454,12 @@ $('watch-phone').addEventListener('click', async () => {
  * paste is the path that always works, and at 87 characters it is one line.
  */
 function offerScanning() {
-  $('pair-scan').hidden = !('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia);
+  // Only a camera is required now. It used to also require BarcodeDetector,
+  // which Safari and Firefox do not have and desktop Chrome does not do
+  // reliably — so on the machine most likely to be the laptop the button was
+  // hidden and the code got typed out by hand. core/qrscan.js reads the symbol
+  // itself; the browser's own reader is kept as a fast path where it exists.
+  $('pair-scan').hidden = !navigator.mediaDevices?.getUserMedia;
 }
 
 let camStream = null;
@@ -2410,23 +2479,48 @@ $('pair-scan').addEventListener('click', async () => {
     await video.play();
     $('pair-scan').textContent = 'Stop scanning';
     $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
-    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+    const detector = 'BarcodeDetector' in window
+      ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+    const canvas = document.createElement('canvas');
+    const ctx2d = canvas.getContext('2d', { willReadFrequently: true });
+    const looksLikeAnswer = (v) => /^\d+~/.test(v ?? '');
+    const take = () => {
+      // Downscaled: a module has to be a few pixels across to be read, and it
+      // is at 640 wide, while a full-resolution frame is four times the work
+      // for nothing.
+      const w = Math.min(640, video.videoWidth || 640);
+      const h = Math.round((video.videoHeight || 480) * (w / (video.videoWidth || 640)));
+      if (!w || !h) return null;
+      canvas.width = w; canvas.height = h;
+      ctx2d.drawImage(video, 0, 0, w, h);
+      return ctx2d.getImageData(0, 0, w, h);
+    };
     const tick = async () => {
       if (!camStream) return;
+      let value = null;
       try {
-        const found = await detector.detect(video);
-        const hit = found.find((f) => /^\d+~/.test(f.rawValue ?? ''));
-        if (hit) {
-          $('pair-answer').value = hit.rawValue;
-          camStream.getTracks().forEach((t) => t.stop());
-          camStream = null;
-          video.hidden = true;
-          $('pair-scan').textContent = 'Scan the phone\u2019s code';
-          $('pair-accept').click();
-          return;
+        if (detector) {
+          const found = await detector.detect(video);
+          value = found.map((f) => f.rawValue).find(looksLikeAnswer) ?? null;
+        }
+        if (!value) {
+          const frame = take();
+          if (frame) {
+            const got = scanQr(frame);
+            if (looksLikeAnswer(got)) value = got;
+          }
         }
       } catch { /* a frame that would not decode is not an error */ }
-      setTimeout(tick, 220);
+      if (value) {
+        $('pair-answer').value = value;
+        camStream.getTracks().forEach((t) => t.stop());
+        camStream = null;
+        video.hidden = true;
+        $('pair-scan').textContent = 'Scan the phone\u2019s code';
+        $('pair-accept').click();
+        return;
+      }
+      setTimeout(tick, 120);
     };
     tick();
   } catch (err) {
@@ -2462,6 +2556,32 @@ $('pair-accept').addEventListener('click', async () => {
 $('pair-close').addEventListener('click', () => $('pair-dlg').close());
 
 $('catch-go').addEventListener('click', () => { sess.commit(); paintSession(); });
+
+// Every reading of this session, with the app's decisions marked on the rows
+// that caused them. Nothing has left this machine until this button is pressed.
+$('save-trace').addEventListener('click', () => {
+  if (!trace.length) {
+    $('trace-note').textContent = 'Nothing recorded yet — connect a scale and it starts filling.';
+    return;
+  }
+  trace.describe({
+    scale: displayName(),
+    decoder: decoder ? describeCandidate(decoder) : 'none',
+    method: sess.method,
+    target_dose_g: targetDose(),
+    target_ratio: targetRatio(),
+    session_thresholds: sess.o,
+    grinder: kit.grinder($('p-grinder').value)?.name ?? null,
+    machine: kit.machine($('p-machine').value)?.name ?? null,
+  });
+  const blob = new Blob([trace.toCsv()], { type: 'text/csv' });
+  const a = el('a', { href: URL.createObjectURL(blob), download: trace.filename() });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  $('trace-note').textContent = `${trace.length} readings written to ${trace.filename()}.`;
+});
 $('d-manual').addEventListener('input', () => { sess.set('dose', num('d-manual')); paintSession(); });
 $('g-manual').addEventListener('input', () => { sess.set('grounds', num('g-manual')); paintSession(); });
 // Picking a machine fills in the settings that machine usually runs at, so they

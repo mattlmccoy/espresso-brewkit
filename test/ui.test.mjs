@@ -1680,6 +1680,344 @@ try {
   t('qr: something too big to encode returns nothing rather than a broken symbol',
     qr.tooLong === null && qr.svgLooksRight, String(qr.tooLong));
 
+  // ---- a real laptop's candidates, which is what broke the QR ----
+  // Reported: "the QR code doesn't show", with the dialog saying the code was
+  // too long. Headless offers one or two candidates and never reproduced it; a
+  // laptop offers one per interface per family, and IPv6 and TCP ones were
+  // being carried verbatim at about 110 characters each.
+  const cand = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/sdp.js');
+    const Q = await import('./assets/js/core/qr.js');
+    const lines = [
+      'a=candidate:1 1 udp 2113937151 192.168.1.7 51234 typ host generation 0',
+      'a=candidate:2 1 udp 2113937150 fe80::1c2b:3d4e:5f60:7a8b 51235 typ host generation 0',
+      'a=candidate:3 1 udp 2113937149 10.0.0.44 51236 typ host generation 0',
+      'a=candidate:4 1 udp 2113937148 2001:db8:85a3::8a2e:370:7334 51237 typ host generation 0',
+      'a=candidate:5 1 udp 2113937147 172.16.9.2 51238 typ host generation 0',
+      'a=candidate:6 1 udp 2113937146 fd12:3456:789a:1::1 51239 typ host generation 0',
+      'a=candidate:7 1 tcp 1518283007 192.168.1.7 9 typ host tcptype active generation 0',
+      'a=candidate:8 1 udp 2113937145 fe80::abcd:1234:5678:9abc 51240 typ host generation 0',
+    ];
+    const fp = Array.from({ length: 32 },
+      (_, i) => ((i * 7 + 3) & 255).toString(16).padStart(2, '0').toUpperCase()).join(':');
+    const sdp = ['v=0', 'o=- 0 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'a=group:BUNDLE 0',
+      'm=application 51234 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0', ...lines,
+      'a=ice-ufrag:Ab3D', 'a=ice-pwd:xY7zQ2mN4pL8vR1sT6uW0e', 'a=ice-options:trickle',
+      `a=fingerprint:sha-256 ${fp}`, 'a=setup:actpass', 'a=mid:0',
+      'a=sctp-port:5000'].join('\r\n');
+    const packed = S.pack(sdp);
+    const url = `https://mattlmccoy.github.io/espresso-brewkit/view.html#p=${packed}`;
+    const qr = Q.encode(url);
+    const back = S.unpack(packed);
+
+    // One IPv6 candidate on its own, there and back.
+    const one = 'candidate:1 1 udp 2113937151 fe80::1c2b:3d4e:5f60:7a8b 51235 typ host generation 0';
+    const v6 = S.packCandidate(one);
+    const v6Back = S.unpackCandidate(v6, 0);
+    // A malformed address must not be mangled into a plausible one.
+    const junk = S.packCandidate('candidate:9 1 udp 1 not:an:address:: 5 typ host');
+
+    return {
+      rawLen: sdp.length,
+      packedLen: packed.length,
+      urlLen: url.length,
+      max: S.MAX_CODE,
+      version: qr?.version ?? null,
+      modules: qr?.n ?? null,
+      kept: (back.match(/a=candidate/g) ?? []).length,
+      // The browser's own order of preference, so the first ones survive.
+      keepsBest: back.includes('192.168.1.7'),
+      fingerprintOk: new RegExp(`a=fingerprint:sha-256 ${fp}`).test(back),
+      v6Len: v6.length,
+      v6Kind: v6[0],
+      v6Addr: v6Back?.split(' ')[4] ?? null,
+      v6Port: v6Back?.split(' ')[5] ?? null,
+      junkKind: junk[0],
+    };
+  });
+  t('pairing: a laptop’s worth of candidates still fits a code',
+    cand.packedLen <= cand.max && cand.rawLen > 900,
+    `${cand.rawLen} chars of SDP → ${cand.packedLen}, budget ${cand.max}`);
+  t('pairing: and therefore still fits a QR a webcam can read',
+    cand.version !== null && cand.version <= 10,
+    `v${cand.version}, ${cand.modules} modules, URL ${cand.urlLen} chars`);
+  t('pairing: IPv6 packs like the others rather than being carried whole',
+    cand.v6Kind === '6' && cand.v6Len < 30
+    && cand.v6Addr === 'fe80:0:0:0:1c2b:3d4e:5f60:7a8b' && cand.v6Port === '51235',
+    `${cand.v6Len} chars → ${cand.v6Addr}`);
+  t('pairing: the ones that are dropped are the ones ICE ranked lowest',
+    cand.kept >= 2 && cand.kept < 8 && cand.keepsBest,
+    `kept ${cand.kept} of 8, highest priority among them`);
+  t('pairing: the fingerprint survives the trim, because nothing works without it',
+    cand.fingerprintOk && cand.junkKind === 'r',
+    `fingerprint intact, unparseable address carried verbatim`);
+
+  // ---- the way into pairing has to be on the screen ----
+  // Reported as "the phone pairing is completely obscured". It was: on a short
+  // window the column overflowed and the row holding "Watch on phone" sat below
+  // the fold, unclickable, so the feature looked absent rather than lower down.
+  const short = await ctx.newPage();
+  await short.setViewportSize({ width: 1400, height: 820 });
+  await short.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await short.waitForFunction(() => window.__sess);
+  await short.waitForTimeout(500);
+  const reach = await short.evaluate(() => {
+    const btn = document.getElementById('watch-phone');
+    const r = btn.getBoundingClientRect();
+    const cell = document.getElementById('cell-now').getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      insideCell: r.bottom <= cell.bottom + 1 && r.top >= cell.top,
+      onScreen: r.bottom <= innerHeight && r.top >= 0,
+      hit: hit?.id ?? 'nothing',
+      // The column itself no longer scrolls; the part above the footer does.
+      cellScrolls: document.getElementById('cell-now').scrollHeight
+        > document.getElementById('cell-now').clientHeight + 1,
+    };
+  });
+  await short.close();
+  t('pairing: the button that opens it is on the screen on a short window',
+    reach.insideCell && reach.onScreen, `inside ${reach.insideCell}, on screen ${reach.onScreen}`);
+  t('pairing: and nothing is sitting on top of it, so it can actually be pressed',
+    reach.hit === 'watch-phone' && !reach.cellScrolls,
+    `point hits ${reach.hit}`);
+
+  // ---- reading a code back, which is the half BarcodeDetector would not do ----
+  // The offer reaches the phone as a QR and its camera handles that. The reply
+  // is the trip that used to be typed, because the browser's own reader is in
+  // Chrome on Android and almost nowhere else.
+  const rd = await page.evaluate(async () => {
+    const Q = await import('./assets/js/core/qr.js');
+    const S = await import('./assets/js/core/qrscan.js');
+
+    // Reed-Solomon in reverse. A wrong convention here does not throw, it just
+    // silently corrects nothing, so this corrupts real codewords by the hundred
+    // and demands the bytes come back.
+    const data = Uint8Array.from(Array.from({ length: 34 }, (_, i) => (i * 37 + 11) & 255));
+    const clean = Uint8Array.from([...data, ...Q.ecCodewords(data, 18)]);
+    let fixed = 0, refused = 0, silent = 0;
+    for (let trial = 0; trial < 300; trial++) {
+      const block = Uint8Array.from(clean);
+      const hit = new Set();
+      while (hit.size < 1 + (trial % 9)) hit.add(Math.floor(Math.random() * block.length));
+      for (const i of hit) block[i] ^= 1 + Math.floor(Math.random() * 255);
+      const out = S.correct(block, 18);
+      if (!out) refused++;
+      else if (out.every((v, i) => v === clean[i])) fixed++;
+      else silent++;
+    }
+    // Past what the check bytes can carry it must refuse rather than invent.
+    let beyondRefused = 0, beyondWrong = 0;
+    for (let trial = 0; trial < 120; trial++) {
+      const block = Uint8Array.from(clean);
+      const hit = new Set();
+      while (hit.size < 14) hit.add(Math.floor(Math.random() * block.length));
+      for (const i of hit) block[i] ^= 1 + Math.floor(Math.random() * 255);
+      const out = S.correct(block, 18);
+      if (!out) beyondRefused++;
+      else if (!out.every((v, i) => v === clean[i])) beyondWrong++;
+    }
+
+    const text = 'https://mattlmccoy.github.io/espresso-brewkit/view.html#p=2~aBcD~'
+      + 'K7q'.repeat(20);
+    const qr = Q.encode(text);
+    const matrixRead = S.decodeMatrix(qr.matrix) === text;
+    // A smudge across the data area, which is what a thumbprint on a screen is.
+    const smudged = qr.matrix.map((r) => Int8Array.from(r));
+    for (let r = 20; r < 27; r++) for (let c = 20; c < 27; c++) smudged[r][c] ^= 1;
+    const smudgeRead = S.decodeMatrix(smudged) === text;
+
+    // And the whole way: painted into a quadrilateral of a frame, which is what
+    // a camera pointed at a phone held at an angle actually produces.
+    const shoot = (quad, { blur = 0, noise = 0 } = {}) => {
+      const n = qr.n, m = 4, side = n + m * 2, w = 520, h = 520;
+      const back = S.quadToQuad(quad, [0, 0, side, 0, side, side, 0, side]);
+      let px = new Uint8Array(w * h).fill(255);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const [gx, gy] = S.apply(back, x + 0.5, y + 0.5);
+        if (gx < 0 || gy < 0 || gx >= side || gy >= side) continue;
+        const c = Math.floor(gx) - m, r = Math.floor(gy) - m;
+        px[y * w + x] = (r >= 0 && c >= 0 && r < n && c < n && (qr.matrix[r][c] & 1)) ? 0 : 255;
+      }
+      for (let pass = 0; pass < blur; pass++) {
+        const next = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          let sum = 0, k = 0;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const yy = y + dy, xx = x + dx;
+            if (yy < 0 || xx < 0 || yy >= h || xx >= w) continue;
+            sum += px[yy * w + xx]; k++;
+          }
+          next[y * w + x] = sum / k;
+        }
+        px = next;
+      }
+      const buf = new Uint8ClampedArray(w * h * 4);
+      for (let i = 0; i < w * h; i++) {
+        // A lighting gradient across the frame, because kitchen light is never
+        // even and a single global threshold is what that breaks.
+        let v = px[i] + (noise ? (Math.random() * 2 - 1) * noise : 0);
+        v = Math.max(0, Math.min(255, v * (1 - 0.45 * ((i % w) / w))));
+        buf[i * 4] = buf[i * 4 + 1] = buf[i * 4 + 2] = v;
+        buf[i * 4 + 3] = 255;
+      }
+      return { width: w, height: h, data: buf };
+    };
+    const shots = {
+      square: [60, 60, 460, 60, 460, 460, 60, 460],
+      rotated: [150, 70, 450, 170, 350, 460, 60, 360],
+      keystone: [130, 70, 390, 70, 460, 450, 60, 450],
+      steep: [110, 90, 300, 60, 380, 470, 70, 430],
+    };
+    const camera = {};
+    for (const [k, quad] of Object.entries(shots)) camera[k] = S.scan(shoot(quad)) === text;
+    camera.rough = S.scan(shoot(shots.steep, { blur: 1, noise: 18 })) === text;
+    // Nothing in the frame is the ordinary case, not a failure.
+    const blank = S.scan(shoot([0, 0, 1, 0, 1, 1, 0, 1]));
+    const t0 = Date.now();
+    S.scan(shoot(shots.square));
+    const ms = Date.now() - t0;
+    return { fixed, refused, silent, beyondRefused, beyondWrong,
+             matrixRead, smudgeRead, camera, blank, ms };
+  });
+  t('reader: it corrects real corrupted codewords rather than only not throwing',
+    rd.fixed === 300 && rd.silent === 0,
+    `${rd.fixed}/300 recovered, ${rd.silent} silently wrong, ${rd.refused} refused`);
+  t('reader: past what the check bytes carry it refuses instead of inventing',
+    rd.beyondRefused === 120 && rd.beyondWrong === 0,
+    `${rd.beyondRefused} refused, ${rd.beyondWrong} confidently wrong`);
+  t('reader: a matrix reads back, and survives a smudge across the data',
+    rd.matrixRead && rd.smudgeRead, '49 modules overwritten and still exact');
+  t('reader: a camera frame reads square on, rotated, and leaning back',
+    rd.camera.square && rd.camera.rotated && rd.camera.keystone,
+    Object.entries(rd.camera).map(([k, v]) => `${k} ${v ? 'y' : 'n'}`).join(' '));
+  t('reader: including a steep angle with blur and noise on it',
+    rd.camera.steep && rd.camera.rough, `steep ${rd.camera.steep}, rough ${rd.camera.rough}`);
+  t('reader: an empty frame is nothing to report, not an error',
+    rd.blank === null && rd.ms < 900, `${rd.blank}, ${rd.ms} ms a frame`);
+
+  // ---- confidence runs the right way round ----
+  // Reported from a real kitchen: 8 g of beans against an 18 g target advanced
+  // on its own, and 17.4 g — a good dose — sat there asking. The countdown was
+  // wired to the readings the app had least reason to trust.
+  const conf = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const dose = (grams, { interrupt = false } = {}) => {
+      const s = new SessionMachine();
+      s.setReady(true); s.begin(); s.setTarget(18);
+      let t = 0, tare = 0;
+      const tick = (raw) => {
+        const o = s.step_(t, raw, +(raw - tare).toFixed(2), true);
+        if (o.tareTo !== null) tare = raw;
+        t += 0.1;
+        return o;
+      };
+      for (let i = 0; i < 15; i++) tick(52);                    // cup on, tares
+      for (let i = 1; i <= 8; i++) tick(52 + grams * i / 8);    // pour
+      if (interrupt) {
+        for (let i = 0; i < 20; i++) tick(52 + grams);          // countdown starts
+        for (let i = 0; i < 12; i++) tick(320);                 // hand in the cup
+        for (let i = 0; i < 8; i++) tick(70);                   // beans out, now 18.0
+        for (let i = 0; i < 200; i++) {
+          const o = tick(70);
+          if (o.committed) return { value: o.value, why: o.why, step: s.step };
+        }
+        return { value: null, step: s.step };
+      }
+      for (let i = 0; i < 200; i++) {
+        const o = tick(52 + grams);
+        if (o.committed) return { value: o.value, why: o.why, step: s.step };
+      }
+      return { value: null, step: s.step, hint: s.snapshot().hint,
+               offTarget: s.snapshot().offTarget, holdLeft: s.snapshot().holdLeft };
+    };
+    return {
+      low: dose(8), good: dose(17.4), on: dose(18), high: dose(25),
+      adjusted: dose(18.5, { interrupt: true }),
+    };
+  });
+  t('capture: a dose nowhere near the target is never taken on a timer',
+    conf.low.value === null && conf.low.step === 'dose' && conf.low.holdLeft === null,
+    `8 g: ${conf.low.value === null ? 'held' : 'captured ' + conf.low.value}`);
+  t('capture: and it says how far out it is rather than keeping that to itself',
+    /10\.0 g under your target/.test(conf.low.hint ?? ''), (conf.low.hint ?? '').slice(0, 64));
+  t('capture: a good dose is taken, which is the one that used to sit there',
+    conf.good.value === 17.4 && conf.good.step === 'grind',
+    `17.4 g → ${conf.good.value} g ${conf.good.why ?? ''}`);
+  t('capture: on the nose too, and well over is held like well under',
+    conf.on.value === 18 && conf.high.value === null,
+    `18 g captured, 25 g ${conf.high.value === null ? 'held' : 'captured'}`);
+  t('capture: reaching in to fix an overshoot still stops the countdown',
+    conf.adjusted.value === 18, `ended up capturing ${conf.adjusted.value} g`);
+
+  // ---- the readings behind whatever just happened ----
+  const tr = await page.evaluate(async () => {
+    const { Trace, parseTrace, summarise, COLUMNS } = await import('./assets/js/core/trace.js');
+    let clock = 1000;
+    const tt = new Trace({ max: 5, now: () => (clock += 100) });
+    tt.describe({ scale: 'Bench, "quoted"', session_thresholds: { holdFor: 5 } });
+    for (let i = 0; i < 8; i++) {
+      tt.push({ raw_g: 52 + i, net_g: i, step: 'dose', phase: 'fill', event: '' });
+      if (i === 6) tt.mark('captured dose=6 g once the dose settled on target');
+    }
+    const csv = tt.toCsv();
+    const back = parseTrace(csv);
+
+    const big = new Trace({ now: () => (clock += 100) });
+    big.describe({ scale: 'Bench, "quoted"', session_thresholds: { holdFor: 5 } });
+    // Ten seconds of nothing, then a plateau that lasts three.
+    for (let i = 0; i < 100; i++) big.push({ raw_g: 52, net_g: +(Math.random() * 30).toFixed(2), step: 'dose' });
+    for (let i = 0; i < 30; i++) big.push({ raw_g: 70, net_g: 18.0, step: 'dose' });
+    big.mark('captured dose=18 g');
+    const sum = summarise(big);
+    return {
+      capped: tt.length,
+      kept: back.rows.map((r) => r.net_g).join(),
+      marked: back.rows.filter((r) => r.event).map((r) => r.event)[0] ?? null,
+      columns: back.columns.join() === COLUMNS.join(),
+      quoted: back.meta.scale ?? null,
+      thresholds: /holdFor/.test(back.meta.session_thresholds ?? '') || big.meta.session_thresholds !== undefined,
+      plateau: sum.plateaus[0],
+      events: sum.events.length,
+      rate: sum.rate,
+    };
+  });
+  t('trace: it keeps the most recent readings rather than the first ones',
+    tr.capped === 5 && tr.kept === '3,4,5,6,7', `${tr.capped} rows: ${tr.kept}`);
+  t('trace: a decision is written on the row that caused it',
+    /captured dose=6 g/.test(tr.marked ?? ''), tr.marked);
+  t('trace: the file round-trips, quoted metadata and all',
+    tr.columns && tr.quoted === 'Bench, "quoted"', `scale: ${tr.quoted}`);
+  t('trace: and it finds the plateau the capture rules are really set against',
+    tr.plateau?.seconds >= 2.9 && tr.plateau?.at === 18 && tr.events === 1,
+    `${tr.plateau?.seconds} s at ${tr.plateau?.at} g, ${tr.events} event, ${tr.rate}/s`);
+
+  // The button, on the page: the module works, but a diagnostic nobody can get
+  // out of the browser is not a diagnostic.
+  await page.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await page.waitForFunction(() => window.__mock && window.__sess);
+  await page.evaluate(() => document.querySelector('details.manual').open = true);
+  await page.evaluate(() => { window.__mock.grams = 18.2; });
+  await page.waitForTimeout(900);
+  const traceDl = page.waitForEvent('download', { timeout: 8000 }).catch(() => null);
+  await page.click('#save-trace');
+  const file = await traceDl;
+  const note = await page.textContent('#trace-note');
+  let head = '';
+  if (file) {
+    const path = await file.path();
+    const { readFile } = await import('node:fs/promises');
+    head = (await readFile(path, 'utf8')).split('\n').slice(0, 40).join('\n');
+  }
+  t('trace: the page hands the whole session over as a file',
+    !!file && /readings written to brewkit-trace-/.test(note ?? ''), note ?? 'no note');
+  t('trace: with the thresholds it was judged against written at the top',
+    /# session_thresholds:/.test(head) && /holdFor/.test(head),
+    (head.split('\n').find((l) => l.startsWith('# session_thresholds')) ?? '').slice(0, 70));
+  t('trace: and a row per reading under the named columns',
+    head.includes('t_s,raw_g,net_g,filtered_g') && /\n[\d.]+,[-\d.]+,/.test(head),
+    head.split('\n').find((l) => /^[\d.]+,/.test(l))?.slice(0, 60) ?? 'no data rows');
+
   // ---- the three shots inside every shot ----
   // A dose does not have one correct yield: where you cut decides which drink
   // you made. The grams are exact from the first drop; the seconds are a
@@ -2354,7 +2692,7 @@ try {
     drive(m, 480, 0.6, st);                  // grounds starting
     seen.grinding = { phase: m.phase, say: say(m) };
     drive(m, 486.9, 1.2, st);                // 17.9 g of grounds
-    seen.grinderDone = { phase: m.phase, say: say(m), cand: m.candidate };
+    seen.grinderDone = { phase: m.phase, say: say(m), cand: m.candidate, hold: m.holdLeft };
     drive(m, 0, 0.6, st);                    // portafilter to the machine
     seen.end = { step: m.step, grounds: m.grounds, retention: m.retention };
 
@@ -2370,11 +2708,10 @@ try {
     `${job.seen.afterCup.say} (tare ${job.seen.afterCup.tare})`);
   t('flow: mid-pour it is still asking for beans, not offering to move on',
     job.seen.midPour.phase === 'fill', job.seen.midPour.say);
-  t('flow: at the target it says to lift the cup, with no clock running',
-    job.seen.atTarget.phase === 'ready' && job.seen.atTarget.cand === 18.2
-    && job.seen.atTarget.hold === null
-    && /18\.2 g — lift the dosing cup off to move on to the grind/.test(job.seen.atTarget.say),
-    job.seen.atTarget.say);
+  t('flow: at the target a visible clock starts, because this is a finished dose',
+    job.seen.atTarget.cand === 18.2 && Number.isFinite(job.seen.atTarget.hold)
+    && job.seen.atTarget.hold < 5,
+    `${job.seen.atTarget.cand} g, ${job.seen.atTarget.hold} s left on the clock`);
   t('flow: lifting it captures the dose and asks for the portafilter',
     job.seen.afterLift.step === 'grind' && job.seen.afterLift.dose === 18.2
     && job.seen.afterLift.tare === 0
@@ -2386,10 +2723,10 @@ try {
     `${job.seen.afterPf.say} (tare ${job.seen.afterPf.tare})`);
   t('flow: and then it waits, rather than calling an empty basket a dose',
     job.seen.grinding.phase === 'fill', job.seen.grinding.say);
-  t('flow: grounds near the dose that was weighed end the step',
-    job.seen.grinderDone.phase === 'ready' && job.seen.grinderDone.cand === 17.9
-    && /lift the portafilter off to move on to brewing/.test(job.seen.grinderDone.say),
-    job.seen.grinderDone.say);
+  t('flow: grounds near the dose that was weighed are a finished grind too',
+    job.seen.grinderDone.cand === 17.9 && Number.isFinite(job.seen.grinderDone.hold ?? null)
+      === Number.isFinite(job.seen.atTarget.hold),
+    `${job.seen.grinderDone.cand} g against the 18.2 g that was weighed`);
   t('flow: taking it to the machine leaves dose, grounds and retention behind',
     job.seen.end.step === 'brew' && job.seen.end.grounds === 17.9
     && Math.abs(job.seen.end.retention - 0.3) < 1e-9,
@@ -2434,7 +2771,8 @@ try {
              pourCand: pour.candidate, pfTare };
   });
   t('flow: 30 g put down in one movement is a container, and is tared',
-    placed.cupTare === 30 && placed.cupPhase === 'fill', `tared ${placed.cupTare}`);
+    placed.cupTare === 30 && placed.cupPhase === 'fill',
+    `tared ${placed.cupTare}, phase ${placed.cupPhase}`);
   t('flow: the same 30 g poured in over six seconds is coffee, and is not',
     placed.pourTare === null && placed.pourCand === 30,
     `tare ${placed.pourTare}, candidate ${placed.pourCand}`);
@@ -2499,11 +2837,19 @@ try {
       return first;
     };
 
-    // Nowhere near the target: the app cannot tell finished from paused, so the
-    // countdown it always had is the fallback. Kept under the vessel threshold
-    // so this is unambiguously a dose and not a container.
+    // Nowhere near the target: 12.4 g against a 30 g target. This used to be
+    // the case the countdown fired on, which is backwards — the app has least
+    // reason to trust exactly this reading.
     const odd = ready(30);
     const oddAt = run(odd, 0.2, 10, 12.4);
+    const oddSay = odd.snapshot().hint;
+
+    // No target at all, where a timer is genuinely the only thing there is.
+    const blind = new SessionMachine();
+    blind.setReady(true); blind.begin();
+    blind.setTarget(NaN);          // the machine defaults to 18 g; this clears it
+    blind.step_(0, 0, 0, true);
+    const blindAt = run(blind, 0.2, 10, 12.4);
 
     // A pour that never rests must not be captured half-way.
     const pouring = ready(18);
@@ -2523,13 +2869,18 @@ try {
                                    candidate: null, target: 18 }), hold: quiet.holdLeft };
     run(quiet, 0.2, 2.4, 18.2);
     const after = { phase: quiet.phase, hold: quiet.holdLeft };
-    return { oddAt, oddDose: odd.dose, pourAt, pourDose: pouring.dose,
+    return { oddAt, oddDose: odd.dose, oddSay, blindAt, blindDose: blind.dose,
+             pourAt, pourDose: pouring.dose,
              byHand, handDose: asked.dose, handWhy: asked.events.at(-1)?.text ?? '',
              onTare, tareStep: tared.step, before, after };
   });
-  t('hands-free: a dose nowhere near the target still commits on a long hold',
-    ways.oddDose === 12.4 && ways.oddAt && ways.oddAt.t > 4.5 && ways.oddAt.t < 8,
-    `${ways.oddDose} g at ${ways.oddAt?.t} s, aiming at 30`);
+  t('hands-free: a dose nowhere near the target is never taken on a timer',
+    ways.oddAt === null && ways.oddDose === null
+    && /17\.6 g under your target/.test(ways.oddSay),
+    `12.4 g against 30 g: ${ways.oddAt === null ? 'held' : 'captured'}`);
+  t('hands-free: with no target at all a timer is all there is, so it still runs',
+    ways.blindAt && ways.blindDose === 12.4 && ways.blindAt.t > 4.5 && ways.blindAt.t < 8,
+    `${ways.blindDose} g at ${ways.blindAt?.t} s with nothing to aim at`);
   t('hands-free: but a pour that never rests is left alone',
     ways.pourAt === null && ways.pourDose === null,
     `dose ${ways.pourDose} after 12 s of climbing`);
@@ -2539,9 +2890,9 @@ try {
     /because you said so/.test(ways.handWhy), ways.handWhy);
   t('hands-free: a tare with nothing behind it still means nothing',
     ways.onTare.committed === null && ways.tareStep === 'dose', ways.tareStep);
-  t('hands-free: at the target there is no countdown to run',
-    ways.before.hold === null && ways.after.phase === 'ready' && ways.after.hold === null,
-    `${ways.after.phase}, hold ${ways.after.hold}`);
+  t('hands-free: at the target the countdown is exactly what does run',
+    ways.before.hold === null && Number.isFinite(ways.after.hold) && ways.after.hold < 5,
+    `${ways.after.phase}, hold ${ways.after.hold} s left`);
 
   await page.evaluate(() => { window.__mock.grams = 0; });
   await page.waitForTimeout(400);
@@ -2584,10 +2935,11 @@ try {
   }));
   t('hands-free: the pending capture is on screen, with what to do about it',
     caught.hidden === false && /19\.4 g/.test(caught.value)
+    && /capturing that in \d+ s/.test(caught.hint)
     && /lift the dosing cup off/i.test(caught.hint),
     `${caught.value} — ${caught.hint}`);
-  t('hands-free: and no countdown bar, because nothing is counting down',
-    caught.bar === true, `bar hidden: ${caught.bar}`);
+  t('hands-free: with the clock visible, because something is about to happen',
+    caught.bar === false, `bar shown: ${!caught.bar}`);
   await page.click('#catch-go');
   await page.waitForTimeout(150);
   t('hands-free: and the button on it takes the reading',
