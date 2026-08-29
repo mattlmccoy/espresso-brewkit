@@ -28,6 +28,8 @@
 // makes. Across networks it will not connect, and it says so instead of quietly
 // relaying your shots through a stranger's TURN server.
 
+import { pack, unpack } from './sdp.js';
+
 export const LINK_VERSION = 1;
 const GATHER_TIMEOUT_MS = 2500;
 
@@ -48,8 +50,32 @@ const dec = (code) => {
   return JSON.parse(new TextDecoder().decode(bytes));
 };
 
-/** A pairing code, or a clear reason why it is not one. */
+/**
+ * The code to hand over: compact when the description packs, and the old
+ * base64 blob when it does not. Falling back rather than failing matters — an
+ * SDP shape core/sdp.js has not met is still a pairing that should work.
+ */
+export function codeFor(sdp, type) {
+  const packed = pack(sdp);
+  return packed ?? enc({ v: LINK_VERSION, t: type, sdp });
+}
+
+/**
+ * A pairing code, or a clear reason why it is not one.
+ *
+ * Two shapes are accepted. The compact one — see core/sdp.js — is 87
+ * characters and is what everything produces now, because that is small enough
+ * to be a QR code a camera can read and short enough to paste without
+ * flinching. The old base64 blob is still read so a code copied before this
+ * change still works.
+ */
 export function readCode(code, expect) {
+  const text = String(code ?? '').trim();
+  if (/^\d+~/.test(text)) {
+    const sdp = unpack(text);
+    if (!sdp) return { ok: false, error: 'That pairing code is from a different version.' };
+    return { ok: true, sdp: { type: expect, sdp } };
+  }
   let parsed;
   try { parsed = dec(code); } catch { return { ok: false, error: 'That does not look like a pairing code.' }; }
   if (!parsed || parsed.v !== LINK_VERSION) {
@@ -95,6 +121,11 @@ export class LiveLink {
     this.ch = null;
     this.log = null;      // the reliable channel, for things that must arrive
     this._inbox = new Map();
+    // How long a disconnect is given to sort itself out before anything is
+    // done about it. A phone in a pocket is usually back inside this.
+    this.graceMs = 4000;
+    this._graceTimer = null;
+    this.onRestart = null;
     this.onLog = null;    // (payload, meta) => void
     this.onLogProgress = null;
   }
@@ -179,11 +210,53 @@ export class LiveLink {
 
   get logReady() { return this.log?.readyState === 'open'; }
 
+  /**
+   * Watch the connection, and try to save it before giving up on it.
+   *
+   * `disconnected` is not `failed`: it is what a phone going into a pocket, a
+   * screen locking or a Wi-Fi roam looks like, and most of them come back on
+   * their own within a few seconds. Announcing a dead link at that point — and
+   * making somebody pair again — is wrong about half the time.
+   *
+   * So a disconnect gets a grace period, and then an ICE restart, which is the
+   * one repair WebRTC can make without a fresh exchange of codes. Only when
+   * that fails too is the link actually gone.
+   */
   _watch(pc) {
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed') this._set('failed');
-      else if (pc.connectionState === 'disconnected') this._set('waiting');
+      const st = pc.connectionState;
+      if (st === 'connected') {
+        clearTimeout(this._graceTimer);
+        this._graceTimer = null;
+        this._set('open');
+        return;
+      }
+      if (st === 'failed') { this._set('failed'); return; }
+      if (st !== 'disconnected') return;
+      this._set('waiting');
+      if (this._graceTimer) return;
+      this._graceTimer = setTimeout(() => {
+        this._graceTimer = null;
+        if (this.pc?.connectionState !== 'disconnected') return;
+        this.restartIce();
+      }, this.graceMs);
     };
+  }
+
+  /**
+   * Ask ICE to find a route again, without re-pairing.
+   *
+   * Only the host can do this usefully — an ICE restart is a new offer, and
+   * there is no channel to deliver one on. On the viewer it is a no-op that
+   * reports honestly rather than pretending.
+   */
+  restartIce() {
+    if (!this.pc || this.role !== 'host') return false;
+    try {
+      this.pc.restartIce?.();
+      this.onRestart?.();
+      return true;
+    } catch { return false; }
   }
 
   /** Host: the code to carry to the phone. */
@@ -201,7 +274,7 @@ export class LiveLink {
     await this.pc.setLocalDescription(offer);
     await gathered(this.pc);
     this._set('waiting');
-    return enc({ v: LINK_VERSION, t: 'offer', sdp: this.pc.localDescription.sdp });
+    return codeFor(this.pc.localDescription.sdp, 'offer');
   }
 
   /** Viewer: take the laptop's code, hand back a reply. */
@@ -219,7 +292,7 @@ export class LiveLink {
     await this.pc.setLocalDescription(answer);
     await gathered(this.pc);
     this._set('waiting');
-    return enc({ v: LINK_VERSION, t: 'answer', sdp: this.pc.localDescription.sdp });
+    return codeFor(this.pc.localDescription.sdp, 'answer');
   }
 
   /** Host: take the phone's reply, and the link is up. */
@@ -236,6 +309,8 @@ export class LiveLink {
   }
 
   close() {
+    clearTimeout(this._graceTimer);
+    this._graceTimer = null;
     try { this.ch?.close(); } catch { /* already gone */ }
     try { this.pc?.close(); } catch { /* already gone */ }
     try { this.log?.close(); } catch { /* already gone */ }

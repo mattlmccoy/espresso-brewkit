@@ -607,3 +607,10 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .qrow { display: flex; align-items: center; gap: 10px; }
 .qrow .qbar { flex: 1; }
 .qrow .qv { font: 700 13px/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+
+/* The Lab's data-source switch. Three buttons rather than a select, because
+   which dataset a chart is drawn from should be visible without opening it. */
+.source { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.source button { padding: 7px 11px; box-shadow: none; font-size: 11px; }
+.source button[aria-pressed="true"] { background: var(--ink); color: var(--tag-fg); }

@@ -49,12 +49,26 @@ page.on('pageerror', (e) => errs.push('PAGEERROR: ' + e.message));
 page.on('dialog', (d) => d.accept().catch(() => {}));
 
 try {
-  // 1. Landing page + load sample data
+  // 1. Landing page, and a log to test against.
+  //
+  // The home page used to offer to load these fifteen shots into the log with
+  // a click, and that is exactly what it must not do any more: they were pulled
+  // on different equipment, and in among your own shots they skew the grind
+  // model, the habit view and every comparison. The suite still needs a
+  // populated log, so it builds one directly — a fixture is allowed to
+  // construct any state; a product is not allowed to offer it.
   await page.goto(B + '/index.html');
-  await page.click('#load-sample');
-  await page.waitForFunction(() => document.getElementById('sample-msg').textContent.includes('loaded'), {timeout:5000});
-  const msg = await page.textContent('#sample-msg');
-  t('index: sample data loads', msg.includes('15 shots loaded'), msg.trim());
+  const seeded = await page.evaluate(async () => {
+    const store = await import('./assets/js/core/store.js');
+    const res = await fetch('./data/shots.csv');
+    return store.importCsv(await res.text());
+  });
+  t('index: the log can be populated for the tests below',
+    seeded.added === 15, `${seeded.added} rows`);
+  t('index: but the page no longer offers to pour them into your log',
+    (await page.locator('#load-sample').count()) === 0
+    && /different equipment/i.test(await page.innerText('body')),
+    'the loader is gone, and the page says why');
 
   // ---- the walkthrough on the home page ----
   // It is the first thing anyone sees, and it is animated, which means it is
@@ -1306,7 +1320,11 @@ try {
       pour: play([...flat(0, 2), ...shot, ...flat(36, 2)]),
       lifted: play([...flat(52, 3), 30, ...flat(0, 3)]),
       slowKnocks: play([...flat(0, 2), ...tap(0), ...flat(0, 3), ...tap(0), ...flat(0, 2)]),
-      feeble: play([...flat(0, 2), ...tap(0, 6), ...flat(0, 0.2), ...tap(0, 6), ...flat(0, 2)]),
+      feeble: play([...flat(0, 2), ...tap(0, 2), ...flat(0, 0.2), ...tap(0, 2), ...flat(0, 2)]),
+      // The case the shipped default now has to catch: a scale that low-passes
+      // a firm tap down to a few grams. Guessing high here is how a detector
+      // ends up never firing on real hardware.
+      weak: play([...flat(0, 2), ...tap(0, 7), ...flat(0, 0.2), ...tap(0, 7), ...flat(0, 2)]),
       onTop: play([...flat(469, 3), ...tap(469), ...flat(469, 0.2), ...tap(469), ...flat(469, 1.5)]),
       coarse: (() => {
         const L = new TapListener();
@@ -1342,6 +1360,8 @@ try {
   t('taps: two knocks three seconds apart are not a chord',
     gest.slowKnocks === 'nothing', gest.slowKnocks);
   t('taps: a touch too light to mean it does nothing', gest.feeble === 'nothing', gest.feeble);
+  t('taps: but a scale that reports a firm tap as a few grams still works',
+    gest.weak === 'double', gest.weak);
   t('taps: and it still works with a portafilter already on the scale',
     gest.onTop === 'double', gest.onTop);
   t('taps: a 1 g-resolution scale is still readable', gest.coarse === 'double', gest.coarse);
@@ -1532,6 +1552,133 @@ try {
   t('feed: the fixture the rest of the suite runs on is put back',
     fixtureAfter.feeds === 0 && fixtureAfter.shots === JSON.parse(fixtureBefore.shots ?? '[]').length,
     `${fixtureAfter.shots} shots, ${fixtureAfter.feeds} loaded hoppers`);
+
+  // ---- pairing without pasting eight hundred characters ----
+  // An SDP offer is 830 characters of which about eighty carry information.
+  // That difference is the whole reason a QR is possible: 830 bytes is a
+  // 113-module symbol a webcam cannot read, and 87 is a 37-module one it can.
+  const packed = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/sdp.js');
+    const gather = (pc) => new Promise((r) => {
+      const t = setTimeout(r, 3000);
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); }
+      };
+    });
+    const host = new RTCPeerConnection({ iceServers: [] });
+    const ch = host.createDataChannel('pour', { ordered: false, maxRetransmits: 0 });
+    await host.setLocalDescription(await host.createOffer());
+    await gather(host);
+    const raw = host.localDescription.sdp;
+    const small = S.pack(raw);
+
+    // The test that matters: connect using the REBUILT description, not the
+    // original. A packing that loses something ICE needs fails here and
+    // nowhere else.
+    const view = new RTCPeerConnection({ iceServers: [] });
+    const opened = new Promise((r) => {
+      view.ondatachannel = (e) => { e.channel.onopen = () => r('open'); };
+    });
+    await view.setRemoteDescription({ type: 'offer', sdp: S.unpack(small) });
+    await view.setLocalDescription(await view.createAnswer());
+    await gather(view);
+    await host.setRemoteDescription({ type: 'answer', sdp: S.unpack(S.pack(view.localDescription.sdp)) });
+    const state = await Promise.race([opened,
+      new Promise((r) => setTimeout(() => r('timeout'), 9000))]);
+    host.close(); view.close();
+    void ch;
+
+    return {
+      rawChars: raw.length, smallChars: small.length, state,
+      // An unpacked description has to carry the parts ICE and DTLS need.
+      rebuilt: S.unpack(small),
+      badVersion: S.unpack('9~a~b~c~A~'),
+      garbage: S.unpack('not a code'),
+    };
+  });
+  t('pairing: an offer packs to a fraction of its size',
+    packed.smallChars < 120 && packed.rawChars > 400,
+    `${packed.rawChars} chars down to ${packed.smallChars}`);
+  t('pairing: and the rebuilt description still makes a working connection',
+    packed.state === 'open', packed.state);
+  t('pairing: the rebuild carries the fingerprint, credentials and a candidate',
+    /a=fingerprint:sha-256 (?:[0-9A-F]{2}:){31}[0-9A-F]{2}/.test(packed.rebuilt)
+    && /a=ice-ufrag:\S+/.test(packed.rebuilt) && /a=ice-pwd:\S+/.test(packed.rebuilt)
+    && /a=candidate:\S+ 1 udp/.test(packed.rebuilt),
+    'all four present');
+  t('pairing: a code from another version is refused rather than half-read',
+    packed.badVersion === null && packed.garbage === null, 'both null');
+
+  // The QR encoder. Checked against the standard rather than against itself
+  // where that is possible: capacities from the published tables, Reed-Solomon
+  // by the property that defines it, and the fixed patterns by inspection.
+  const qr = await page.evaluate(async () => {
+    const Q = await import('./assets/js/core/qr.js');
+    const EXP = new Uint8Array(512); const LOG = new Uint8Array(256);
+    let x = 1;
+    for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+    for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+    const mul = (a, b) => (a === 0 || b === 0 ? 0 : EXP[LOG[a] + LOG[b]]);
+
+    // Every codeword polynomial must vanish at the generator's roots.
+    let rsOk = true;
+    for (const deg of [10, 16, 18, 22, 24, 26, 30]) {
+      const data = Uint8Array.from({ length: 20 }, (_, i) => (i * 37 + 11) & 255);
+      const full = [...data, ...Q.ecCodewords(data, deg)];
+      for (let k = 0; k < deg; k++) {
+        let acc = 0;
+        for (const c of full) acc = mul(acc, EXP[k]) ^ c;
+        if (acc !== 0) rsOk = false;
+      }
+    }
+
+    const caps = { 1: 14, 2: 26, 3: 42, 4: 62, 5: 84, 6: 106, 7: 122, 8: 152, 9: 180, 10: 213 };
+    const capsOk = Object.entries(caps).every(([v, n]) => Q.capacity(Number(v)) === n);
+
+    const sym = Q.encode('x'.repeat(80));
+    const m = sym.matrix; const n = sym.n;
+    const want = [[1,1,1,1,1,1,1],[1,0,0,0,0,0,1],[1,0,1,1,1,0,1],[1,0,1,1,1,0,1],
+                  [1,0,1,1,1,0,1],[1,0,0,0,0,0,1],[1,1,1,1,1,1,1]];
+    const finder = (r0, c0) => want.every((row, r) => row.every((v, c) => (m[r0 + r][c0 + c] & 1) === v));
+    let timing = true;
+    for (let i = 8; i < n - 8; i++) {
+      const bit = i % 2 === 0 ? 1 : 0;
+      if ((m[6][i] & 1) !== bit || (m[i][6] & 1) !== bit) timing = false;
+    }
+    let fmtA = 0; let fmtB = 0;
+    for (let i = 0; i < 15; i++) {
+      const a = i < 6 ? m[8][i] : i === 6 ? m[8][7] : i === 7 ? m[8][8] : i === 8 ? m[7][8] : m[14 - i][8];
+      fmtA |= (a & 1) << i;
+      fmtB |= ((i < 7 ? m[n - 1 - i][8] : m[8][n - 15 + i]) & 1) << i;
+    }
+    const raw = (fmtA ^ 0x5412) >> 10;
+
+    const long = 'https://example.test/view.html#p=' + 'y'.repeat(120);
+    return {
+      rsOk, capsOk, version: sym.version, modules: n,
+      finders: finder(0, 0) && finder(0, n - 7) && finder(n - 7, 0),
+      timing,
+      darkModule: (m[n - 8][8] & 1) === 1,
+      formatAgrees: fmtA === fmtB && ((raw >> 3) & 3) === 0 && (raw & 7) === sym.mask,
+      roundTrip: Q.readBack(sym) === 'x'.repeat(80),
+      longRoundTrip: (() => { const q = Q.encode(long); return q && Q.readBack(q) === long; })(),
+      tooLong: Q.encode('z'.repeat(5000)),
+      svgLooksRight: /^<svg [^>]*viewBox="0 0 \d+ \d+"/.test(Q.svg('hello') ?? ''),
+    };
+  });
+  t('qr: Reed-Solomon codewords are divisible by their generator',
+    qr.rsOk, 'every root evaluates to zero');
+  t('qr: capacities match the published tables for level M',
+    qr.capsOk, 'v1–v10 byte mode');
+  t('qr: the fixed patterns are where the standard puts them',
+    qr.finders && qr.timing && qr.darkModule,
+    `finders ${qr.finders}, timing ${qr.timing}, dark module ${qr.darkModule}`);
+  t('qr: both copies of the format info agree, and name level M and the mask',
+    qr.formatAgrees, 'agree');
+  t('qr: a symbol reads back as what went into it, short and long',
+    qr.roundTrip && qr.longRoundTrip, `v${qr.version}, ${qr.modules} modules`);
+  t('qr: something too big to encode returns nothing rather than a broken symbol',
+    qr.tooLong === null && qr.svgLooksRight, String(qr.tooLong));
 
   // ---- gestures live in the gaps, never inside a measurement ----
   // This is a correctness rule rather than a preference: a tap is a sixty-gram
@@ -2605,6 +2752,10 @@ try {
   await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
   await page.evaluate(() => { window.__sess.goto('brew'); window.__mock.grams = 0; });
   await page.waitForTimeout(400);
+  // Tare, Arm, Start and Reset live behind "Manual controls" now — they are
+  // escape hatches, and five buttons of chrome between the readout and the
+  // notes is what made the column scroll. Open the fold like a person would.
+  await page.evaluate(() => { document.querySelector('.manual').open = true; });
   await page.click('#arm');
   await page.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
   await page.waitForFunction(
@@ -2824,17 +2975,27 @@ try {
   t('cues: and nothing sounds until audio has been allowed',
     cues.armed === false, 'silent until a gesture arms it');
 
+  // Cues are on by default now. The whole point of them is that they reach you
+  // when you are not looking at the screen, and a default of off meant nobody
+  // who would benefit ever found out they existed — which is what happened.
   const cueUi = await page.evaluate(() => {
     const b = document.getElementById('cues');
-    const before = b.textContent;
+    const start = { text: b.textContent, pressed: b.getAttribute('aria-pressed') };
     b.click();
-    return { before, after: b.textContent, pressed: b.getAttribute('aria-pressed'),
-             saved: localStorage.getItem('brewkit.cues') };
+    const off = { text: b.textContent, pressed: b.getAttribute('aria-pressed'),
+                  saved: localStorage.getItem('brewkit.cues') };
+    b.click();
+    const on = { text: b.textContent, pressed: b.getAttribute('aria-pressed'),
+                 saved: localStorage.getItem('brewkit.cues') };
+    return { start, off, on };
   });
-  t('cues: the switch says which of the three states it is in',
-    cueUi.before === 'Sound off' && /Sound on|Sound blocked/.test(cueUi.after)
-    && cueUi.pressed === 'true' && cueUi.saved === 'on',
-    `${cueUi.before} → ${cueUi.after}`);
+  t('cues: they are on out of the box, not opt-in',
+    cueUi.start.pressed === 'true' && /Sound on|Sound blocked/.test(cueUi.start.text),
+    cueUi.start.text);
+  t('cues: the switch says which of the three states it is in, both ways',
+    cueUi.off.text === 'Sound off' && cueUi.off.pressed === 'false' && cueUi.off.saved === 'off'
+    && /Sound on|Sound blocked/.test(cueUi.on.text) && cueUi.on.saved === 'on',
+    `${cueUi.start.text} → ${cueUi.off.text} → ${cueUi.on.text}`);
 
   // ---- the scale's battery, which its own display shows and a laptop does not ----
   await page.goto(B + '/live.html?mock=lefu&noshot=1');

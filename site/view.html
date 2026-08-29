@@ -49,6 +49,15 @@
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
+  .reply-qr { background:#fff; padding:8px; border:var(--bw) solid var(--ink); width:220px;
+    max-width:100%; margin:0 auto 10px; }
+  .reply-qr svg { display:block; width:100%; height:auto; }
+  .reply-qr:empty { display:none; }
+  /* Holding the last frame after a drop, and saying so. */
+  body.stale .big, body.stale .strip, body.stale .plot { opacity:.45; }
+  body.stale .badge#conn { animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity:.45; } }
+  @media (prefers-reduced-motion: reduce) { body.stale .badge#conn { animation:none; } }
   .log-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
   .log-row[hidden] { display:none; }
   .log-row button { padding:7px 11px; box-shadow:none; font-size:11.5px; }
@@ -125,7 +134,9 @@
     <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
     <p class="msg" id="pair-msg" style="margin:0"></p>
     <div id="reply-wrap" hidden>
-      <p class="msg" style="margin:10px 0 6px"><strong>Now paste this back on the laptop.</strong></p>
+      <p class="msg" style="margin:10px 0 6px"><strong>Last step: get this back to the laptop.</strong>
+      Paste it, or hold this square up to the laptop&rsquo;s camera.</p>
+      <div class="reply-qr" id="reply-qr"></div>
       <textarea id="reply" readonly autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
       <div class="btn-row"><button class="primary" id="copy-reply" type="button">Copy reply</button></div>
     </div>
@@ -178,6 +189,7 @@ import { initTheme, paintFlow } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import * as cue from './assets/js/core/cue.js';
+import { svg as qrSvg } from './assets/js/core/qr.js';
 import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 initTheme();
@@ -190,8 +202,9 @@ const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew',
                      milk: 'Milk', rate: 'Rate' };
 
 function setConn(state) {
-  const label = { idle: 'Not linked', waiting: 'Waiting for the laptop', open: 'Linked',
-                  closed: 'Link closed', failed: 'Could not connect' }[state] ?? state;
+  const label = { idle: 'Not linked', waiting: last ? 'Reconnecting…' : 'Waiting for the laptop',
+                  open: 'Linked', closed: 'Link closed',
+                  failed: 'Could not connect' }[state] ?? state;
   $('conn').textContent = label;
   $('conn').className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
   const live = state === 'open';
@@ -369,22 +382,51 @@ link.onMessage = (m) => {
   paint(m);
 };
 
-$('link').addEventListener('click', async () => {
-  const code = $('offer').value.trim();
-  if (!code) { $('pair-msg').textContent = 'Paste the laptop’s code first.'; return; }
+async function linkWith(code) {
+  if (!code) { $('pair-msg').textContent = 'Paste the laptop\u2019s code first.'; return; }
   $('pair-msg').textContent = 'Linking…';
   try {
     const reply = await link.answer(code);
     try { localStorage.setItem(PAIRED_KEY, new Date().toISOString()); } catch { /* ignore */ }
     $('reply').value = reply;
     $('reply-wrap').hidden = false;
-    $('pair-msg').textContent = 'Almost there — paste the reply back on the laptop.';
+    // Shown big, and as a code the laptop can read back with its own camera
+    // where the browser allows it. Either way it is 87 characters now, not 832.
+    $('reply-qr').innerHTML = qrSvg(reply, { title: 'The reply, for the laptop' }) ?? '';
+    let copied = false;
+    try { await navigator.clipboard.writeText(reply); copied = true; } catch { /* blocked */ }
+    $('pair-msg').textContent = copied
+      ? 'Copied. Paste it on the laptop, or hold this square up to its camera.'
+      : 'Nearly there — copy this back to the laptop, or hold it up to its camera.';
     $('reply').focus();
     $('reply').setSelectionRange(0, reply.length);
   } catch (err) {
     $('pair-msg').textContent = err.message;
   }
-});
+}
+
+$('link').addEventListener('click', () => linkWith($('offer').value.trim()));
+
+/**
+ * The laptop's code, arriving in the URL.
+ *
+ * This is the whole point of the QR: iOS reads one natively and offers to open
+ * the link, so the first leg of the pairing costs a camera glance rather than a
+ * copy, a paste, and a device switch. The code lives in the fragment, which
+ * never leaves the browser — it is not sent to any server, including the one
+ * serving this page.
+ */
+(function fromUrl() {
+  const m = /[#&]p=([^&]+)/.exec(location.hash || '');
+  if (!m) return;
+  const code = decodeURIComponent(m[1]);
+  // Take it out of the address bar: a stale offer reloaded later cannot work,
+  // and a URL that silently fails on refresh is worse than no URL.
+  history.replaceState(null, '', location.pathname + location.search);
+  $('offer').value = code;
+  $('pair-msg').textContent = 'Got the laptop\u2019s code from the link. Connecting…';
+  linkWith(code);
+}());
 
 $('copy-reply').addEventListener('click', async () => {
   try {
@@ -454,6 +496,11 @@ link.onState = (s) => {
   setConn(s);
   keepAwake(s === 'open');
   $('log-row').hidden = s !== 'open';
+  // A dropped link is not a reason to blank the screen. The last frame is
+  // still the last thing that happened, and a phone propped by a machine
+  // showing a stale 34.2 g is more use than one showing nothing — as long as
+  // it says the number is stale, which the badge does.
+  document.body.classList.toggle('stale', s !== 'open' && !!last);
 };
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && link.state === 'open') keepAwake(true);

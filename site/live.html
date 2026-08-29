@@ -133,6 +133,10 @@
      tile itself acknowledges it instead of leaving the news to a small number. */
   .st.hero { transition:box-shadow var(--t-slow) var(--ease-out); }
   .st.hero.in-window { box-shadow:inset 0 0 0 3px var(--flag); }
+  /* Nothing is being decided right now, and the tile should look like it. */
+  .st.hero.held { opacity:.55; }
+  .st.hero.held .v { animation:none; }
+  .state-strip.held { background:var(--ink-mute); color:var(--panel); }
   .st.hero.in-window .v { animation:landed var(--t-slow) var(--spring); }
   @keyframes landed { 0% { transform:scale(1); } 45% { transform:scale(1.035); } 100% { transform:scale(1); } }
 
@@ -206,6 +210,13 @@
   #pair-dlg { border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink);
     max-width:min(560px, 92vw); padding:20px 22px; }
   #pair-dlg::backdrop { background:rgba(0,0,0,.45); }
+  .qr-wrap { display:flex; gap:16px; align-items:flex-start; margin-top:12px; }
+  .qr { flex:0 0 190px; background:#fff; padding:8px; border:var(--bw) solid var(--ink); }
+  .qr svg { display:block; width:100%; height:auto; }
+  .qr-said { flex:1 1 0; min-width:0; }
+  #pair-cam { width:100%; max-height:220px; margin-top:10px; background:#000; }
+  #pair-cam[hidden] { display:none; }
+  @media (max-width:560px) { .qr-wrap { flex-direction:column; } .qr { flex:none; width:200px; } }
   #pair-dlg textarea { width:100%; box-sizing:border-box; font:600 11.5px/1.4 var(--mono);
     background:var(--panel-2); color:var(--ink); border:2px solid var(--ink); padding:8px 9px;
     resize:vertical; word-break:break-all; }
@@ -227,6 +238,28 @@
      matters more: a gesture nobody can see firing is a gesture nobody trusts,
      so every one of them says so out loud and in writing. */
   .tap-hint { font-size:11.5px; color:var(--ink-mute); margin-top:4px; }
+  .tap-hint:empty { display:none; }
+  /* The left column shows what this step needs and nothing else. Six readouts
+     of which four are dashes is four rows between you and the number. */
+  .dash-page:not(.at-setup) .setup-only { display:none; }
+  .dash-page:not(.at-brew) .mini .brew-only { display:none; }
+  .dash-page:not(.at-brew) #cell-now > .brew-only { display:none; }
+  /* The chrome rows earn their height back. Four short labels fit on one line
+     if they are allowed to scroll rather than wrap, and the device chip does
+     not need the padding of a section header. */
+  #cell-now .cell-head { margin-bottom:6px; gap:6px; }
+  #cell-now .cell-head .tag { padding:5px 8px; font-size:10px; }
+  #cell-now .cell-head .badge { padding:4px 7px; font-size:9.5px; }
+  #cell-now > .btn-row { flex-wrap:nowrap; overflow-x:auto; gap:5px; padding-bottom:2px; }
+  #cell-now > .btn-row button { flex:0 0 auto; }
+  #cell-now .hint { margin:6px 0 0; line-height:1.4; }
+  .taplog { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; min-height:26px; }
+  .taplog span { font:700 11px/1 var(--mono); padding:5px 8px; border:1px solid var(--hair);
+    background:var(--panel-2); color:var(--ink-dim); }
+  .taplog span.hit { border-color:var(--accent); color:var(--accent); }
+  .manual > summary { cursor:pointer; font:700 10px/1 var(--sans); letter-spacing:.13em;
+    text-transform:uppercase; color:var(--ink-mute); margin-top:10px; }
+  .manual[open] > summary { margin-bottom:2px; }
   .gesture { margin:8px 0 2px; padding:9px 12px; border-left:var(--bw) solid var(--accent);
     background:var(--panel-2); font:700 12.5px/1.35 var(--sans); color:var(--ink); }
   .gesture.warn { border-left-color:var(--fit); }
@@ -354,13 +387,13 @@
         <!-- Step 00 asks for these two, so they belong where the flow is read:
              top left, before anything else. Everything on the right is
              reference for a shot already under way. -->
-        <div class="row" id="setup-fields">
+        <div class="row setup-only" id="setup-fields">
           <div class="field needs-setup" style="margin:0"><label for="p-bag">Coffee</label>
             <select id="p-bag"></select></div>
           <div class="field needs-setup" style="margin:0"><label for="p-grinder">Grinder</label>
             <select id="p-grinder"></select></div>
         </div>
-        <div class="methods" id="methods" role="group" aria-label="Brew method"></div>
+        <div class="methods setup-only" id="methods" role="group" aria-label="Brew method"></div>
 
         <!-- Step 00 is a real step now. The selects above are prefilled from
              last time, which makes them a proposal; this is the nod. -->
@@ -402,17 +435,24 @@
         <!-- Flow, as a position rather than as digits. The band is where a
              healthy pour lives, so this answers "is it running right" from
              across the kitchen without any arithmetic. -->
+        <!-- The one control with a deadline. Everything else folds away; this
+             sits beside the number while something is pouring. -->
+        <button class="primary brew-only" id="stop" type="button"
+                style="width:100%;margin-top:9px">Stop the shot</button>
         <div class="qrow" id="flowrow" style="margin-top:9px">
           <span class="qbar"><span class="band"></span><span class="now"></span></span>
           <span class="qv">—</span>
         </div>
+        <!-- Four of these six mean nothing until something is pouring, and a
+             dashboard that shows six dashes while you are weighing beans is
+             four rows of furniture between you and the number you want. -->
         <div class="mini">
           <div class="st bx"><div class="k">Time</div><div class="v"><span id="o-t">0.0</span><span class="u">s</span></div></div>
           <div class="st bx"><div class="k">Flow</div><div class="v"><span id="o-f">0.00</span><span class="u">g/s</span></div></div>
-          <div class="st bx"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
-          <div class="st bx"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
-          <div class="st bx"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
           <div class="st bx"><div class="k">Target</div><div class="v"><span id="o-target">—</span><span class="u">g</span></div></div>
+          <div class="st bx brew-only"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
+          <div class="st bx brew-only"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
+          <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
         </div>
 
         <div class="btn-row" style="margin:6px 0 2px">
@@ -430,13 +470,17 @@
 
         <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
 
-        <div class="btn-row tight">
-          <button class="ghost" id="tare" type="button">Tare</button>
-          <button class="ghost" id="arm" type="button">Arm</button>
-          <button class="ghost" id="start" type="button">Start</button>
-          <button class="ghost" id="stop" type="button">Stop</button>
-          <button class="ghost" id="discard" type="button">Reset</button>
-        </div>
+        <!-- Escape hatches. Needed, and needed rarely: folded away so they are
+             not five buttons of chrome between the readout and the notes. -->
+        <details class="manual">
+          <summary>Manual controls</summary>
+          <div class="btn-row tight">
+            <button class="ghost" id="tare" type="button">Tare</button>
+            <button class="ghost" id="arm" type="button">Arm</button>
+            <button class="ghost" id="start" type="button">Start</button>
+            <button class="ghost" id="discard" type="button">Reset</button>
+          </div>
+        </details>
         <p class="msg" id="decoder-note" style="margin:8px 0 0"></p>
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
@@ -568,6 +612,21 @@
     <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
                     text-transform:uppercase;color:var(--ink-mute)">Device settings</summary>
     <div style="margin-top:16px">
+      <!-- Tap tuning. The defaults are a guess about fingers; this is a
+           measurement of your scale, which is the only number worth trusting. -->
+      <div class="bx" style="padding:14px 16px;margin-bottom:18px">
+        <div class="tag" style="margin-bottom:10px">Tap sensitivity</div>
+        <p class="msg" style="margin-top:0">Scales differ enormously in what a tap looks like:
+        they sample ten times a second and smooth internally, so the same finger can read as 40 g
+        on one and 4 g on another. Tap the platter and this shows what yours actually reports.</p>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="primary" id="tap-learn" type="button">Learn my taps</button>
+          <button class="ghost" id="tap-reset" type="button">Back to defaults</button>
+          <span class="badge" id="tap-threshold">—</span>
+        </div>
+        <p class="msg" id="tap-msg"></p>
+        <div class="taplog" id="tap-log"></div>
+      </div>
       <div class="row" style="max-width:520px;align-items:end">
         <div class="field" style="margin:0"><label for="rename">Name</label>
           <input id="rename" type="text"></div>
@@ -598,24 +657,37 @@
   <div id="pair-steps">
     <p class="msg" style="margin-top:12px">An iPhone or iPad cannot talk to a Bluetooth scale, so
     this sends the pour there directly &mdash; no account, nothing hosted, and nothing leaving your
-    Wi-Fi. Two pastes, once per session.</p>
-    <ol class="msg" style="padding-left:20px">
-      <li>Open <strong id="view-url">/view.html</strong> on the phone.</li>
-      <li>Copy the code below and paste it there.</li>
-      <li>Paste its reply back here.</li>
-    </ol>
+    Wi-Fi.</p>
   </div>
-  <p class="msg" style="margin:12px 0 5px"><strong>1 &middot; this laptop&rsquo;s code</strong></p>
-  <textarea id="pair-offer" readonly rows="3"
-            autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-  <div class="btn-row"><button class="primary" id="pair-copy" type="button">Copy code</button></div>
-  <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong></p>
-  <textarea id="pair-answer" rows="3" placeholder="Paste the reply from the phone here"
+
+  <!-- Point the phone's camera at this. iOS reads QR codes natively and opens
+       the link, which is why this direction needs no app, no typing and no
+       paste at all. -->
+  <div class="qr-wrap"><div class="qr" id="pair-qr"></div>
+    <div class="qr-said">
+      <p class="msg" style="margin:0 0 6px"><strong>1 &middot; scan this with the phone</strong></p>
+      <p class="msg" style="margin:0">Open the Camera app and point it here. Tap the link it
+      offers. The viewer opens already holding this laptop&rsquo;s code.</p>
+      <details style="margin-top:10px">
+        <summary class="msg" style="cursor:pointer">No camera? Use the code</summary>
+        <p class="msg" style="margin:8px 0 4px" id="view-url">/view.html</p>
+        <textarea id="pair-offer" readonly rows="2"
+                  autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+        <div class="btn-row"><button id="pair-copy" type="button">Copy code</button></div>
+      </details>
+    </div>
+  </div>
+
+  <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong>
+  &mdash; 87 characters, so it pastes in one go</p>
+  <textarea id="pair-answer" rows="2" placeholder="Paste the reply from the phone here"
             autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
   <div class="btn-row">
     <button class="primary" id="pair-accept" type="button">Link</button>
+    <button class="ghost" id="pair-scan" type="button" hidden>Scan the phone&rsquo;s code</button>
     <button class="ghost" id="pair-close" type="button">Close</button>
   </div>
+  <video id="pair-cam" playsinline muted hidden></video>
   <p class="msg" id="pair-msg"></p>
 </dialog>
 
@@ -644,9 +716,11 @@ import { SessionMachine, fillProgress } from './assets/js/core/session.js';
 import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, brewTarget }
   from './assets/js/core/method.js';
 import { LiveLink, frameOf } from './assets/js/core/link.js';
+import { svg as qrSvg } from './assets/js/core/qr.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
-import { TapListener, actionFor, gestureHint } from './assets/js/core/tap.js';
+import { TapListener, actionFor, gestureHint, thresholdFor,
+         DEFAULTS as TAP_DEFAULTS } from './assets/js/core/tap.js';
 import { decodeCurve } from './assets/js/core/schema.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { initNotices, restoreControl, isDismissed } from './assets/js/core/notice.js';
@@ -928,6 +1002,7 @@ function onFrame({ uuid, bytes, at }) {
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
   if (moved.committed) {
+    cue.CUES.captured();
     const tile = document.querySelector('#cell-now .hero');
     tile.classList.remove('caught');
     void tile.offsetWidth;             // restart the animation rather than skip it
@@ -950,7 +1025,10 @@ function currentTarget() {
 // a screen you are not looking at is not feedback.
 const CUE_KEY = 'brewkit.cues';
 const gate = new cue.CueGate({ enabled: false });
-try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }
+// On by default: the whole point of the cues is that they reach you when you
+// are not looking at the screen, and a default of off means nobody who would
+// benefit ever finds out they exist.
+try { gate.enabled = localStorage.getItem(CUE_KEY) !== 'off'; } catch { /* ignore */ }
 
 /* --------------------------------------------------- the scale as a button */
 // Both hands are full and the laptop is across the room. The scale is already
@@ -1002,6 +1080,7 @@ function onGesture(g) {
       ? `Started with ${kit.bag($('p-bag').value)?.bean_name ?? 'this coffee'}.`
       : 'Choose a coffee and grinder first.', { ok });
   } else if (action === 'undo') {
+    cue.CUES.undone();
     // The one thing the scale cannot work out for itself. Everything else the
     // session decides, it decides from the weight; "that was wrong" is
     // information only the person holding the portafilter has.
@@ -1048,6 +1127,77 @@ function paintCueButton() {
   $('cues').setAttribute('aria-pressed', String(gate.enabled));
 }
 
+// Audio cannot start without a user gesture, and the first gesture on this page
+// is rarely the sound button — so any click arms it. Without this the switch
+// says "on" and nothing makes a sound until you happen to press that one
+// control, which reads as broken.
+addEventListener('pointerdown', () => {
+  if (gate.enabled && !cue.isArmed()) { cue.arm(); paintCueButton(); }
+}, { once: false });
+
+/* ------------------------------------------------------- tuning the taps */
+// The defaults in tap.js are a guess about what a finger does to a platter.
+// A scale never sees that: it samples at 10 Hz and low-passes internally, so
+// the same tap reads as 40 g on one scale and 4 g on another. Rather than
+// guess harder, measure — and let the numbers come from the hardware.
+
+const TAP_TUNE_KEY = 'brewkit.taptune.v1';
+try {
+  const saved = JSON.parse(localStorage.getItem(TAP_TUNE_KEY) ?? 'null');
+  if (saved) taps.tune(saved);
+} catch { /* ignore */ }
+
+let learning = null;   // { peaks: [] } while the learn button is armed
+
+function paintTapThreshold() {
+  $('tap-threshold').textContent = `fires above ${taps.opt.threshold} g`;
+}
+
+// Every excursion the listener sees, qualifying or not. The ones that did not
+// qualify are the interesting ones when nothing is firing.
+taps.onPress = (p) => {
+  const chip = el('span', { class: p.counted ? 'hit' : '' },
+    `${p.peak.toFixed(1)} g · ${p.ms} ms${p.counted ? '' : p.returned ? ' · too long' : ' · drifted'}`);
+  const box = $('tap-log');
+  box.prepend(chip);
+  while (box.children.length > 8) box.lastChild.remove();
+  if (learning && p.returned) {
+    learning.peaks.push(p.peak);
+    $('tap-msg').textContent = `${learning.peaks.length} of 3 taps — keep going.`;
+    if (learning.peaks.length >= 3) {
+      const th = thresholdFor(learning.peaks);
+      learning = null;
+      if (th === null) { $('tap-msg').textContent = 'Could not read those. Try again, firmer.'; return; }
+      taps.tune({ threshold: th });
+      try { localStorage.setItem(TAP_TUNE_KEY, JSON.stringify({ threshold: th })); } catch { /* ignore */ }
+      paintTapThreshold();
+      $('tap-learn').textContent = 'Learn my taps';
+      $('tap-msg').textContent = `Set to ${th} g, from taps reading `
+        + `${learning0.map((v) => v.toFixed(1)).join(', ')} g. Try a double-tap now.`;
+    }
+  }
+};
+let learning0 = [];
+$('tap-learn').addEventListener('click', () => {
+  if (learning) { learning = null; $('tap-learn').textContent = 'Learn my taps';
+                  $('tap-msg').textContent = 'Stopped.'; return; }
+  // Wide open while learning, so even a scale that barely registers is heard.
+  taps.tune({ threshold: 1.2 });
+  learning = { peaks: learning0 = [] };
+  $('tap-learn').textContent = 'Stop';
+  $('tap-msg').textContent = 'Tap the platter three times, the way you would mean it.';
+  $('tap-log').replaceChildren();
+});
+$('tap-reset').addEventListener('click', () => {
+  taps.tune({ threshold: TAP_DEFAULTS.threshold });
+  try { localStorage.removeItem(TAP_TUNE_KEY); } catch { /* ignore */ }
+  learning = null;
+  $('tap-learn').textContent = 'Learn my taps';
+  paintTapThreshold();
+  $('tap-msg').textContent = 'Back to the shipped default.';
+});
+paintTapThreshold();
+
 $('cues').addEventListener('click', () => {
   gate.enabled = !gate.enabled;
   // Audio can only start from a gesture, and this click is one.
@@ -1063,7 +1213,11 @@ paintCueButton();
  */
 function soundCues(snap) {
   const s = sess.snapshot();
-  const weighing = s.step === 'dose' || s.step === 'grind';
+  const weighing = !!sess.weighFor();
+  // The confirmations, which are the ones that were missing. Each fires on an
+  // edge, because the conditions are sampled ten times a second and a tone that
+  // repeats ten times a second is an alarm rather than a confirmation.
+  gate.edge('tared', weighing && s.phase === 'fill' && sess._tare > 0, cue.CUES.tared);
   gate.edge('window', weighing && s.phase === 'ready', cue.CUES.target);
   const brewing = snap.state === 'extracting';
   const eta = brewing && Number.isFinite(snap.flow) && snap.flow > 0.05
@@ -1730,6 +1884,13 @@ const targetYield = () => brewTarget(sess.method, targetDose(), targetRatio());
  */
 function paintCatch(s) {
   $('step-hint').textContent = s.step === 'setup' ? setupHint() : s.hint;
+  // A hand in the cup is not a reading. Saying so on the tile itself matters
+  // more than saying it in a sentence: the number is the thing being looked at,
+  // and 240 g with no comment reads as a broken scale rather than as an arm.
+  document.body.classList.toggle('at-setup', s.step === 'setup');
+  document.body.classList.toggle('at-brew', s.step === 'brew' || s.step === 'rate');
+  document.querySelector('.st.hero')?.classList.toggle('held', !!s.disturbed);
+  $('state').classList.toggle('held', !!s.disturbed);
   // The highlight marks what the flow is actually waiting on, which moves: an
   // empty select while it is empty, and then the start button, because once
   // both are chosen the thing standing between you and a shot is the
@@ -1983,6 +2144,11 @@ const notePairing = () => {
 
 // The phone can answer back. A rating tapped beside the machine, seconds after
 // the shot, is a better rating than one typed on a laptop in another room.
+watcher.onRestart = () => {
+  $('watch-msg').textContent = 'The phone dropped off — trying to find it again without '
+    + 'pairing from scratch.';
+};
+
 watcher.onMessage = (m) => {
   // The phone asking for the whole log. It gets the same snapshot the Backup
   // page writes to a file — over the link that is already open, on the network
@@ -2023,7 +2189,8 @@ function sendLogToPhone() {
 watcher.onState = (state) => {
   const badge = $('watch-state');
   badge.hidden = state === 'idle' || state === 'closed';
-  badge.textContent = { waiting: 'Phone: waiting', open: 'Phone: watching',
+  badge.textContent = { waiting: pairedBefore() ? 'Phone: reconnecting' : 'Phone: waiting',
+                        open: 'Phone: watching',
                         failed: 'Phone: no route' }[state] ?? state;
   badge.className = `badge ${state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag'}`;
   $('watch-phone').textContent = state === 'open' ? 'Stop watching'
@@ -2064,16 +2231,78 @@ $('watch-phone').addEventListener('click', async () => {
     // A previous link left nothing reusable, so a fresh one is made every time.
     // Closing the old peer first stops two of them racing for one channel.
     if (watcher.state !== 'idle') watcher.close();
-    $('pair-offer').value = await watcher.offer();
-    // Copied without being asked: the first instruction was always "copy this".
+    const code = await watcher.offer();
+    $('pair-offer').value = code;
+    // The QR carries the viewer's URL with the code in the fragment, so the
+    // iOS Camera app — which reads QR natively and offers to open links — does
+    // the whole first leg with no app, no typing and no paste.
+    const url = new URL('./view.html', location.href);
+    url.hash = `p=${code}`;
+    const drawn = qrSvg(url.href, { title: 'Open the viewer on your phone' });
+    $('pair-qr').innerHTML = drawn
+      ?? '<p class="msg" style="margin:0">Code too long for a QR — use the text below.</p>';
+    // Still copied without being asked, for the no-camera path.
     let copied = false;
-    try { await navigator.clipboard.writeText($('pair-offer').value); copied = true; } catch { /* blocked */ }
+    try { await navigator.clipboard.writeText(code); copied = true; } catch { /* blocked */ }
     $('pair-msg').textContent = copied
-      ? 'Copied. Paste it on the phone, then bring back its reply.'
-      : 'Copy it, paste it on the phone, then bring back its reply.';
+      ? 'Scan the square, or paste the copied code on the phone. Then bring back its reply.'
+      : 'Scan the square with the phone\u2019s camera, then bring back its reply.';
     $('pair-answer').focus();
+    offerScanning();
   } catch (err) {
     $('pair-msg').textContent = err.message;
+  }
+});
+
+/**
+ * Read the phone's reply with the laptop camera, where the browser can.
+ *
+ * BarcodeDetector is not everywhere — notably not in every desktop Chrome —
+ * so this is offered when it exists and silently absent when it does not. The
+ * paste is the path that always works, and at 87 characters it is one line.
+ */
+function offerScanning() {
+  $('pair-scan').hidden = !('BarcodeDetector' in window && navigator.mediaDevices?.getUserMedia);
+}
+
+let camStream = null;
+$('pair-scan').addEventListener('click', async () => {
+  const video = $('pair-cam');
+  if (camStream) {
+    camStream.getTracks().forEach((t) => t.stop());
+    camStream = null;
+    video.hidden = true;
+    $('pair-scan').textContent = 'Scan the phone\u2019s code';
+    return;
+  }
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+    video.srcObject = camStream;
+    video.hidden = false;
+    await video.play();
+    $('pair-scan').textContent = 'Stop scanning';
+    $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
+    const detector = new BarcodeDetector({ formats: ['qr_code'] });
+    const tick = async () => {
+      if (!camStream) return;
+      try {
+        const found = await detector.detect(video);
+        const hit = found.find((f) => /^\d+~/.test(f.rawValue ?? ''));
+        if (hit) {
+          $('pair-answer').value = hit.rawValue;
+          camStream.getTracks().forEach((t) => t.stop());
+          camStream = null;
+          video.hidden = true;
+          $('pair-scan').textContent = 'Scan the phone\u2019s code';
+          $('pair-accept').click();
+          return;
+        }
+      } catch { /* a frame that would not decode is not an error */ }
+      setTimeout(tick, 220);
+    };
+    tick();
+  } catch (err) {
+    $('pair-msg').textContent = `Could not open the camera: ${err.message}. Paste the code instead.`;
   }
 });
 
@@ -2288,8 +2517,13 @@ function finishShot() {
   if (brew.curve.length < 3) { $('live-msg').textContent = 'No shot captured yet.'; return; }
   draft.curve = brew.curve.slice();
   draft.metrics = curveMetrics(draft.curve);
+  // The high-water mark, for the same reason curveMetrics uses one: a curve
+  // whose last sample is lower than its peak is a cup that moved, and the last
+  // sample is then the empty scale. A shot that recorded −2.48 g of espresso is
+  // how this was found.
+  const peakWeight = Math.max(...brew.curve.map((p) => p[1]));
   draft.yield_g = Number.isFinite(draft.metrics.yield_g)
-    ? draft.metrics.yield_g : +brew.curve.at(-1)[1].toFixed(2);
+    ? draft.metrics.yield_g : +peakWeight.toFixed(2);
   draft.time_s = Number.isFinite(draft.metrics.duration_s)
     ? draft.metrics.duration_s : +brew.curve.at(-1)[0].toFixed(1);
 
@@ -2401,6 +2635,14 @@ $('save').addEventListener('click', () => {
   const dose = Number.isFinite(sess.dose) ? sess.dose : num('p-dose');
   if (!Number.isFinite(yieldG)) {
     $('save-msg').textContent = 'A shot needs a yield. Pull one, or type the weight out.';
+    return;
+  }
+  // Nothing pours a negative amount. A shot that reaches here with one is a
+  // reading taken after the cup came off the scale, and saving it would put a
+  // number in the log that every model downstream has to survive.
+  if (yieldG <= 0) {
+    $('save-msg').textContent = `${fmt(yieldG, 2)} g is not a yield — the cup was probably off `
+      + 'the scale when it was read. Type what the cup actually holds.';
     return;
   }
   const m = draft.metrics ?? {};

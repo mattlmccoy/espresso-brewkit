@@ -103,6 +103,10 @@ export function prompt(s, method = 'espresso') {
   const m = methodOf(method);
   const w = m.weigh[s.step];
   if (!w) return stepHint(m.id, s.step);
+  if (s.disturbed) {
+    return 'Hand on the scale — nothing is being captured. Take your time; the reading picks '
+      + 'up again when you let go.';
+  }
   if (s.phase === PHASE.VESSEL) {
     return `Put your ${w.vessel} on the scale — it tares itself once it settles.`;
   }
@@ -236,6 +240,9 @@ export class SessionMachine {
     this.grounds = null;
     this.milk = null;
     this.candidate = null;      // the settled reading we would commit right now
+    this._tare = 0;             // the software tare this step is working against
+    this._vesselRaw = null;     // what this step's vessel weighs empty
+    this.disturbed = false;     // something big is on the platform that is not coffee
     this.at = {};               // wall-clock ms when each weighing was captured
     this.auto = { dose: false, grounds: false, milk: false };  // captured, or typed?
     this._lastRaw = null;
@@ -311,6 +318,7 @@ export class SessionMachine {
    */
   _enterVessel(sawEmpty = false) {
     this.phase = PHASE.VESSEL;
+    this._vesselRaw = null;
     this._sawEmpty = sawEmpty;
     this._needTare = true;
     this._restartPlateau();
@@ -389,7 +397,7 @@ export class SessionMachine {
 
     // Asked for by goto() or by a commit: clear the software tare so the next
     // vessel is measured from the platform rather than from the last one.
-    if (this._needTare) { this._needTare = false; out.tareTo = 0; }
+    if (this._needTare) { this._needTare = false; out.tareTo = 0; this._tare = 0; }
 
     // Anything light enough is "nothing on the scale", which is what re-arms
     // vessel detection.
@@ -411,9 +419,37 @@ export class SessionMachine {
 
       // Heavier than any dose, or light enough to be one but placed in a single
       // movement: either way, a container.
+      // A vessel we have already weighed, coming back with something in it.
+      //
+      // Most people do not grind with the portafilter sitting on the scale —
+      // it lives in the grinder's fork. So the real sequence is: portafilter
+      // on, tare, carry it to the grinder, grind, bring it back. Taring it
+      // again on the way back would zero the grounds along with the basket and
+      // measure nothing, which is exactly what used to happen: that whole
+      // workflow captured nothing at all.
+      //
+      // Knowing what the empty vessel weighed is what makes the return
+      // readable. Heavier than it was by more than a dose's minimum, and the
+      // difference IS the fill.
+      if (this._vesselRaw !== null && raw > this._vesselRaw + this.o.minMass
+          && raw - this._vesselRaw <= this.o.maxMass) {
+        out.tareTo = +this._vesselRaw.toFixed(2);
+        this._tare = out.tareTo;
+        this.phase = PHASE.FILL;
+        this._restartPlateau();
+        this._log(t, `${this.weighFor().vessel} back on with `
+          + `${(raw - this._vesselRaw).toFixed(1)} g in it.`);
+        return out;
+      }
+
       const placed = this._roseAt !== null && t - this._roseAt <= this.o.vesselWithin;
       if (this._sawEmpty && raw >= this.o.vesselMin && (raw > this.o.maxMass || placed)) {
         out.tareTo = +raw.toFixed(2);
+        // What this vessel weighs empty, so it can be recognised coming back.
+        this._vesselRaw = +raw.toFixed(2);
+        // Kept here too: the brew machine owns the tare, but "is the vessel
+        // still on the platform" is a question only this side asks.
+        this._tare = out.tareTo;
         this.phase = PHASE.FILL;
         this._restartPlateau();
         this._log(t, `Tared the ${this.weighFor().vessel} at ${raw.toFixed(1)} g.`);
@@ -428,6 +464,19 @@ export class SessionMachine {
       } else {
         return out;
       }
+    }
+
+    // A hand in the cup weighs more than any dose. Saying so is worth a state
+    // of its own: the number on screen is meaningless while it is true, and a
+    // readout that just shows 240 g without comment reads as a broken scale
+    // rather than as an arm.
+    this.disturbed = this.phase !== PHASE.VESSEL && net > this.o.maxMass * 2.5;
+    if (this.disturbed) {
+      // Nothing decided while somebody's hand is on the platform. The candidate
+      // survives — it is what they are in the middle of correcting.
+      this._restartPlateau();
+      this._fellAt = null;
+      return out;
     }
 
     const plausible = net >= this.o.minMass && net <= this.o.maxMass;
@@ -453,24 +502,41 @@ export class SessionMachine {
       if (this.phase === PHASE.READY && net < this.o.minMass) this.phase = PHASE.FILL;
     }
 
-    // Raw falling away is the thing leaving the platform — never a tare, which
-    // leaves raw exactly where it was.
+    // The step ends when the thing being weighed is no longer on the scale.
     //
-    // But a fall has to STAY fallen before it means anything. A finger tapped
-    // on the platter is a rise and then a fall of exactly this size, and read
-    // one sample at a time it is indistinguishable from a cup being lifted —
-    // which meant tapping the scale committed the step, whatever the tap was
-    // meant to do. Waiting a fifth of a second for the platform to still be
-    // empty costs nothing anyone can feel and makes the signal mean what it
-    // says. It also rules out a knock, which was always a false positive.
+    // That used to be read as a fall — raw dropping by more than dropG — and a
+    // fall is not the same claim. Reaching into the cup to take a few beans
+    // back out puts a hand on the platter, which reads as hundreds of grams for
+    // a second or two; letting go is then a fall of exactly that size, and the
+    // step committed the overshoot and moved on while somebody was still
+    // fixing it. There is no adjusting a dose you are no longer on.
     //
-    // The comparison is against where the platform was RESTING, not against the
-    // previous sample. A tap peaks and falls back, so sample-to-sample it looks
-    // like a lift from the peak; against the resting level it is not a fall at
-    // all. Half a second of history is enough to hold that level, and it is the
-    // same history the vessel detector already keeps.
-    const ref = this._laggedRaw(t, raw);
-    if (ref - raw > this.o.dropG) {
+    // So the test is absolute rather than relative: the vessel is gone when the
+    // scale is no longer carrying the vessel's own weight. A hand coming off
+    // returns the platter to roughly where it was, which is nowhere near empty,
+    // so it says nothing. A cup lifted takes 52 g with it and the platform ends
+    // up below its own tare, which is unambiguous.
+    // The scale has its own tare button and people use it. When raw drops to
+    // zero in one jump the hardware re-zeroed, so the vessel now reads 0 and
+    // the software tare has to follow — otherwise every later reading looks
+    // like the vessel is missing. Same rule the brew machine uses on the same
+    // signal, deliberately: two different answers to "did the scale just
+    // re-zero" is two things to keep in step.
+    if (Math.abs(raw) < 0.5 && Math.abs(prevRaw - raw) > 5) this._tare = 0;
+
+    const gone = this._needTare || this.phase === PHASE.VESSEL
+      ? raw < this.o.minMass
+      // With a vessel tared away, "empty" means below the vessel's own weight.
+      // With no vessel — beans onto a scale tared by hand — it means the
+      // platform is bare.
+      : (this._tare > 0 ? raw < this._tare - this.o.dropG : raw < this.o.minMass);
+
+    // And it has to STAY gone. A finger tapped on the platter is a rise and a
+    // fall of exactly this size, and one sample at a time it is
+    // indistinguishable from a cup being lifted — so tapping the scale used to
+    // commit the step whatever the tap meant. A fifth of a second costs nobody
+    // anything and makes the signal mean what it says.
+    if (gone) {
       if (this._fellAt === null) this._fellAt = t;
     } else {
       this._fellAt = null;
@@ -480,10 +546,17 @@ export class SessionMachine {
       if (this.candidate !== null) {
         return this._commit(t, `when the ${this.weighFor()?.vessel ?? 'vessel'} came off`, out);
       }
-      // A drop with no candidate is a tare, or a vessel going on and off. It is
-      // not the end of a step, and advancing on it would skip the weighing the
-      // user is still in the middle of.
+      // An empty platform with no candidate behind it is a vessel going on and
+      // off, or a tare. It is not the end of a step, and advancing on it would
+      // skip the weighing someone is still in the middle of — but it does mean
+      // we are waiting for a vessel again, and the one we already measured may
+      // be about to come back with the grounds in it.
       this._clearCandidate();
+      if (this.phase !== PHASE.VESSEL) {
+        this.phase = PHASE.VESSEL;
+        this._sawEmpty = true;
+        this._restartPlateau();
+      }
     }
     return out;
   }
@@ -525,6 +598,7 @@ export class SessionMachine {
     // this one has not seen empty yet.
     this._enterVessel();
     if (out.tareTo === null) out.tareTo = 0;
+    this._tare = 0;
     this._needTare = false;
     return out;
   }
@@ -596,13 +670,14 @@ export class SessionMachine {
     return {
       step: this.step,
       phase: this.phase,
+      disturbed: this.disturbed,
       method: this.m.id,
       methodLabel: this.m.label,
       order: this.m.order,
       vessel: this.weighFor()?.vessel ?? null,
       target: this.targetFor(),
       hint: prompt({ step: this.step, phase: this.phase, candidate: this.candidate,
-                     target: this.targetFor() }, this.m.id),
+                     target: this.targetFor(), disturbed: this.disturbed }, this.m.id),
       dose: this.dose,
       grounds: this.grounds,
       milk: this.milk,

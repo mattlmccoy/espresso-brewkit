@@ -69,8 +69,15 @@ export function curveMetrics(curve) {
   const dur = t[end];
   if (!(dur > 2)) return { t_first_drip_s: null };
 
+  // When the clock starts at first flow — which is what happens hands-free,
+  // because nothing tells the app the pump was pressed — the first sample is
+  // already wet and "time to first drip" is not a quantity this curve contains.
+  // Reporting the first sample's timestamp would put 0.08 s in the log and in
+  // every regression that reads it, which is a made-up number dressed as a
+  // measurement. Null is the true answer.
   const iFirst = w.findIndex((v) => v >= 0.5);
-  const t_first_drip_s = iFirst >= 0 ? +t[iFirst].toFixed(2) : null;
+  const startedWet = iFirst === 0 && t[0] < 0.5;
+  const t_first_drip_s = iFirst >= 0 && !startedWet ? +t[iFirst].toFixed(2) : null;
 
   const inWindow = (a, b) => {
     const idx = [];
@@ -97,7 +104,11 @@ export function curveMetrics(curve) {
     steady_flow_gs: Number.isFinite(steady_flow_gs) ? +steady_flow_gs.toFixed(3) : null,
     flow_slope_late: Number.isFinite(flow_slope_late) ? +flow_slope_late.toFixed(4) : null,
     duration_s: +dur.toFixed(2),
-    yield_g: +w[end].toFixed(2),
+    // The most the cup ever held, not the last sample. Weight into a cup only
+    // goes up, so a lower final reading means the cup moved — lifted off the
+    // platter, or knocked — and the last sample is then a measurement of the
+    // empty scale rather than of the shot.
+    yield_g: +Math.max(...w.slice(0, end + 1)).toFixed(2),
   };
 }
 

@@ -27,14 +27,31 @@
  * cup taps the platter twice first.
  */
 export const DEFAULTS = {
-  threshold: 12,     // g above baseline that counts as a press at all
+  // Deliberately loose. The first numbers here were guessed from what a finger
+  // does to a platter, and a real scale never sees that: it samples at 10 Hz
+  // and low-passes internally, so a 150 ms tap arrives as one attenuated
+  // sample or none. Guessing tighter is how a detector ends up not firing at
+  // all. `calibrate()` below replaces these with what the scale actually
+  // reports, which is the only trustworthy source.
+  threshold: 5,      // g above baseline that counts as a press at all
   returnBand: 1.5,   // g, how close to the old baseline "it came back" means
-  maxTapMs: 300,     // longer than this and it is not a tap
-  minHoldMs: 700,    // held at least this long and it is a hold
-  gapMs: 420,        // how long to wait for the next tap of a chord
+  maxTapMs: 450,     // longer than this and it is not a tap
+  minHoldMs: 750,    // held at least this long and it is a hold
+  gapMs: 650,        // how long to wait for the next tap of a chord
   settleMs: 250,     // quiet time before the baseline is trusted again
-  maxObjectMs: 1250, // above threshold longer than this: something was put down
+  maxObjectMs: 1400, // above threshold longer than this: something was put down
 };
+
+/**
+ * The smallest excursion worth calling a press, from taps somebody actually
+ * made. Set below the weakest of them, with room to spare, and floored so that
+ * scale noise can never qualify.
+ */
+export function thresholdFor(peaks, { floor = 2.5 } = {}) {
+  const good = (peaks ?? []).filter((v) => Number.isFinite(v) && v > 0);
+  if (good.length < 2) return null;
+  return +Math.max(floor, Math.min(...good) * 0.45).toFixed(2);
+}
 
 /**
  * Reads a weight stream and emits gestures.
@@ -47,7 +64,23 @@ export class TapListener {
   constructor(opts = {}) {
     this.opt = { ...DEFAULTS, ...opts };
     this.enabled = true;
+    /**
+     * Every excursion the listener saw, whether or not it qualified.
+     *
+     * This is what makes the thing tunable against real hardware instead of
+     * against my idea of a finger. A scale that reports a tap as 6 g and 200 ms
+     * is not broken and is not going to change; the thresholds have to come
+     * down to meet it, and they cannot do that without somebody being able to
+     * see what it reported.
+     */
+    this.onPress = null;
     this.reset();
+  }
+
+  /** Change the tuning without losing the baseline. */
+  tune(patch = {}) {
+    this.opt = { ...this.opt, ...patch };
+    return this.opt;
   }
 
   reset(baseline = null) {
@@ -144,7 +177,12 @@ export class TapListener {
 
     // Came back. Which gesture depends only on how long it was down.
     const back = Math.abs(w - this.baseline) <= this.opt.returnBand;
+    const peak = this.press.peak;
     this.press = null;
+    // Report it either way. A press that did not qualify is the interesting
+    // one when nothing is firing.
+    this.onPress?.({ peak: +peak.toFixed(2), ms: Math.round(held), returned: back,
+                     counted: back && held <= this.opt.maxTapMs });
     if (!back) {
       // It returned to somewhere else — a cup lifted, a spill, a knock that
       // moved something. Not a gesture, and the baseline is now wrong.

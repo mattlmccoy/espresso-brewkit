@@ -66,6 +66,13 @@ export function buzz(pattern) {
 
 /** Pitch carries the meaning, so the cues stay distinguishable across a room. */
 export const CUES = {
+  // The session's own beats. These are confirmations rather than alarms: they
+  // say "that registered" at moments when you are looking at a portafilter
+  // rather than at a screen, which is most of them.
+  tared:    () => { tone(420, { ms: 55, gain: 0.09 }); buzz(18); },
+  captured: () => { tone(560, { ms: 70 }); setTimeout(() => tone(760, { ms: 110 }), 72); buzz(30); },
+  stepped:  () => { tone(500, { ms: 60, gain: 0.1 }); setTimeout(() => tone(620, { ms: 90, gain: 0.1 }), 62); },
+  undone:   () => { tone(620, { ms: 70 }); setTimeout(() => tone(430, { ms: 110 }), 72); buzz(30); },
   // Your dose landed in its window: a rising pair, the sound of arriving.
   target: () => { tone(660, { ms: 90 }); setTimeout(() => tone(880, { ms: 140 }), 95); buzz(40); },
   // Counting down to the yield: a soft tick, once a second, no vibration.
