@@ -1175,99 +1175,200 @@ try {
   t('hands-free: reaching the brew step arms the scale with no click',
     armed === 'awaiting_vessel', armed);
 
-  // ---- three ways past a step, and the screen says which ----
-  // Lifting the vessel is the cleanest signal there is and also the most
-  // invisible: dose 18 g, watch the number sit there, and nothing tells you the
-  // app is waiting for you to pick the cup up. So holding still commits too,
-  // and so does a button — on a visible countdown, because an automatic capture
-  // you cannot see coming is the auto-tare mistake again.
+  // ---- the flow the job actually has ----
+  // Fetch a container, fill it, take it away — twice, with a grinder in the
+  // middle. Naming those phases is what lets the screen say "put the portafilter
+  // on" instead of an instruction for the whole step given halfway through it.
+  const job = await page.evaluate(async () => {
+    const { SessionMachine, prompt, PHASE } = await import('./assets/js/core/session.js');
+
+    // Stand in for the Live page: apply the tare the session asks for, and feed
+    // back the net it implies. This is the same two lines the page runs.
+    const drive = (m, raw, seconds, out) => {
+      for (let k = 0; k < Math.round(seconds / 0.1); k++) {
+        out.t = +(out.t + 0.1).toFixed(1);
+        const r = m.step_(out.t, raw, +(raw - out.tare).toFixed(2), true);
+        if (r.tareTo !== null) { out.tare = r.tareTo; out.log.push(`tare=${r.tareTo}@${out.t}`); }
+        if (r.committed) out.log.push(`${r.committed}@${out.t}`);
+      }
+      return out;
+    };
+    const say = (m) => prompt({ step: m.step, phase: m.phase, candidate: m.candidate,
+                                target: m.targetFor() });
+
+    const m = new SessionMachine();
+    m.setReady(true);
+    m.setTarget(18);
+    const st = { t: 0, tare: 0, log: [] };
+    const seen = {};
+
+    drive(m, 0, 0.4, st);                    // empty platform
+    seen.beforeCup = { phase: m.phase, say: say(m) };
+    drive(m, 52, 1.0, st);                   // dosing cup lands
+    seen.afterCup = { phase: m.phase, say: say(m), tare: st.tare };
+    drive(m, 58, 0.6, st);                   // beans going in
+    seen.midPour = { phase: m.phase, say: say(m) };
+    drive(m, 70.2, 1.2, st);                 // 18.2 g of beans
+    seen.atTarget = { phase: m.phase, say: say(m), cand: m.candidate, hold: m.holdLeft };
+    drive(m, 0, 0.6, st);                    // cup lifted
+    seen.afterLift = { step: m.step, phase: m.phase, say: say(m),
+                       dose: m.dose, tare: st.tare };
+    drive(m, 469, 1.0, st);                  // portafilter lands
+    seen.afterPf = { phase: m.phase, say: say(m), tare: st.tare };
+    drive(m, 480, 0.6, st);                  // grounds starting
+    seen.grinding = { phase: m.phase, say: say(m) };
+    drive(m, 486.9, 1.2, st);                // 17.9 g of grounds
+    seen.grinderDone = { phase: m.phase, say: say(m), cand: m.candidate };
+    drive(m, 0, 0.6, st);                    // portafilter to the machine
+    seen.end = { step: m.step, grounds: m.grounds, retention: m.retention };
+
+    return { seen, log: st.log, PHASE };
+  });
+
+  t('flow: it asks for the cup before it asks for anything else',
+    job.seen.beforeCup.phase === 'vessel' && /dosing cup on the scale/.test(job.seen.beforeCup.say),
+    job.seen.beforeCup.say);
+  t('flow: the cup tares itself, and the app says so',
+    job.seen.afterCup.phase === 'fill' && job.seen.afterCup.tare === 52
+    && /Tared\. Dose your beans to 18\.0 g/.test(job.seen.afterCup.say),
+    `${job.seen.afterCup.say} (tare ${job.seen.afterCup.tare})`);
+  t('flow: mid-pour it is still asking for beans, not offering to move on',
+    job.seen.midPour.phase === 'fill', job.seen.midPour.say);
+  t('flow: at the target it says to lift the cup, with no clock running',
+    job.seen.atTarget.phase === 'ready' && job.seen.atTarget.cand === 18.2
+    && job.seen.atTarget.hold === null
+    && /18\.2 g — lift the dosing cup off to move on to the grind/.test(job.seen.atTarget.say),
+    job.seen.atTarget.say);
+  t('flow: lifting it captures the dose and asks for the portafilter',
+    job.seen.afterLift.step === 'grind' && job.seen.afterLift.dose === 18.2
+    && job.seen.afterLift.tare === 0
+    && /portafilter on the scale/.test(job.seen.afterLift.say),
+    job.seen.afterLift.say);
+  t('flow: the portafilter tares itself too, all 469 g of it',
+    job.seen.afterPf.phase === 'fill' && job.seen.afterPf.tare === 469
+    && /Tared\. Grind into it to 18\.2 g/.test(job.seen.afterPf.say),
+    `${job.seen.afterPf.say} (tare ${job.seen.afterPf.tare})`);
+  t('flow: and then it waits, rather than calling an empty basket a dose',
+    job.seen.grinding.phase === 'fill', job.seen.grinding.say);
+  t('flow: grounds near the dose that was weighed end the step',
+    job.seen.grinderDone.phase === 'ready' && job.seen.grinderDone.cand === 17.9
+    && /lift the portafilter off to move on to brewing/.test(job.seen.grinderDone.say),
+    job.seen.grinderDone.say);
+  t('flow: taking it to the machine leaves dose, grounds and retention behind',
+    job.seen.end.step === 'brew' && job.seen.end.grounds === 17.9
+    && Math.abs(job.seen.end.retention - 0.3) < 1e-9,
+    `${job.seen.end.grounds} g out, ${job.seen.end.retention} g retained`);
+  // The tare back to zero rides on the same frame as the capture, because the
+  // step that is starting must not inherit the last one's offset. The leading
+  // one is the flow starting from a platform of unknown history.
+  t('flow: two tares in, two captures out, each capture clearing the tare with it',
+    job.log.join(' ').replace(/@[\d.]+/g, '')
+      === 'tare=0 tare=52 tare=0 dose tare=469 tare=0 grounds',
+    job.log.join(' '));
+
+  // A cup and a dose can weigh the same. What separates them is that a cup is
+  // put down in one movement and a dose is poured over seconds.
+  const placed = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const feed = (m, from, to, at, step = 0.1) => {
+      let tare = null;
+      for (let t = from; t <= to + 1e-9; t = +(t + step).toFixed(2)) {
+        const g = typeof at === 'function' ? at(t) : at;
+        const r = m.step_(t, g, g, true);
+        if (r.tareTo) tare = r.tareTo;
+      }
+      return tare;
+    };
+    const start = () => { const m = new SessionMachine(); m.setReady(true); m.setTarget(18);
+                          m.step_(0, 0, 0, true); return m; };
+
+    // 30 g arriving all at once: a cup.
+    const cup = start();
+    const cupTare = feed(cup, 0.1, 1.4, 30);
+
+    // The same 30 g poured in over six seconds: a dose, on a scale you tared.
+    const pour = start();
+    const pourTare = feed(pour, 0.1, 8, (t) => Math.min(30, +(t * 5).toFixed(2)));
+
+    // A portafilter is past any dose, so it needs no such argument.
+    const pf = start();
+    const pfTare = feed(pf, 0.1, 8, (t) => Math.min(469, +(t * 80).toFixed(2)));
+
+    return { cupTare, cupPhase: cup.phase, pourTare, pourPhase: pour.phase,
+             pourCand: pour.candidate, pfTare };
+  });
+  t('flow: 30 g put down in one movement is a container, and is tared',
+    placed.cupTare === 30 && placed.cupPhase === 'fill', `tared ${placed.cupTare}`);
+  t('flow: the same 30 g poured in over six seconds is coffee, and is not',
+    placed.pourTare === null && placed.pourCand === 30,
+    `tare ${placed.pourTare}, candidate ${placed.pourCand}`);
+  t('flow: and a portafilter needs no such argument, being heavier than any dose',
+    placed.pfTare === 469, `tared ${placed.pfTare}`);
+
+  // ---- and the ways out when it cannot know you are done ----
   const ways = await page.evaluate(async () => {
-    const { SessionMachine, STEP_HINT, STEP_CATCH } =
-      await import('./assets/js/core/session.js');
-    // A machine with its coffee chosen; setup is a step now, and these are
-    // about what happens after it.
-    const ready = () => { const m = new SessionMachine(); m.setReady(true); return m; };
+    const { SessionMachine, prompt } = await import('./assets/js/core/session.js');
+    const ready = (target) => {
+      const m = new SessionMachine();
+      m.setReady(true);
+      m.setTarget(target);
+      // Straight to filling: these are about what happens after a vessel.
+      m.step_(0, 0, 0, true);
+      return m;
+    };
     const run = (m, from, to, at, step = 0.2) => {
       let first = null;
       for (let t = from; t <= to + 1e-9; t = +(t + step).toFixed(2)) {
         const g = typeof at === 'function' ? at(t) : at;
         const r = m.step_(t, g, g, true);
-        if (r.committed && first === null) first = { t, committed: r.committed, to: r.advancedTo };
+        if (r.committed && first === null) first = { t, committed: r.committed };
       }
       return first;
     };
 
-    // Holding still, with nothing lifted.
-    const held = ready();
-    held.step_(0, 0, 0, true);
-    const heldAt = run(held, 0.2, 9, 18.2);
+    // Nowhere near the target: the app cannot tell finished from paused, so the
+    // countdown it always had is the fallback. Kept under the vessel threshold
+    // so this is unambiguously a dose and not a container.
+    const odd = ready(30);
+    const oddAt = run(odd, 0.2, 10, 12.4);
 
     // A pour that never rests must not be captured half-way.
-    const pouring = ready();
-    pouring.step_(0, 0, 0, true);
+    const pouring = ready(18);
     const pourAt = run(pouring, 0.2, 12, (t) => +(t * 2).toFixed(2));
 
-    // The button.
-    const asked = ready();
-    asked.step_(0, 0, 0, true);
-    run(asked, 0.2, 1.2, 18.2);
-    const candidate = asked.candidate;
+    // The button, whatever the phase.
+    const asked = ready(18);
+    run(asked, 0.2, 2.4, 18.2);
     const byHand = asked.commit();
 
-    // The lift: raw falls away and net leaves the plausible band on the same
-    // frame. The candidate has to survive that frame to be committed by it.
-    const lifted = ready();
-    lifted.step_(0, 52, 0, true);
-    lifted.step_(0.2, 70.2, 18.2, true);
-    lifted.step_(1.0, 70.2, 18.2, true);
-    const onLift = lifted.step_(1.2, 0, -52, true);
-
     // A drop with nothing behind it is a tare, and still means nothing.
-    const tared = ready();
-    tared.step_(0, 52, 52, true);
+    const tared = ready(18);
     const onTare = tared.step_(0.2, 0, 0, true);
 
-    const quiet = ready();
-    quiet.step_(0, 0, 0, true);
-    const before = quiet.snapshot();
-    run(quiet, 0.2, 1.0, 18.2);
-    const after = quiet.snapshot();
-
-    return {
-      heldAt, heldDose: held.dose, heldStep: held.step,
-      pourAt, pourDose: pouring.dose, pourStep: pouring.step,
-      candidate, byHand, handDose: asked.dose, handStep: asked.step,
-      handWhy: asked.events.at(-1)?.text ?? '',
-      onLift, liftDose: lifted.dose,
-      onTare, tareStep: tared.step,
-      hintQuiet: before.hint, hintCatch: after.hint,
-      holdQuiet: before.holdLeft, holdCatch: after.holdLeft,
-      catchText: STEP_CATCH.dose, plainText: STEP_HINT.dose,
-    };
+    const quiet = ready(18);
+    const before = { say: prompt({ step: quiet.step, phase: quiet.phase,
+                                   candidate: null, target: 18 }), hold: quiet.holdLeft };
+    run(quiet, 0.2, 2.4, 18.2);
+    const after = { phase: quiet.phase, hold: quiet.holdLeft };
+    return { oddAt, oddDose: odd.dose, pourAt, pourDose: pouring.dose,
+             byHand, handDose: asked.dose, handWhy: asked.events.at(-1)?.text ?? '',
+             onTare, tareStep: tared.step, before, after };
   });
-  t('hands-free: a reading that just sits there is captured on its own',
-    ways.heldDose === 18.2 && ways.heldStep === 'grind' && Math.abs(ways.heldAt.t - 5.2) < 0.3,
-    `committed at ${ways.heldAt?.t} s`);
+  t('hands-free: a dose nowhere near the target still commits on a long hold',
+    ways.oddDose === 12.4 && ways.oddAt && ways.oddAt.t > 4.5 && ways.oddAt.t < 8,
+    `${ways.oddDose} g at ${ways.oddAt?.t} s, aiming at 30`);
   t('hands-free: but a pour that never rests is left alone',
-    ways.pourAt === null && ways.pourDose === null && ways.pourStep === 'dose',
+    ways.pourAt === null && ways.pourDose === null,
     `dose ${ways.pourDose} after 12 s of climbing`);
-  t('hands-free: and you can just say so',
-    ways.candidate === 18.2 && ways.byHand.committed === 'dose' && ways.handDose === 18.2
-    && ways.handStep === 'grind', `${ways.handDose} g by hand`);
-  t('hands-free: the log says which of the three it was',
+  t('hands-free: and you can always just say so',
+    ways.byHand.committed === 'dose' && ways.handDose === 18.2, `${ways.handDose} g by hand`);
+  t('hands-free: the log says which of the ways it was',
     /because you said so/.test(ways.handWhy), ways.handWhy);
-  t('hands-free: lifting the cup still commits, on the frame that reads zero',
-    ways.onLift.committed === 'dose' && ways.liftDose === 18.2,
-    `${ways.liftDose} g as it came off`);
   t('hands-free: a tare with nothing behind it still means nothing',
     ways.onTare.committed === null && ways.tareStep === 'dose', ways.tareStep);
-  t('hands-free: the hint changes to what it is waiting for',
-    ways.hintQuiet === ways.plainText && ways.hintCatch === ways.catchText,
-    ways.hintCatch);
-  t('hands-free: with a countdown, rather than a silent one',
-    ways.holdQuiet === null && Math.abs(ways.holdCatch - 4.2) < 0.3,
-    `${ways.holdCatch} s left`);
-
+  t('hands-free: at the target there is no countdown to run',
+    ways.before.hold === null && ways.after.phase === 'ready' && ways.after.hold === null,
+    `${ways.after.phase}, hold ${ways.after.hold}`);
 
   await page.evaluate(() => { window.__mock.grams = 0; });
   await page.waitForTimeout(400);
@@ -1306,11 +1407,14 @@ try {
     hidden: document.getElementById('catch').hidden,
     value: document.getElementById('catch-v').textContent,
     hint: document.getElementById('step-hint').textContent,
-    width: document.getElementById('catch-fill').style.width,
+    bar: document.getElementById('catch-bar').hidden,
   }));
-  t('hands-free: the pending capture is on screen with its countdown',
-    caught.hidden === false && /19\.4 g/.test(caught.value) && /lock it in/i.test(caught.hint)
-    && caught.width !== '', `${caught.value} · ${caught.width}`);
+  t('hands-free: the pending capture is on screen, with what to do about it',
+    caught.hidden === false && /19\.4 g/.test(caught.value)
+    && /lift the dosing cup off/i.test(caught.hint),
+    `${caught.value} — ${caught.hint}`);
+  t('hands-free: and no countdown bar, because nothing is counting down',
+    caught.bar === true, `bar hidden: ${caught.bar}`);
   await page.click('#catch-go');
   await page.waitForTimeout(150);
   t('hands-free: and the button on it takes the reading',
@@ -1360,7 +1464,8 @@ try {
     tile: document.getElementById('sv-setup').textContent,
   }));
   t('setup: choosing both advances it with no click',
-    afterPick.step === 'dose' && /beans on the scale/i.test(afterPick.hint), afterPick.hint);
+    afterPick.step === 'dose' && /dosing cup on the scale/i.test(afterPick.hint),
+    afterPick.hint);
   t('setup: the highlight comes off, and the tile says what was chosen',
     afterPick.wanted === 0 && /Guji/.test(afterPick.tile),
     `${afterPick.wanted} flagged, tile "${afterPick.tile}"`);

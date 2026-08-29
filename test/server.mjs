@@ -30,7 +30,15 @@ function resolve(urlPath) {
   return full.startsWith(base) ? full : null;
 }
 
-export function serve() {
+/**
+ * @param port 0 picks a free one, which is what the test run wants; a fixed
+ *             port is what a person wants, so the URL stays the same between
+ *             restarts and stays valid in Google's origin allowlist.
+ * @param host 127.0.0.1 keeps it on this machine. Pass 0.0.0.0 to reach it
+ *             from a phone on the same Wi-Fi — see the note in the README
+ *             about secure contexts before doing that.
+ */
+export function serve({ port = 0, host = '127.0.0.1' } = {}) {
   const server = createServer(async (req, res) => {
     const file = resolve(req.url);
     if (!file) { res.writeHead(403).end('forbidden'); return; }
@@ -43,8 +51,9 @@ export function serve() {
     }
   });
   return new Promise((ok) => {
-    server.listen(0, '127.0.0.1', () => ok({
-      origin: `http://127.0.0.1:${server.address().port}`,
+    server.listen(port, host, () => ok({
+      port: server.address().port,
+      origin: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${server.address().port}`,
       close: () => new Promise((done) => server.close(done)),
     }));
   });

@@ -89,6 +89,34 @@ Machine *type* is recorded too, and is not decoration: a lever's pressure is
 whatever the spring or your arm is doing at that instant, which means something
 quite different from a pump machine's gauge reading.
 
+## Running it locally
+
+The site has no build step, so this is a static server and nothing else:
+
+```sh
+git clone https://github.com/mattlmccoy/espresso-brewkit
+cd espresso-brewkit
+npm start          # http://localhost:4173/live.html
+```
+
+The port is fixed on purpose: a Google OAuth client id only works from origins
+registered against it, so add `http://localhost:4173` under *Authorised
+JavaScript origins* once and sign-in works locally too. Everything that is not
+sign-in works without it.
+
+**Web Bluetooth needs a secure context, and `http://localhost` counts as one**,
+so the scale connects over plain HTTP on the machine running the server. A phone
+reaching that server by LAN address does not: `http://192.168.x.x` is not a
+secure context and Safari will refuse to open a peer connection there. So run
+the laptop locally and open the published `https://` copy of `view.html` on the
+phone — the two halves of the link only exchange codes, and do not need to share
+an origin. `npm run start:lan` binds to the network and prints the addresses, for
+everything except that.
+
+`npm test` runs the whole suite in headless Chromium; `npm run check` is the
+syntax pass on its own, which is worth having because a shadowed identifier in a
+test file otherwise costs a full browser run to discover.
+
 ## Watching a pour on a phone
 
 No iOS browser has Web Bluetooth — not Safari, and not Chrome, which is Safari
@@ -201,6 +229,40 @@ Bluetooth — not Safari, and not Chrome, which is Safari underneath — so a ph
 cannot stream the scale. It can read shots and curves, rate a shot, check what
 is running low, and take weights by hand. Scale streaming stays on the computer.
 That is Apple's decision, not something this project can work around.
+
+## The flow, and how it reads the scale
+
+Every weighing step is three phases, because that is how the job is actually
+done: fetch a container, fill it, take it away.
+
+| Phase | What it is waiting for | What it says |
+|---|---|---|
+| Vessel | something heavy to land | "Put your dosing cup on the scale" |
+| Fill | the reading to reach your dose | "Tared. Dose your beans to 18.0 g" |
+| Ready | you to take it off | "18.2 g — lift the dosing cup off" |
+
+**It tares the vessel itself.** A cup that lands and holds still is tared in
+software, so the display reads 0.0 g and the number you watch while dosing is
+the coffee. The portafilter gets the same treatment on the next step. A tare
+you press on the scale still works and is followed, because it is right there
+under your thumb.
+
+Two things stop that from misfiring. A vessel only counts once the platform has
+been **seen empty** — otherwise the cup still standing there when the dose is
+captured would be tared as the next step's portafilter, which is exactly the
+auto-tare bug this project shipped once already. And because a 30 g cup and a
+30 g dose weigh the same, a weight in that range is a container only if it
+**arrived in one movement**: a cup is placed and is still within half a second,
+a dose is poured and takes seconds to stop climbing. Above 45 g no argument is
+needed, since no one pulls a 45 g shot.
+
+**Reaching your target is what ends the step**, not a timer. Within about 12% of
+the dose you are aiming for, the reading is captured and the screen says to lift
+the vessel off — no countdown, because the app knows you are done and has said
+so. Off-target, it cannot tell finished from paused, so the five-second hold and
+the button are still there. Stillness for the vessel is judged from the raw
+stream rather than from the flow estimator's idea of "settled", which is about
+whether coffee is running and stays false for a second or two after any step.
 
 ## Bean age, with the freezer accounted for
 
