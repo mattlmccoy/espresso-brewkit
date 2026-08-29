@@ -1680,6 +1680,215 @@ try {
   t('qr: something too big to encode returns nothing rather than a broken symbol',
     qr.tooLong === null && qr.svgLooksRight, String(qr.tooLong));
 
+  // ---- the three shots inside every shot ----
+  // A dose does not have one correct yield: where you cut decides which drink
+  // you made. The grams are exact from the first drop; the seconds are a
+  // projection, and the projection is only allowed to speak once the flow has
+  // stopped ramping.
+  const st = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/styles.js');
+    const { FlowEstimator } = await import('./assets/js/core/filter.js');
+
+    const marks = S.landmarks('espresso', 18);
+    const withTarget = S.landmarks('espresso', 18, { target: 45 });
+    const onAMark = S.landmarks('espresso', 18, { target: 36 });
+
+    // A shot the shape of a real one: flow ramps to a peak, then sags. The
+    // arrival times are known by construction, so the projection can be scored
+    // rather than eyeballed.
+    const peak = 2.6, tau = 5.0, sag = 0.045;
+    const flowAt = (t) => Math.max(0, peak * (1 - Math.exp(-t / tau)) - sag * Math.max(0, t - 12));
+    const dt = 0.1;
+    const samples = [];
+    let w = 0;
+    for (let t = 0; t <= 40; t += dt) {
+      w += flowAt(t) * dt;
+      samples.push({ t: +t.toFixed(2), w });
+    }
+    const trueArrival = (g) => samples.find((p) => p.w >= g)?.t ?? null;
+
+    // Replay through the real estimator, so the flow the projection divides by
+    // is the flow the app would actually have had.
+    const fe = new FlowEstimator();
+    const seen = samples.map((p) => ({ t: p.t, w: p.w, flow: fe.step(p.t, p.w).flow }));
+
+    const scoreFrom = (minElapsed) => {
+      const errs = [];
+      for (const m of S.landmarks('espresso', 18)) {
+        const truth = trueArrival(m.grams);
+        if (truth === null) continue;
+        for (const p of seen) {
+          if (p.t < minElapsed || p.w >= m.grams || p.t > truth) continue;
+          const pr = S.project(m, { net: p.w, flow: p.flow, elapsed: p.t, lag: 0 });
+          if (pr?.eta === null || pr?.eta === undefined) continue;
+          errs.push(Math.abs((p.t + pr.eta) - truth));
+        }
+      }
+      return errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : NaN;
+    };
+
+    // Every projection the module is willing to make, scored.
+    const afterRamp = scoreFrom(S.RAMP_S);
+    // What it would have been worth had it spoken during the ramp.
+    const duringRamp = (() => {
+      const errs = [];
+      for (const m of S.landmarks('espresso', 18)) {
+        const truth = trueArrival(m.grams);
+        if (truth === null) continue;
+        for (const p of seen) {
+          if (p.t < 2 || p.t >= S.RAMP_S || p.w >= m.grams) continue;
+          errs.push(Math.abs((p.t + (m.grams - p.w) / p.flow) - truth));
+        }
+      }
+      return errs.reduce((a, b) => a + b, 0) / errs.length;
+    })();
+
+    const at = (t) => seen.find((p) => p.t >= t);
+    const early = S.project(marks[0], { net: at(4).w, flow: at(4).flow, elapsed: 4, lag: 1 });
+    const ready = S.project(marks[1], { net: at(12).w, flow: at(12).flow, elapsed: 12, lag: 1 });
+    // The same moment with no drip lag: the cut has to come later, not sooner.
+    const noLag = S.project(marks[1], { net: at(12).w, flow: at(12).flow, elapsed: 12, lag: 0 });
+    const gone = S.project(marks[0], { net: 30, flow: 2, elapsed: 15, lag: 1 });
+    const stalled = S.project(marks[1], { net: 20, flow: 0, elapsed: 15, lag: 1 });
+    const distant = S.project({ grams: 200 }, { net: 20, flow: 2, elapsed: 15, lag: 1 });
+
+    return {
+      grams: marks.map((m) => m.grams),
+      labels: marks.map((m) => m.label),
+      pourover: S.stylesFor('pourover'),
+      milk: S.stylesFor('milk')?.length ?? 0,
+      targetAdded: withTarget.length === 4 && withTarget.map((m) => m.grams).join(),
+      targetFolded: onAMark.length === 3
+        && onAMark.find((m) => m.grams === 36)?.isTarget === true,
+      afterRamp, duringRamp,
+      earlyState: early.state, earlyEta: early.eta,
+      readyState: ready.state, readyEta: +ready.eta.toFixed(1),
+      lagCutsEarlier: ready.eta < noLag.eta,
+      goneState: gone.state, stalledState: stalled.state, distantState: distant.state,
+      classify: [
+        S.styleOf('espresso', 18, 26)?.id,
+        S.styleOf('espresso', 18, 36)?.id,
+        S.styleOf('espresso', 18, 55)?.id,
+        S.styleOf('espresso', 18, 120),
+        S.styleOf('pourover', 18, 36),
+      ],
+    };
+  });
+  t('styles: the three classical ratios land where the arithmetic puts them',
+    st.grams.join() === '27,36,54' && st.labels.join() === 'Ristretto,Espresso,Lungo',
+    `18 g → ${st.grams.join(' / ')} g`);
+  t('styles: a pour over is not given espresso’s vocabulary',
+    st.pourover === null && st.milk === 3, 'pour over none, milk drink three');
+  t('styles: your own target joins the ladder when it is somewhere else',
+    st.targetAdded === '27,36,45,54', st.targetAdded);
+  t('styles: and folds into a classical mark rather than crowding it',
+    st.targetFolded, 'target sits on the espresso mark');
+  t('styles: no time is claimed while the flow is still ramping',
+    st.earlyState === 'settling' && st.earlyEta === null,
+    `at 4 s: ${st.earlyState}`);
+  t('styles: because a projection made during the ramp is worth nothing',
+    st.duringRamp > 4 && st.afterRamp < 1,
+    `during ramp ${st.duringRamp.toFixed(1)} s error, after ${st.afterRamp.toFixed(2)} s`);
+  t('styles: past the ramp it counts down to the cut, not to the arrival',
+    st.readyState === 'near' && st.lagCutsEarlier,
+    `${st.readyEta} s, and the drip lag brings it forward`);
+  t('styles: a landmark already gone by says so, and so does a dead pour',
+    st.goneState === 'passed' && st.stalledState === 'stalled',
+    `${st.goneState} / ${st.stalledState}`);
+  t('styles: one too far out is approximate rather than a countdown',
+    st.distantState === 'far', st.distantState);
+  const stick = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/styles.js');
+    const seen = new Set();
+    const mark = { id: 'lungo', grams: 54 };
+    // An arrival sitting on the horizon, wobbling either side of it as the flow
+    // estimate does. Without the latch the cell alternates between two formats
+    // several times a second.
+    const run = (withLatch) => [2.0, 1.95, 2.05, 1.97].map((flow) =>
+      S.project(mark, { net: 30, flow, elapsed: 14, lag: 0 })).map((r) => {
+        if (withLatch) S.settle([r], seen);
+        return r.state;
+      });
+    const raw = run(false);
+    seen.clear();
+    return { raw: [...new Set(raw)].sort().join('/'), latched: [...new Set(run(true))].join('/') };
+  });
+  t('styles: a countdown does not flicker back into an estimate at the horizon',
+    stick.raw === 'far/near' && stick.latched === 'near',
+    `unlatched ${stick.raw}, latched ${stick.latched}`);
+
+  // ---- and on the page, driven by a pour the brew machine believes in ----
+  await page.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await page.waitForFunction(() => window.__mock && window.__sess);
+  const rungText = () => page.evaluate(() => ({
+    hidden: document.getElementById('ladder').hidden,
+    tile: document.getElementById('tile-eta').hidden,
+    ticks: [...document.querySelectorAll('.ladder-tick')].map((n) => n.style.left),
+    cells: [...document.getElementById('ladder-row').children].map((c) => [
+      c.children[0].textContent, c.children[1].textContent, c.children[2].textContent]),
+    t: document.getElementById('o-t').textContent,
+  }));
+  await page.evaluate(() => {
+    window.__sess.setMethod('espresso');
+    const d = document.getElementById('p-dose');
+    d.value = '18';
+    d.dispatchEvent(new Event('input', { bubbles: true }));
+    window.__sess.goto('brew');
+    window.__mock.grams = 0;
+    window.__brew.startNow(performance.now() / 1000, 0);
+    // A real pour rather than a step: the brew machine ends a shot that stops
+    // flowing, and a frozen clock would never reach the ramp at all.
+    let g = 0;
+    window.__pour = setInterval(() => {
+      g += 0.17;
+      window.__mock.grams = +g.toFixed(2);
+    }, 100);
+  });
+  await page.waitForTimeout(2500);
+  const ramping = await rungText();
+  // Past the ramp, and past the ristretto mark at 27 g.
+  await page.waitForFunction(
+    () => document.getElementById('ladder-row').children[0].children[2].textContent
+      .startsWith('cut in'), null, { timeout: 15000 });
+  const counting = await rungText();
+  await page.waitForFunction(
+    () => document.getElementById('ladder-row').children[0].children[2].textContent === 'passed',
+    null, { timeout: 20000 });
+  const past = await rungText();
+  await page.evaluate(() => clearInterval(window.__pour));
+
+  t('ladder: the weights are on the page from the first drop',
+    !ramping.hidden && ramping.cells.map((c) => c[1]).join() === '27.0 g,36.0 g,54.0 g',
+    ramping.cells.map((c) => `${c[0]} ${c[1]}`).join(' · '));
+  t('ladder: and it says nothing about timing while the flow is still ramping',
+    Number(ramping.t) < 8 && ramping.cells.every((c) => c[2] === 'settling'),
+    `at ${ramping.t} s: ${ramping.cells.map((c) => c[2]).join(' | ')}`);
+  t('ladder: past the ramp each mark counts down to its own cut',
+    Number(counting.t) >= 8 && /^cut in [\d.]+ s$/.test(counting.cells[0][2]),
+    `at ${counting.t} s: ${counting.cells.map((c) => c[2]).join(' | ')}`);
+  t('ladder: a mark you have gone past says so rather than counting backwards',
+    past.cells[0][2] === 'passed', past.cells.map((c) => c[2]).join(' | '));
+  t('ladder: the ticks sit at the real weights, not at even spacing',
+    ramping.ticks.join() === '44.6%,59.5%,89.3%', ramping.ticks.join(' '));
+  t('ladder: and it folds away the tile that was showing the same number',
+    ramping.tile === true, `tile hidden: ${ramping.tile}`);
+
+  // A pour over has ratios but not these names, so it keeps the plain tile.
+  await page.evaluate(() => {
+    window.__sess.setMethod('pourover');
+    window.__brew.reset();
+  });
+  await page.waitForTimeout(400);
+  const po = await rungText();
+  t('ladder: a pour over is not given espresso’s vocabulary, and keeps its tile',
+    po.hidden === true && po.tile === false, `hidden ${po.hidden}, tile shown ${!po.tile}`);
+  // Put the page back the way the rest of the suite expects to find it.
+  await page.evaluate(() => window.__sess.setMethod('espresso'));
+
+  t('styles: a finished shot is named, and an unnameable one is not',
+    st.classify.join() === 'ristretto,espresso,lungo,,' ,
+    st.classify.map((x) => x ?? '—').join(' / '));
+
   // ---- gestures live in the gaps, never inside a measurement ----
   // This is a correctness rule rather than a preference: a tap is a sixty-gram
   // excursion, and driven through the real filter a two-tap gesture during a

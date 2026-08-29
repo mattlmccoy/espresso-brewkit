@@ -265,6 +265,77 @@ The laptop and the phone draw it from the same function, because the phone is
 the one you are actually looking at and the two must not disagree about what
 "too fast" means.
 
+## Three drinks, one puck
+
+A dose does not have one correct yield. Cut at 1:1.5 and it is a ristretto, at
+1:2 an espresso, at 1:3 a lungo — same beans, same grind, same puck, three
+different drinks, and which one you end up with is decided in the four seconds
+while it is pouring. The app knew none of that. It knew one target, typed in
+beforehand, and narrated the whole shot as distance from it.
+
+So the pour now carries a **ladder**: the three classical marks in grams, ticked
+onto a track at their real positions, and under each one how long until you
+should cut for it. Your own target joins them as a fourth mark, or folds into
+whichever one it is already sitting on. The lungo tick is usually somewhere you
+have never been, which is the point — it is the option you did not know you had.
+
+The grams are exact from the first drop, because they are a multiplication. The
+seconds are not, and that is the interesting half.
+
+### Why the countdown arrives late on purpose
+
+Espresso flow ramps. There is pre-infusion, then the pump comes up, then the
+puck saturates, and only after all of that does flow settle into something worth
+dividing by. Both real shots in the log go from about 0.9 g/s at 2 s to a peak
+near 2.4–2.9 g/s at 12–14 s. Divide the remaining grams by the flow you have at
+4 s and you are dividing by less than half the flow you are about to get.
+
+Replaying both curves through the real estimator and scoring every arrival
+estimate against when the shot actually got there:
+
+| projection made at | mean absolute error |
+|---|---|
+| 0–4 s | 14.50 s |
+| 4–6 s | 7.49 s |
+| 6–8 s | 3.24 s |
+| 8–10 s | **1.00 s** |
+| 10 s+ | **0.16 s** |
+
+An estimate made in the first four seconds is wrong by more than the whole shot
+is long. So for the first eight seconds the ladder shows the weights and the
+word *settling*, and says nothing about time — which is a smaller failure than
+saying something wrong, and the same refusal the advisor makes when asked to fit
+two shots.
+
+A correction for the flow trend was tried and thrown away. Fitting the decline
+and solving the resulting quadratic was **worse** at every lead time — 1.33 s
+mean error against 1.18 s — because the trend is a second derivative of a noisy
+signal and the noise costs more than the curvature buys. The projection is
+distance over flow, and the only thing it corrects for is the drip that keeps
+coming after the pump stops, which is learned per machine.
+
+Past about twelve seconds out the estimate is an extrapolation rather than a
+countdown, and it says `~19 s` rather than `cut in 19.0 s`. Once a mark has been
+close enough to count down it keeps counting down, so a shot whose lungo is
+hovering on the boundary does not flicker between the two.
+
+### What it is worth afterwards
+
+The finished shot is stored with the style it turned out to be, not the one you
+meant to make: aiming at 36 g and cutting at 27 is a ristretto and the log says
+so. It is a column like any other, so it exports, imports and can eventually be
+asked the obvious question — whether your ristrettos rate better than your
+lungos — without anyone having to reinterpret a ratio by eye.
+
+Crossing a mark also gets a short soft note, distinct from the countdown ticks
+and the stop. It is information rather than an instruction: nothing needs doing
+about passing ristretto, it only tells you where in the shot you are.
+
+The phone draws the same ladder from the same module. Nothing about it goes over
+the link except the machine's drip lag, because the phone already has the
+method, the dose, the weight and the flow — sending the finished ladder ten
+times a second would be sending arithmetic.
+
 ## The gap between grinding and brewing
 
 Ground coffee starts degassing and cooling the moment it leaves the burrs, and

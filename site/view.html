@@ -64,6 +64,29 @@
   .log-row .msg { margin:0; font-size:12px; }
   #flowrow { margin:10px 0 0; }
   body:not(.brewing) #flowrow { display:none; }
+  /* Bigger than the laptop's: this is the across-the-room screen, and the
+     numbers on it have to survive being read at arm's length in a hurry. */
+  .ladder { margin:10px 0 0; }
+  .ladder[hidden], body:not(.brewing) .ladder { display:none; }
+  .ladder-track { position:relative; height:9px; background:var(--hair);
+    border:2px solid var(--ink); overflow:hidden; }
+  .ladder-now { position:absolute; top:0; bottom:0; left:0; background:var(--accent);
+    transition:width .1s linear; }
+  .ladder-tick { position:absolute; top:0; bottom:0; width:2px; background:var(--ink); opacity:.55; }
+  .ladder-tick.is-target { opacity:1; }
+  .ladder-row { display:flex; gap:6px; margin-top:7px; }
+  .ladder-cell { flex:1 1 0; min-width:0; padding:7px 8px; border:2px solid var(--hair);
+    background:var(--panel-2); }
+  .ladder-k { font:700 10px/1 var(--sans); letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ladder-g { font:700 19px/1.15 var(--mono); margin-top:4px; }
+  .ladder-e { font:700 12px/1 var(--mono); margin-top:4px; color:var(--ink-mute);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ladder-cell.is-passed { opacity:.42; }
+  .ladder-cell.is-near { border-color:var(--accent); }
+  .ladder-cell.is-near .ladder-e { color:var(--accent); }
+  .ladder-cell.is-target { border-style:dashed; }
+  .ladder-cell.is-target.is-near { border-style:solid; }
   .fill-txt { display:flex; justify-content:space-between; gap:10px; margin-top:6px;
     font:700 11.5px/1 var(--mono); opacity:.88; }
   /* Same reasoning as the laptop: the ground is already the accent, so the
@@ -80,6 +103,7 @@
   body.done .big, body.done .strip, body.done .plot { display:none; }
   #v-done { flex:1 1 auto; display:flex; flex-direction:column; gap:10px; min-height:0; }
   .grid4 { display:grid; grid-template-columns:repeat(2, 1fr); gap:9px; }
+  .grid4 .span2 { grid-column:1 / -1; }
   .grid4 .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:11px 12px; }
   .grid4 .k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ink-mute); }
@@ -172,6 +196,13 @@
          you can actually see. Flow as a bar is the difference between reading
          a number and knowing an answer. -->
     <div class="qrow" id="flowrow"><span class="qbar"><span class="band"></span><span class="now"></span></span></div>
+    <!-- The three drinks, on the device you are actually looking at while the
+         shot runs. Same module and same numbers as the laptop, including the
+         machine's drip lag, which rides along in the frame. -->
+    <div class="ladder" id="ladder" hidden>
+      <div class="ladder-track"><span class="ladder-now" id="ladder-now"></span></div>
+      <div class="ladder-row" id="ladder-row"></div>
+    </div>
     <div class="plot" id="plot"></div>
 
     <!-- The verdict. By the numbers, then the only question left. -->
@@ -192,6 +223,8 @@ import * as cue from './assets/js/core/cue.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
 import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
+import { ladder as shotLadder, ladderScale, styleOf }
+  from './assets/js/core/styles.js';
 initTheme();
 
 const $ = (id) => document.getElementById(id);
@@ -252,7 +285,70 @@ function paint(f) {
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';
   paintFill(f);
+  paintLadder(f);
   drawCurve(f);
+}
+
+/**
+ * The style ladder, worked out on this device from the frame.
+ *
+ * Nothing about it is sent over the link except the machine's drip lag: the
+ * phone has the method, the dose, the weight and the flow, and the module that
+ * turns those into landmarks is the same file the laptop runs. Sending the
+ * finished ladder ten times a second would be sending arithmetic.
+ */
+let ladderCells = new Map();
+// Which marks have already been close enough to count down; see `settle`.
+const ladderSeen = new Set();
+function paintLadder(f) {
+  const box = $('ladder');
+  const brewing = f.st === 'extracting' || f.st === 'dripping';
+  const rungs = brewing
+    ? shotLadder(f.method, f.dose, { net: f.w, flow: f.q, elapsed: f.t,
+                                     lag: Number.isFinite(f.lag) ? f.lag : 1.0,
+                                     target: f.target, seen: ladderSeen })
+    : [];
+  box.hidden = rungs.length === 0;
+  if (!rungs.length) { ladderSeen.clear(); return; }
+
+  const scale = ladderScale(rungs);
+  const track = box.querySelector('.ladder-track');
+  const sig = rungs.map((r) => `${r.id}:${r.grams}`).join('|');
+  if (track.dataset.sig !== sig) {
+    track.dataset.sig = sig;
+    for (const old of track.querySelectorAll('.ladder-tick')) old.remove();
+    for (const r of rungs) {
+      const tick = document.createElement('span');
+      tick.className = `ladder-tick${r.isTarget ? ' is-target' : ''}`;
+      tick.style.left = `${((r.grams / scale) * 100).toFixed(1)}%`;
+      track.append(tick);
+    }
+    const row = $('ladder-row');
+    row.replaceChildren(...rungs.map((r) => {
+      const cell = document.createElement('div');
+      cell.className = 'ladder-cell';
+      cell.innerHTML = '<div class="ladder-k"></div><div class="ladder-g"></div>'
+        + '<div class="ladder-e"></div>';
+      cell.children[0].textContent = r.isTarget && r.id === 'target' ? 'Your target' : r.label;
+      cell.children[1].textContent = `${r.grams.toFixed(1)} g`;
+      return cell;
+    }));
+    ladderCells = new Map(rungs.map((r, i) => [r.id, row.children[i]]));
+  }
+  $('ladder-now').style.width = `${Math.min(100, (f.w / scale) * 100).toFixed(1)}%`;
+  for (const r of rungs) {
+    const cell = ladderCells.get(r.id);
+    if (!cell) continue;
+    cell.classList.toggle('is-passed', r.state === 'passed');
+    cell.classList.toggle('is-near', r.state === 'near');
+    cell.classList.toggle('is-target', !!r.isTarget);
+    cell.lastElementChild.textContent =
+      r.state === 'passed' ? 'passed'
+        : r.state === 'near' ? `cut in ${r.eta.toFixed(1)} s`
+          : r.state === 'far' ? `~${Math.round(r.eta)} s`
+            : r.state === 'stalled' ? 'not flowing'
+              : 'settling';
+  }
 }
 
 const fmt1 = (v) => (Number.isFinite(v) ? v.toFixed(1) : '—');
@@ -262,7 +358,12 @@ function paintDone(f) {
   const ratio = Number.isFinite(f.dose) && f.dose > 0 && Number.isFinite(f.w)
     ? f.w / f.dose : NaN;
   const avg = Number.isFinite(f.w) && Number.isFinite(f.t) && f.t > 0 ? f.w / f.t : NaN;
+  // Which drink it was, not what you set out to make. "1:1.5" is a number you
+  // have to interpret; "Ristretto" is the answer to the same question, so it
+  // leads and the arithmetic follows underneath.
+  const style = styleOf(f.method, f.dose, f.w);
   const cells = [
+    ...(style ? [['Style', style.label, '', true]] : []),
     ['Dose', fmt1(f.dose), 'g'],
     ['Yield', fmt1(f.w), 'g'],
     ['Time', fmt1(f.t), 's'],
@@ -270,9 +371,9 @@ function paintDone(f) {
     ['Grounds', fmt1(f.grounds), 'g'],
     ['Avg flow', Number.isFinite(avg) ? avg.toFixed(2) : '—', 'g/s'],
   ];
-  $('done-grid').replaceChildren(...cells.map(([k, v, u]) => {
+  $('done-grid').replaceChildren(...cells.map(([k, v, u, wide]) => {
     const c = document.createElement('div');
-    c.className = 'c';
+    c.className = wide ? 'c span2' : 'c';
     c.innerHTML = `<div class="k"></div><div class="v"><span></span><small></small></div>`;
     c.querySelector('.k').textContent = k;
     c.querySelector('.v span').textContent = v;

@@ -64,6 +64,11 @@ export const FIELDS = [
   // not the same shot. Nothing else logs this because nothing else knows both
   // timestamps; this app captures the grounds and starts the clock itself.
   { key: 'puck_prep_s',   label: 'Grind to brew',  unit: 's',   type: 'number', group: 'result' },
+  // Which of the three drinks this turned out to be, read off the ratio after
+  // the fact. Stored as well as derived because a ratio is a number you have to
+  // interpret every time you read it, and because the bands may be tuned later
+  // — what you actually pulled should not change retroactively when they are.
+  { key: 'style',         label: 'Style',                       type: 'text', group: 'result' },
 
   // provenance
   { key: 'curve',         label: 'Flow curve',     type: 'text', group: 'meta' },

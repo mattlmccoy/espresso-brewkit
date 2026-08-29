@@ -327,7 +327,7 @@ export class LiveLink {
  * enough that losing one costs nothing. There are no deltas here by design:
  * every frame is the whole picture, which is what lets the channel be lossy.
  */
-export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve }) {
+export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag }) {
   return {
     k: 'f',
     w: Number.isFinite(snap?.net) ? +snap.net.toFixed(2) : null,
@@ -349,6 +349,11 @@ export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve }) {
     target: Number.isFinite(target) ? +target.toFixed(1) : null,
     tol: Number.isFinite(tol) ? +tol.toFixed(2) : null,
     coffee: coffee ?? null,
+    // How long this machine drips after the pump stops. The phone works out the
+    // style landmarks itself — it has the method, the dose, the weight and the
+    // flow — but the lag is learned per machine and lives on the laptop, and
+    // without it the phone's countdown would disagree with the laptop's.
+    lag: Number.isFinite(lag) ? +lag.toFixed(2) : null,
     // A short tail of the curve, so a phone joining mid-shot is not blank.
     curve: Array.isArray(curve) ? curve.slice(-240).map(
       (p) => [+p.t.toFixed(2), +p.w.toFixed(2)]) : [],
