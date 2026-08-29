@@ -1852,11 +1852,21 @@ try {
         }
         px = next;
       }
+      // Seeded, so "does it read through noise" has one answer rather than a
+      // different one every run. Math.random() here made the steep case a coin
+      // toss, which is worse than not testing it.
+      let seed = 0x9e3779b9;
+      const rnd = () => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
       const buf = new Uint8ClampedArray(w * h * 4);
       for (let i = 0; i < w * h; i++) {
         // A lighting gradient across the frame, because kitchen light is never
         // even and a single global threshold is what that breaks.
-        let v = px[i] + (noise ? (Math.random() * 2 - 1) * noise : 0);
+        let v = px[i] + (noise ? (rnd() * 2 - 1) * noise : 0);
         v = Math.max(0, Math.min(255, v * (1 - 0.45 * ((i % w) / w))));
         buf[i * 4] = buf[i * 4 + 1] = buf[i * 4 + 2] = v;
         buf[i * 4 + 3] = 255;
@@ -3081,6 +3091,63 @@ try {
   await page.waitForFunction(
     () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
   const offer = await page.inputValue('#pair-offer');
+
+  // ---- big enough to actually be read off a screen ----
+  // Reported: the QR renders and a phone will not scan it. The symbol itself
+  // was fine — our own reader takes it — so the problem was physical. It sat in
+  // a fixed 190 px box while the module count grows with the number of network
+  // interfaces the laptop has, which took it from about 3.2 pixels a module to
+  // 2.6: roughly half a millimetre on screen, against glare, with no warning
+  // that anything was wrong.
+  const sized = await page.evaluate(() => {
+    const svg = document.querySelector('#pair-qr svg');
+    const r = svg.getBoundingClientRect();
+    const modules = Number(svg.getAttribute('viewBox').split(' ')[2]);
+    return { css: Math.round(r.width), modules, per: +(r.width / modules).toFixed(2) };
+  });
+  await page.click('#qr-big');
+  await page.waitForFunction(() => document.getElementById('qr-full-dlg').open,
+    null, { timeout: 4000 });
+  const enlarged = await page.evaluate(() => {
+    const svg = document.querySelector('#qr-full svg');
+    const r = svg.getBoundingClientRect();
+    return { css: Math.round(r.width),
+             per: +(r.width / Number(svg.getAttribute('viewBox').split(' ')[2])).toFixed(2) };
+  });
+  // And it is still the right symbol at the size it is drawn: rasterised off
+  // the page and read back through our own decoder, which needs about the same
+  // pixels per module a camera does.
+  const readable = await page.evaluate(async () => {
+    const S = await import('./assets/js/core/qrscan.js');
+    const svg = document.querySelector('#pair-qr svg');
+    const side = Math.round(svg.getBoundingClientRect().width);
+    return new Promise((res) => {
+      const url = URL.createObjectURL(new Blob([svg.outerHTML], { type: 'image/svg+xml' }));
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = side; c.height = side;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, side, side);
+        g.drawImage(img, 0, 0, side, side);
+        const got = S.scan(g.getImageData(0, 0, side, side));
+        URL.revokeObjectURL(url);
+        res(typeof got === 'string' && got.includes('view.html#p='));
+      };
+      img.onerror = () => res(false);
+      img.src = url;
+    });
+  });
+  await page.evaluate(() => document.getElementById('qr-full-dlg').close());
+  t('qr: the square is sized from its module count, not from a fixed box',
+    sized.per >= 5.5 && sized.css >= 260,
+    `${sized.modules} modules across ${sized.css} px — ${sized.per} px each`);
+  t('qr: and it enlarges to the whole display for a camera that still refuses',
+    enlarged.per > sized.per * 2 && enlarged.css > 600,
+    `${enlarged.css} px, ${enlarged.per} px a module`);
+  t('qr: what is drawn reads back as the viewer URL at the size it is drawn',
+    readable, 'decoded off the page at its rendered size');
+
   await phone.fill('#offer', offer);
   await phone.click('#link');
   await phone.waitForFunction(
