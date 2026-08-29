@@ -290,6 +290,7 @@
   /* What the platter will do right now, and what it just did. The second one
      matters more: a gesture nobody can see firing is a gesture nobody trusts,
      so every one of them says so out loud and in writing. */
+  #tap-learn.armed { background:var(--flag); color:var(--bg); }
   .tap-hint { font-size:11.5px; color:var(--ink-mute); margin-top:4px; }
   .tap-hint:empty { display:none; }
   /* The left column shows what this step needs and nothing else. Six readouts
@@ -1088,7 +1089,13 @@ function onFrame({ uuid, bytes, at }) {
   if (moved.tareTo !== null) trace.mark(`tare set to ${moved.tareTo}`);
   render(snap);
   broadcast(snap);
-  if (gesture) { trace.mark(`gesture: ${gesture}`); onGesture(gesture); }
+  // While the tuner is listening it owns the platter: the taps being performed
+  // are being performed AT it, and letting them through was what made
+  // calibration start shots and undo captures under the person's hands.
+  if (gesture) {
+    trace.mark(`gesture: ${gesture.type}${calibrating() ? ' (calibrating, ignored)' : ''}`);
+    if (!calibrating()) onGesture(gesture);
+  }
   // The countdown moves every frame; the rest of the session panel only moves
   // when a step does, and rebuilding it at 10 Hz would fight the manual inputs.
   paintCatch(sess.snapshot());
@@ -1268,10 +1275,54 @@ try {
   if (saved) taps.tune(saved);
 } catch { /* ignore */ }
 
-let learning = null;   // { peaks: [] } while the learn button is armed
+/**
+ * Learning what this scale calls a tap.
+ *
+ * Two things went wrong here and both made it unusable. The taps performed
+ * during calibration were still being acted on, so tapping three times to
+ * teach it drove the live session — started a shot, undid a capture, changed
+ * the method. And cancelling left the threshold at the 1.2 g it opens up to
+ * while listening, so afterwards everything on the platter was a gesture.
+ *
+ * So calibration is now a mode with a beginning, an end and an exit, and it
+ * owns the platter while it runs: nothing it hears reaches the session.
+ */
+const TAPS_WANTED = 3;
+let learning = null;   // { peaks, was, timer } while the learn button is armed
+
+/** True while the tuner owns the platter, so gestures do not reach the app. */
+const calibrating = () => learning !== null;
 
 function paintTapThreshold() {
   $('tap-threshold').textContent = `fires above ${taps.opt.threshold} g`;
+}
+
+function endLearning(msg, { restore = true } = {}) {
+  if (!learning) return;
+  clearTimeout(learning.timer);
+  if (restore) taps.tune({ threshold: learning.was });
+  learning = null;
+  $('tap-learn').textContent = 'Learn my taps';
+  $('tap-learn').classList.remove('armed');
+  paintTapThreshold();
+  if (msg) $('tap-msg').textContent = msg;
+}
+
+function armLearning() {
+  const was = taps.opt.threshold;
+  // Wide open while listening, so even a scale that barely registers is heard.
+  taps.tune({ threshold: 1.2 });
+  learning = {
+    peaks: [],
+    was,
+    // An abandoned calibration must not leave the platter hair-triggered.
+    timer: setTimeout(() => endLearning('Stopped listening — nothing was tapped.'), 45000),
+  };
+  $('tap-learn').textContent = 'Cancel';
+  $('tap-learn').classList.add('armed');
+  $('tap-msg').textContent = `Tap the platter ${TAPS_WANTED} times, the way you would mean it. `
+    + 'Nothing you tap now reaches the session.';
+  $('tap-log').replaceChildren();
 }
 
 // Every excursion the listener sees, qualifying or not. The ones that did not
@@ -1282,38 +1333,43 @@ taps.onPress = (p) => {
   const box = $('tap-log');
   box.prepend(chip);
   while (box.children.length > 8) box.lastChild.remove();
-  if (learning && p.returned) {
-    learning.peaks.push(p.peak);
-    $('tap-msg').textContent = `${learning.peaks.length} of 3 taps — keep going.`;
-    if (learning.peaks.length >= 3) {
-      const th = thresholdFor(learning.peaks);
-      learning = null;
-      if (th === null) { $('tap-msg').textContent = 'Could not read those. Try again, firmer.'; return; }
-      taps.tune({ threshold: th });
-      try { localStorage.setItem(TAP_TUNE_KEY, JSON.stringify({ threshold: th })); } catch { /* ignore */ }
-      paintTapThreshold();
-      $('tap-learn').textContent = 'Learn my taps';
-      $('tap-msg').textContent = `Set to ${th} g, from taps reading `
-        + `${learning0.map((v) => v.toFixed(1)).join(', ')} g. Try a double-tap now.`;
-    }
+  if (!learning) return;
+  // A press that wandered off, or one held like an object, is not a tap and
+  // must not be averaged into what one weighs.
+  if (!p.returned || p.ms > 900) {
+    $('tap-msg').textContent = `That read as ${p.returned ? 'a long press' : 'something moving'}, `
+      + `not a tap — ${learning.peaks.length} of ${TAPS_WANTED} so far.`;
+    return;
   }
+  learning.peaks.push(p.peak);
+  const n = learning.peaks.length;
+  if (n < TAPS_WANTED) {
+    $('tap-msg').textContent = `${n} of ${TAPS_WANTED} — ${TAPS_WANTED - n} to go.`;
+    return;
+  }
+  const peaks = learning.peaks.slice();
+  const th = thresholdFor(peaks);
+  if (th === null) {
+    endLearning('Could not read those. Try again, a little firmer.');
+    return;
+  }
+  // Keep the learned value rather than putting the old one back.
+  endLearning(null, { restore: false });
+  taps.tune({ threshold: th });
+  try { localStorage.setItem(TAP_TUNE_KEY, JSON.stringify({ threshold: th })); } catch { /* ignore */ }
+  paintTapThreshold();
+  $('tap-msg').textContent = `Done — set to ${th} g, from taps reading `
+    + `${peaks.map((v) => v.toFixed(1)).join(', ')} g. Taps are live again; try a double-tap.`;
 };
-let learning0 = [];
+
 $('tap-learn').addEventListener('click', () => {
-  if (learning) { learning = null; $('tap-learn').textContent = 'Learn my taps';
-                  $('tap-msg').textContent = 'Stopped.'; return; }
-  // Wide open while learning, so even a scale that barely registers is heard.
-  taps.tune({ threshold: 1.2 });
-  learning = { peaks: learning0 = [] };
-  $('tap-learn').textContent = 'Stop';
-  $('tap-msg').textContent = 'Tap the platter three times, the way you would mean it.';
-  $('tap-log').replaceChildren();
+  if (learning) { endLearning('Stopped. Nothing was changed.'); return; }
+  armLearning();
 });
 $('tap-reset').addEventListener('click', () => {
+  endLearning(null);
   taps.tune({ threshold: TAP_DEFAULTS.threshold });
   try { localStorage.removeItem(TAP_TUNE_KEY); } catch { /* ignore */ }
-  learning = null;
-  $('tap-learn').textContent = 'Learn my taps';
   paintTapThreshold();
   $('tap-msg').textContent = 'Back to the shipped default.';
 });
@@ -3178,6 +3234,8 @@ if (mock && !manualMock) {
   // The gesture listener, so a test can drive taps through it and see what it
   // decided rather than only what the page did afterwards.
   window.__taps = taps;
+  // The tuner's mode, so a test can check it owns the platter while listening.
+  window.__tuner = { calibrating, arm: armLearning, end: endLearning };
   const label = mock === 'lefu' ? 'Lefu Mock (863A)' : 'Mock Scale';
   attach(m);
   m.connect()

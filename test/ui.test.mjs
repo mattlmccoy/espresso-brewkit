@@ -1976,6 +1976,97 @@ try {
   t('reader: an empty frame is nothing to report, not an error',
     rd.blank === null && rd.ms < 900, `${rd.blank}, ${rd.ms} ms a frame`);
 
+  // ---- a hold you can actually perform ----
+  // Reported: "tap tap hold doesn't do anything." It could not. The hold was
+  // emitted on release and only if the release landed between minHoldMs and
+  // maxObjectMs — a 650 ms window — so holding for as long as feels deliberate
+  // put it past the point where a press is read as an object being set down.
+  const holdTest = await page.evaluate(async () => {
+    const { TapListener } = await import('./assets/js/core/tap.js');
+    const drive = (script) => {
+      const l = new TapListener();
+      const out = [];
+      let t = 0;
+      const push = (w) => { const g = l.push(+t.toFixed(2), w); if (g) out.push(g.type); t += 0.1; };
+      for (let i = 0; i < 12; i++) push(200);          // a settled platter
+      script(push);
+      for (let i = 0; i < 14; i++) push(200);
+      return out;
+    };
+    const tap = (p) => { p(260); p(200); p(200); };
+    const hold = (p, seconds) => { for (let i = 0; i < seconds * 10; i++) p(262); };
+    const byDuration = {};
+    for (const secs of [0.9, 1.5, 2.5, 4]) {
+      byDuration[secs] = drive((p) => { tap(p); tap(p); hold(p, secs); });
+    }
+    return {
+      byDuration,
+      cupDown: drive((p) => hold(p, 2)),
+      oneTapThenHold: drive((p) => { tap(p); hold(p, 2); }),
+      double: drive((p) => { tap(p); tap(p); }),
+      triple: drive((p) => { tap(p); tap(p); tap(p); }),
+    };
+  });
+  const holds = Object.entries(holdTest.byDuration);
+  t('taps: a hold fires however long it is held, not inside a window',
+    holds.every(([, g]) => g.join() === 'hold'),
+    holds.map(([s, g]) => `${s}s:${g.join('/') || 'nothing'}`).join(' '));
+  t('taps: and letting go is not a second gesture',
+    holds.every(([, g]) => g.length === 1), 'one each');
+  t('taps: a cup set down and lifted is still not a hold',
+    holdTest.cupDown.length === 0 && holdTest.oneTapThenHold.length === 0,
+    `cup ${JSON.stringify(holdTest.cupDown)}, one-tap-then-hold ${JSON.stringify(holdTest.oneTapThenHold)}`);
+  t('taps: two and three taps still mean what they meant',
+    holdTest.double.join() === 'double' && holdTest.triple.join() === 'triple',
+    `${holdTest.double} / ${holdTest.triple}`);
+
+  // ---- calibration is a mode, with a way out ----
+  // Reported: the taps performed to calibrate were also driving the live view,
+  // and it never seemed to end. Both were true.
+  await page.goto(`${B}/live.html?mock=lefu&noshot=1`);
+  await page.waitForFunction(() => window.__tuner && window.__sess);
+  const tuner = await page.evaluate(async () => {
+    const read = () => ({
+      badge: document.getElementById('tap-threshold').textContent,
+      button: document.getElementById('tap-learn').textContent,
+      msg: document.getElementById('tap-msg').textContent,
+      owns: window.__tuner.calibrating(),
+      threshold: window.__taps.opt.threshold,
+    });
+    const before = read();
+    document.getElementById('tap-learn').click();
+    const armed = read();
+    // Three taps, as the panel asks for.
+    for (let i = 0; i < 3; i++) {
+      window.__taps.onPress({ peak: 7.4 + i, ms: 130, returned: true, counted: true });
+    }
+    const done = read();
+
+    // Something that is not a tap must not be counted as one.
+    document.getElementById('tap-learn').click();
+    window.__taps.onPress({ peak: 40, ms: 2200, returned: true, counted: false });
+    const afterLean = read();
+    // And cancelling has to put the threshold back, not leave it wide open.
+    document.getElementById('tap-learn').click();
+    const cancelled = read();
+    return { before, armed, done, afterLean, cancelled };
+  });
+  t('taps: arming the tuner hands it the platter, and says so',
+    tuner.armed.owns === true && /Cancel/.test(tuner.armed.button)
+    && /reaches the session/.test(tuner.armed.msg),
+    tuner.armed.msg.slice(0, 60));
+  t('taps: three taps end it, and it says it is done',
+    tuner.done.owns === false && /Learn my taps/.test(tuner.done.button)
+    && /^Done/.test(tuner.done.msg) && tuner.done.threshold > 1.2,
+    tuner.done.msg.slice(0, 64));
+  t('taps: a long lean is not counted as one of the three',
+    /not a tap/.test(tuner.afterLean.msg) && tuner.afterLean.owns === true,
+    tuner.afterLean.msg.slice(0, 56));
+  t('taps: and cancelling puts the threshold back rather than leaving it open',
+    tuner.cancelled.owns === false && tuner.cancelled.threshold === tuner.done.threshold
+    && tuner.cancelled.threshold > 1.2,
+    `left at ${tuner.cancelled.threshold} g, not the 1.2 g it listens at`);
+
   // ---- confidence runs the right way round ----
   // Reported from a real kitchen: 8 g of beans against an 18 g target advanced
   // on its own, and 17.4 g — a good dose — sat there asking. The countdown was
