@@ -20,7 +20,7 @@ plain CSV you own.
 | **[Live](https://mattlmccoy.github.io/espresso-brewkit/live.html)** | The session, driven by the scale. Weigh, grind, pull, rate — it steps itself. |
 | **[Shots](https://mattlmccoy.github.io/espresso-brewkit/shots.html)** | Every shot you have pulled, with its flow curve, its diagnosis, and how it sits against the rest. |
 | **[Advisor](https://mattlmccoy.github.io/espresso-brewkit/advisor.html)** | Which way to move the grind — one model inverts the flow physics, another searches your own ratings. It says *finer* and *coarser*, not *up* and *down*: the sign of the fitted grind coefficient tells it which way your dial actually runs, measured on your shots rather than assumed about grinders in general. When that coefficient is smaller than its own uncertainty it says so and falls back to dial steps. |
-| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders, machines and consumables. What a shot was made with, how stale it was, and what is running out. |
+| **[Kit](https://mattlmccoy.github.io/espresso-brewkit/kit.html)** | Bags, grinders, machines and consumables. What a shot was made with, how stale it was, and what is running out. A grinder also records how it is fed, which decides whether the coffee is a property of the hopper or a choice made every shot. |
 | **[Lab](https://mattlmccoy.github.io/espresso-brewkit/lab.html)** | The analysis half: refractometry, regression, outlier detection, uncertainty propagation. |
 | **[Backup](https://mattlmccoy.github.io/espresso-brewkit/backup.html)** | The whole log to a file, and back again. Restoring merges rather than overwrites. |
 
@@ -180,6 +180,47 @@ left"* will notice.
 The highlight follows what the flow is waiting on rather than sitting still: an
 empty select while it is empty, then the start button, because once both are
 chosen the thing between you and a shot is the confirmation.
+
+### Except when the grinder already knows
+
+Asking every time is right for a **single-dose** grinder and wrong for a
+**hopper**, and the difference is not a matter of taste. A hopper holds one bag
+until it runs out, so what is in it is a property of the grinder: you fill it
+once and it stays filled across days and dozens of shots, and re-asking is
+asking someone to retype a fact that has not changed. A single doser is fed a
+weighed dose per shot, which is the entire reason people buy them — the coffee
+can differ between consecutive shots, so assuming is how a log ends up filing a
+Kenyan against a bag of decaf.
+
+So a grinder now records **how it is fed**, and a hopper-fed one records what is
+loaded in it. `supply.hopperAssumption()` decides whether step 00 can be taken
+as read, and it says no more often than it says yes:
+
+| | |
+|---|---|
+| Hopper, bag still has coffee | **assume** — skip the gate |
+| Hopper, log says that bag is finished | ask — something else is in it now |
+| Hopper, nothing loaded yet | ask — this session is what teaches it |
+| Hopper, bag archived | ask |
+| Single dose | ask, always |
+
+Three properties make this safe to lean on:
+
+- **It is never silent.** When the gate is skipped the page says which coffee it
+  assumed and roughly how much is left, with a *Changed the hopper?* button
+  beside it. An assumption you cannot see is an assumption you cannot correct.
+- **It expires by itself.** The assumption dies the moment the log says the bag
+  is empty, which is exactly the moment the answer has changed. No separate
+  "I refilled it" ritual is needed for the common case.
+- **Confirming is what loads it.** The hopper contents are recorded when someone
+  actually confirms, never inferred from the remembered selection — otherwise
+  the app would assume on the strength of its own guess, and the first session
+  on a hopper it knew nothing about would skip the very question that teaches
+  it. That was a real bug in the first cut of this.
+
+Grinders default to **single dose**, because that is the answer that never
+assumes, and a wrong assumption here does not announce itself: it quietly
+corrupts roast age, the per-bag model, and what the supply page thinks is left.
 
 ## Espresso is not the only thing a scale can weigh
 

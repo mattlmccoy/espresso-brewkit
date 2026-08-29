@@ -1383,6 +1383,156 @@ try {
     lift.lifted.committed === 'dose' && lift.lifted.step === 'grind',
     `${lift.lifted.committed} ${lift.lifted.dose} g → ${lift.lifted.step}`);
 
+  // ---- who owns the choice of coffee ----
+  // A hopper holds one bag until it runs out, so what is in it is a property of
+  // the grinder. A single doser is fed per shot, and the coffee genuinely can
+  // differ between consecutive shots — which is the whole point of single
+  // dosing — so it has to be asked every time.
+  const hopper = await page.evaluate(async () => {
+    const supply = await import('./assets/js/core/supply.js');
+    const kit = await import('./assets/js/core/kit.js');
+    const bag = { id: 'b1', bean_name: 'Guji', weight_g: 250 };
+    const shots = (n) => Array.from({ length: n },
+      (_, i) => ({ shot_id: `s${i}`, bag_id: 'b1', dose_g: 18 }));
+    const ask = (g, bags, sh) => supply.hopperAssumption(g, bags, sh);
+    const single = { id: 'g1', name: 'Niche', feed: 'single-dose', hopper_bag_id: 'b1' };
+    const loaded = { id: 'g2', name: 'Mazzer', feed: 'hopper', hopper_bag_id: 'b1' };
+    const bare = { id: 'g3', name: 'Mazzer', feed: 'hopper', hopper_bag_id: '' };
+
+    // Saving a grinder as single dose must forget any hopper contents, or the
+    // stale id would come back if it were ever switched to hopper again.
+    const saved = kit.saveGrinder({ name: 'Feed Test', feed: 'hopper', hopper_bag_id: 'b1' });
+    const flipped = kit.saveGrinder({ id: saved.id, feed: 'single-dose' });
+    const defaulted = kit.saveGrinder({ name: 'Feed Default' });
+    const loadedBack = kit.loadHopper(defaulted.id, 'b1');
+    kit.removeGrinder(saved.id);
+    kit.removeGrinder(defaulted.id);
+
+    return {
+      single: ask(single, [bag], shots(3)),
+      half: ask(loaded, [bag], shots(3)),
+      empty: ask(loaded, [bag], shots(14)),
+      bare: ask(bare, [bag], shots(0)),
+      archived: ask(loaded, [{ ...bag, archived: true }], shots(1)),
+      flippedHopper: flipped.hopper_bag_id,
+      defaultFeed: defaulted.feed,
+      loadRefused: loadedBack,
+    };
+  });
+  t('feed: a hopper that still has coffee in it is taken as read',
+    hopper.half.assume === true && hopper.half.bagId === 'b1' && hopper.half.left === 196,
+    hopper.half.reason);
+  t('feed: a single doser is never assumed, however well remembered',
+    hopper.single.assume === false && /single dosed/.test(hopper.single.reason),
+    hopper.single.reason);
+  t('feed: the assumption expires when the log says that bag is finished',
+    hopper.empty.assume === false && /finished/.test(hopper.empty.reason), hopper.empty.reason);
+  t('feed: a hopper nothing has been loaded into is asked about, not guessed at',
+    hopper.bare.assume === false && /nothing recorded/.test(hopper.bare.reason),
+    hopper.bare.reason);
+  t('feed: an archived bag is not still in the hopper',
+    hopper.archived.assume === false && /archived/.test(hopper.archived.reason),
+    hopper.archived.reason);
+  t('feed: grinders default to single dose — the answer that never assumes',
+    hopper.defaultFeed === 'single-dose', hopper.defaultFeed);
+  t('feed: switching a grinder to single dose forgets what was in its hopper',
+    hopper.flippedHopper === '', `"${hopper.flippedHopper}"`);
+  t('feed: and a single doser cannot be loaded with a hopper bag at all',
+    hopper.loadRefused === null, String(hopper.loadRefused));
+
+  // On the page: the gate is skipped only where the assumption holds, it always
+  // says so, and it can be taken back.
+  //
+  // This block rewrites grinders, shots and the remembered session, all of
+  // which are shared fixture for tests further down. Snapshot the lot and put
+  // it back: a test that leaves the shot log empty fails a supply assertion
+  // three hundred lines later, and the failure names the wrong culprit.
+  const fixtureBefore = await page.evaluate(() => ({
+    grinders: localStorage.getItem('brewkit.grinders.v1'),
+    shots: localStorage.getItem('brewkit.shots.v1'),
+    session: localStorage.getItem('brewkit.session.v1'),
+  }));
+  const gateSeen = [];
+  for (const [label, feed, hopperBag, shotCount] of [
+    ['hopper, half full', 'hopper', 'bag-1', 3],
+    ['hopper, run out', 'hopper', 'bag-1', 14],
+    ['single dose', 'single-dose', '', 3],
+    ['hopper, not loaded', 'hopper', '', 0],
+  ]) {
+    await page.evaluate(([feed, hopperBag, n, ids]) => {
+      const gs = JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]');
+      const g = gs.find((x) => x.id === ids.grinder);
+      if (g) { g.feed = feed; g.hopper_bag_id = hopperBag ? ids.bag : ''; }
+      localStorage.setItem('brewkit.grinders.v1', JSON.stringify(gs));
+      localStorage.setItem('brewkit.session.v1',
+        JSON.stringify({ bag_id: ids.bag, grinder_id: ids.grinder }));
+      localStorage.setItem('brewkit.shots.v1', JSON.stringify(Array.from({ length: n },
+        (_, i) => ({ shot_id: `hop-${i}`, bag_id: ids.bag, grinder_id: ids.grinder, dose_g: 18 }))));
+    }, [feed, hopperBag, shotCount, kitIds]);
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(
+      () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+    await page.waitForTimeout(700);
+    gateSeen.push({ label, ...(await page.evaluate(() => ({
+      step: window.__sess.step,
+      gate: !document.getElementById('begin-box').hidden,
+      told: !document.getElementById('assumed').hidden,
+    }))) });
+  }
+  const seen = Object.fromEntries(gateSeen.map((r) => [r.label, r]));
+  t('feed: Live skips step 00 only for a hopper that still has that coffee in it',
+    seen['hopper, half full'].step === 'dose' && seen['hopper, half full'].gate === false,
+    gateSeen.map((r) => `${r.label}=${r.step}`).join(', '));
+  t('feed: and when it does, it says so rather than skipping silently',
+    seen['hopper, half full'].told === true, 'banner shown');
+  t('feed: every other case still stops at 00',
+    ['hopper, run out', 'single dose', 'hopper, not loaded']
+      .every((k) => seen[k].step === 'setup' && seen[k].gate === true),
+    ['hopper, run out', 'single dose', 'hopper, not loaded']
+      .map((k) => `${k}=${seen[k].step}`).join(', '));
+
+  // Refilling the hopper with something else has to be sayable.
+  await page.evaluate(([ids]) => {
+    const gs = JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]');
+    const g = gs.find((x) => x.id === ids.grinder);
+    if (g) { g.feed = 'hopper'; g.hopper_bag_id = ids.bag; }
+    localStorage.setItem('brewkit.grinders.v1', JSON.stringify(gs));
+    localStorage.setItem('brewkit.shots.v1', '[]');
+  }, [kitIds]);
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 8000 });
+  await page.waitForTimeout(700);
+  await page.click('#assumed-no');
+  await page.waitForTimeout(300);
+  const refilled = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    return { step: window.__sess.step,
+             gate: !document.getElementById('begin-box').hidden,
+             stillLoaded: kit.grinders().some((g) => g.hopper_bag_id) };
+  });
+  t('feed: "changed the hopper?" empties it and asks again',
+    refilled.step === 'setup' && refilled.gate === true && refilled.stillLoaded === false,
+    `${refilled.step}, loaded=${refilled.stillLoaded}`);
+
+  // Put the shared fixture back, exactly as it was.
+  const fixtureAfter = await page.evaluate((was) => {
+    for (const [key, val] of [['brewkit.grinders.v1', was.grinders],
+                              ['brewkit.shots.v1', was.shots],
+                              ['brewkit.session.v1', was.session]]) {
+      if (val === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, val);
+    }
+    return {
+      shots: JSON.parse(localStorage.getItem('brewkit.shots.v1') ?? '[]').length,
+      feeds: JSON.parse(localStorage.getItem('brewkit.grinders.v1') ?? '[]')
+        .filter((g) => g.hopper_bag_id).length,
+    };
+  }, fixtureBefore);
+  t('feed: the fixture the rest of the suite runs on is put back',
+    fixtureAfter.feeds === 0 && fixtureAfter.shots === JSON.parse(fixtureBefore.shots ?? '[]').length,
+    `${fixtureAfter.shots} shots, ${fixtureAfter.feeds} loaded hoppers`);
+
   // ---- gestures live in the gaps, never inside a measurement ----
   // This is a correctness rule rather than a preference: a tap is a sixty-gram
   // excursion, and driven through the real filter a two-tap gesture during a

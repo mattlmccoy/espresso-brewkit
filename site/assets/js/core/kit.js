@@ -150,20 +150,53 @@ export function removeBag(id) {
 export const grinders = () => readJSON(GRINDER_KEY, []);
 export const grinder = (id) => grinders().find((g) => g.id === id) ?? null;
 
+/**
+ * How the beans get in, which decides who owns the choice of coffee.
+ *
+ * A hopper holds a bag until it is empty, so what is in it is a property of the
+ * grinder — you fill it once and it stays filled across days and dozens of
+ * shots. A single-dose grinder is fed a weighed dose per shot, which is the
+ * whole reason people buy them: the coffee can change between consecutive
+ * shots, so it has to be chosen every time.
+ *
+ * Defaulting to single dose is deliberate. It is the answer that never assumes,
+ * and a wrong assumption here does not announce itself — it silently files
+ * shots against the wrong bag, which corrupts roast age, the per-bag model and
+ * what the supply page thinks is left.
+ */
+export const FEEDS = [
+  { id: 'single-dose', label: 'Single dose', blurb: 'Weighed in per shot, so the coffee is chosen every time.' },
+  { id: 'hopper', label: 'Hopper', blurb: 'Filled with a bag that stays in until it runs out.' },
+];
+export const isHopper = (g) => g?.feed === 'hopper';
+
 export function saveGrinder(patch) {
   const list = grinders();
   const i = list.findIndex((g) => g.id === patch.id);
   const rec = {
     name: '', burr: '', min: 0, max: 40, step: 1, notes: '',
+    feed: 'single-dose',
+    // Which bag is in the hopper right now. Meaningless on a single-dose
+    // grinder, and cleared when the feed changes to one.
+    hopper_bag_id: '',
     ...(i >= 0 ? list[i] : {}),
     ...patch,
     updated_at: new Date().toISOString(),
     id: patch.id || list[i]?.id || nextId(list, 'grinder'),
   };
+  if (rec.feed !== 'hopper') rec.hopper_bag_id = '';
   if (i >= 0) list[i] = rec; else list.push(rec);
   writeJSON(GRINDER_KEY, list);
   emit();
   return rec;
+}
+
+/** Record what has just been tipped into a hopper. A no-op on a single-doser. */
+export function loadHopper(grinderId, bagId) {
+  const g = grinder(grinderId);
+  if (!isHopper(g)) return null;
+  if (g.hopper_bag_id === bagId) return g;
+  return saveGrinder({ id: g.id, hopper_bag_id: bagId || '' });
 }
 
 export function removeGrinder(id) {

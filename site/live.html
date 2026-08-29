@@ -71,6 +71,12 @@
   .begin-what .stale { color:var(--fit); }
   .begin button { width:100%; }
   .begin.wanted button { box-shadow:0 0 0 3px var(--flag); }
+  .begin-why { margin:0 0 8px; font:600 11.5px/1.4 var(--sans); color:var(--ink-mute); }
+  .assumed { display:flex; align-items:center; gap:9px; flex-wrap:wrap; margin:8px 0 2px;
+    padding:8px 11px; border-left:var(--bw) solid var(--accent); background:var(--panel-2);
+    font:600 12px/1.4 var(--sans); color:var(--ink-dim); }
+  .assumed[hidden] { display:none; }
+  .assumed button { padding:4px 9px; box-shadow:none; font-size:10.5px; }
   .rate { display:flex; gap:5px; flex-wrap:wrap; }
   .rate button { width:44px; padding:10px 0; box-shadow:none; font-family:var(--mono); }
   .rate button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
@@ -360,7 +366,14 @@
              last time, which makes them a proposal; this is the nod. -->
         <div class="begin" id="begin-box">
           <p class="begin-what" id="begin-what"></p>
+          <p class="begin-why" id="begin-why"></p>
           <button class="primary" id="begin" type="button">Start with this coffee</button>
+        </div>
+        <!-- When the hopper was taken as read, say so and offer to be wrong.
+             An assumption you cannot see is an assumption you cannot correct. -->
+        <div class="assumed" id="assumed" hidden>
+          <span id="assumed-what"></span>
+          <button class="ghost" id="assumed-no" type="button">Changed the hopper?</button>
         </div>
 
         <div class="state-strip" id="state">Idle</div>
@@ -984,11 +997,10 @@ function onGesture(g) {
   taps.mute(0.8, g.at);
 
   if (action === 'begin') {
-    const to = sess.begin();
-    paintSession();
-    gestureDone(to
+    const ok = confirmSetup();
+    gestureDone(ok
       ? `Started with ${kit.bag($('p-bag').value)?.bean_name ?? 'this coffee'}.`
-      : 'Choose a coffee and grinder first.', { ok: !!to });
+      : 'Choose a coffee and grinder first.', { ok });
   } else if (action === 'undo') {
     // The one thing the scale cannot work out for itself. Everything else the
     // session decides, it decides from the weight; "that was wrong" is
@@ -1770,6 +1782,14 @@ function paintBegin() {
   const ready = !!$('p-bag').value && !!$('p-grinder').value;
   const box = $('begin-box');
   box.hidden = sess.step !== 'setup';
+  if (sess.step === 'setup') $('assumed').hidden = true;
+  // Why this is being asked at all, which is the difference between a gate that
+  // feels considered and one that feels like nagging.
+  const g = kit.grinder($('p-grinder').value);
+  $('begin-why').textContent = g
+    ? supply.hopperAssumption(g, kit.bags(), store.all()).reason.replace(/^./, (c) => c.toUpperCase())
+      + '.'
+    : '';
   $('begin').disabled = !ready;
   const bag = kit.bag($('p-bag').value);
   const what = $('begin-what');
@@ -1904,9 +1924,31 @@ function paintSession() {
   $('o-target').textContent = fmt(targetYield(), 1);
 }
 
-$('begin').addEventListener('click', () => {
-  if (!sess.begin()) return;
+$('assumed-no').addEventListener('click', () => {
+  // The hopper was refilled with something else. Forget what was in it, come
+  // back to 00, and ask properly.
+  kit.loadHopper($('p-grinder').value, '');
+  $('assumed').hidden = true;
+  sess.reset();
+  sess.setTarget(targetDose());
+  sess.setReady(!!$('p-bag').value && !!$('p-grinder').value);
   paintSession();
+  $('scale-msg').textContent = 'Tell it what is in the hopper now.';
+});
+
+function confirmSetup() {
+  if (!sess.begin()) return false;
+  // Confirming is what loads the hopper. Recording it from the remembered
+  // selection instead would let the app assume on the strength of its own
+  // guess — and the first session on a hopper it knew nothing about would
+  // skip the very question that teaches it.
+  kit.loadHopper($('p-grinder').value, $('p-bag').value);
+  paintSession();
+  return true;
+}
+
+$('begin').addEventListener('click', () => {
+  if (!confirmSetup()) return;
   $('scale-msg').textContent = '';
 });
 
@@ -2082,8 +2124,36 @@ $('p-machine').addEventListener('change', () => {
  * two the models actually need — machine and grind setting are recorded but
  * neither is required to pull, so neither holds the flow up.
  */
+/**
+ * Take the hopper as read, when the hopper can be taken as read.
+ *
+ * Step 00 exists because a remembered bag is a proposal rather than a fact.
+ * On a hopper grinder it IS a fact: you filled it once and it stays filled
+ * until it runs out, so re-asking is asking someone to retype something that
+ * has not changed. On a single doser the coffee genuinely can differ between
+ * consecutive shots, which is the whole point of single dosing, so it is asked
+ * every time.
+ *
+ * The assumption is never silent and never sticky: it says which bag it took,
+ * it offers to be wrong, and it expires the moment the log says that bag is
+ * empty — because that is exactly when the answer has changed.
+ */
+function autoBeginFromHopper() {
+  if (sess.step !== 'setup' || !sess.ready) return false;
+  const g = kit.grinder($('p-grinder').value);
+  const a = supply.hopperAssumption(g, kit.bags(), store.all());
+  if (!a.assume || a.bagId !== $('p-bag').value) return false;
+  if (!sess.begin()) return false;
+  $('assumed').hidden = false;
+  $('assumed-what').textContent = `${g.name} is hopper-fed, so this is still `
+    + `${a.bag.bean_name || 'the same coffee'}`
+    + (a.left === null ? '.' : ` — about ${a.left.toFixed(0)} g left.`);
+  return true;
+}
+
 function syncReady() {
   sess.setReady(!!$('p-bag').value && !!$('p-grinder').value);
+  if (autoBeginFromHopper()) { paintSession(); return; }
   paintBegin();
   // Always a full repaint: this fires on a change event, not in the frame loop,
   // and the stepper has to follow the step whether or not this call moved it.
