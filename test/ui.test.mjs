@@ -3864,6 +3864,55 @@ try {
     await fl.close();
   }
 
+  // ---- a form is read, so it gets a measure ----
+  //
+  // Measured on Kit: eleven fields stretched to a 1070 px panel, so the box for
+  // "Ethiopia Guji" was a thousand pixels wide and so was the one for a date.
+  // Nothing was grouped, so they read as one undifferentiated list and the eye
+  // had to cross the whole panel to find the next label.
+  {
+    const kit = await ctx.newPage();
+    await kit.setViewportSize({ width: 1400, height: 1000 });
+    await kit.goto(B + '/kit.html');
+    await kit.evaluate(() => {
+      const b = document.querySelector('[data-add="bags"]');
+      if (b) b.open = true;
+    });
+    await kit.waitForTimeout(300);
+    const form = await kit.evaluate(() => {
+      const w = (id) => Math.round(document.getElementById(id).getBoundingClientRect().width);
+      const grid = document.querySelector('.form-grid');
+      const panel = grid.closest('.pane') ?? document.body;
+      return {
+        measure: Math.round(grid.getBoundingClientRect().width),
+        panel: Math.round(panel.getBoundingClientRect().width),
+        name: w('b-name'), date: w('b-roast'), weight: w('b-weight'),
+        bands: [...document.querySelectorAll('.form-grid .band')].map((b) => b.textContent.trim()),
+      };
+    });
+    t('kit: the form is capped at a measure rather than stretched to the panel',
+      form.measure <= 780 && form.panel - form.measure > 200,
+      `${form.measure}px form in a ${form.panel}px panel`);
+    t('kit: and each field is the width of what goes in it',
+      form.name > form.date && form.date > form.weight,
+      `name ${form.name} > date ${form.date} > grams ${form.weight}`);
+    t('kit: eleven fields read as the three things they actually are',
+      form.bands.length === 3, form.bands.join(' / '));
+
+    // Below the measure there is no room to be clever.
+    await kit.setViewportSize({ width: 390, height: 844 });
+    await kit.waitForTimeout(200);
+    const narrow = await kit.evaluate(() => {
+      const w = (id) => Math.round(document.getElementById(id).getBoundingClientRect().width);
+      return { name: w('b-name'), date: w('b-roast'),
+               over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    t('kit: on a phone every field takes the whole line, and nothing overflows',
+      narrow.name === narrow.date && narrow.over <= 0,
+      `both ${narrow.name}px, page overflow ${narrow.over}px`);
+    await kit.close();
+  }
+
   // ---- Live changes shape when the shot starts ----
   //
   // Measured on the old layout, at 1280x800, which is an ordinary laptop: the

@@ -112,35 +112,47 @@
       <details class="addbox" data-add="bags">
         <summary>Add a bag</summary>
         <div class="addbody">
-                <div class="field"><label for="b-name">Coffee</label>
-          <input id="b-name" type="text" placeholder="Ethiopia Guji"></div>
-        <div class="row">
-          <div class="field"><label for="b-roaster">Roaster</label><input id="b-roaster" type="text"></div>
-          <div class="field"><label for="b-process">Process</label><input id="b-process" type="text" placeholder="washed"></div>
-        </div>
-        <div class="row">
-          <div class="field"><label for="b-roast">Roast date</label><input id="b-roast" type="date"></div>
-          <div class="field"><label for="b-level">Roast level</label><select id="b-level"></select></div>
-        </div>
-        <div class="row">
-          <div class="field"><label for="b-weight">Bag weight (g)</label><input id="b-weight" type="number" step="1" placeholder="250"></div>
-          <div class="field"><label class="check" style="margin-top:20px">
+        <!-- Three bands, because that is what the eleven fields actually are:
+             which coffee it is, how it was roasted, and what the freezer did
+             to it. Widths come from the content — a date is date-wide, a bag
+             weight is four digits — rather than from the panel, which used to
+             give "Ethiopia Guji" a box a thousand pixels across. -->
+        <div class="form-grid">
+          <div class="band">Which coffee</div>
+          <div class="field" data-w="most"><label for="b-name">Coffee</label>
+            <input id="b-name" type="text" placeholder="Ethiopia Guji"></div>
+          <div class="field" data-w="short"><label for="b-process">Process</label>
+            <input id="b-process" type="text" placeholder="washed"></div>
+          <div class="field" data-w="half"><label for="b-roaster">Roaster</label>
+            <input id="b-roaster" type="text"></div>
+
+          <div class="band">The roast</div>
+          <div class="field" data-w="date"><label for="b-roast">Roast date</label>
+            <input id="b-roast" type="date"></div>
+          <div class="field" data-w="short"><label for="b-level">Roast level</label>
+            <select id="b-level"></select></div>
+          <div class="field" data-w="num"><label for="b-weight">Bag weight, grams</label>
+            <input id="b-weight" type="number" step="1" placeholder="250"></div>
+          <div class="field wide"><label class="check">
             <input id="b-vacuum" type="checkbox"> Vacuum sealed</label></div>
-        </div>
-        <div class="row">
-          <div class="field"><label for="b-frozen">Went in the freezer</label>
+
+          <div class="band">The freezer</div>
+          <div class="field" data-w="date"><label for="b-frozen">Went in</label>
             <input id="b-frozen" type="date"></div>
-          <div class="field"><label for="b-thawed">Came out</label>
+          <div class="field" data-w="date"><label for="b-thawed">Came out</label>
             <input id="b-thawed" type="date"></div>
         </div>
-        <p class="note" data-notice="freezer-model" style="margin-bottom:12px">Freezing pauses
+        <p class="note" data-notice="freezer-model" style="margin:var(--s4) 0 12px;max-width:760px">Freezing pauses
         staling rather than stopping it, so age accrues before the freezer and after it, and barely
         during. A bag frozen on day 5 and opened in June is a five-day-old coffee, not a
         five-month-old one — and dating it that way is the difference between a useful roast-age
         column and a misleading one. Freeze <em>portions</em>, not the bag: a portion goes in once
         and comes out once, because opening frozen beans condenses water onto them and putting them
         back locks it in. Split a purchase from its card below.</p>
-        <div class="field"><label for="b-notes">Notes</label><input id="b-notes" type="text"></div>
+        <div class="form-grid" style="margin-top:var(--s4)">
+          <div class="field wide"><label for="b-notes">Notes</label>
+            <input id="b-notes" type="text"></div>
+        </div>
         <div class="btn-row">
           <button class="primary" id="b-save" type="button">Save bag</button>
           <button class="ghost" id="b-cancel" type="button" style="display:none">Cancel edit</button>
