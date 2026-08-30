@@ -16,6 +16,7 @@
   .pair { display:flex; flex-direction:column; gap:10px; }
   .pair textarea { width:100%; min-height:84px; font:600 12px/1.4 var(--mono);
     background:var(--panel-2); color:var(--ink); border:var(--bw) solid var(--ink);
+    border-radius:var(--radius-sm);
     padding:9px 10px; box-sizing:border-box; resize:vertical; }
   /* The number and the curve share what is left, rather than the number
      swallowing the screen and leaving the curve a letterbox. */
@@ -33,7 +34,7 @@
      meant to be 16% of the dial came out at 16% of an iPad. */
   .big { flex:1 1 auto; position:relative; display:grid;
     justify-items:center; align-items:stretch; overflow:hidden;
-    border:var(--bw) solid var(--ink);
+    border:var(--bw) solid var(--ink); border-radius:var(--radius);
     background:var(--panel); color:var(--ink); min-height:150px; padding:10px; }
   /* THE SQUARE THE INSTRUMENT LIVES IN.
      Without it the tile is whatever shape the page leaves over — 992x260 on a
@@ -55,6 +56,22 @@
   /* While the dial is up it carries the label and the progress, so the tile's
      own caption and mini-bar would be a third and fourth copy inside the ring. */
   body.brewing .big .k, body.brewing .big .fill { display:none; }
+  /* THE COLOUR THIS PAGE LOST.
+     The tile used to be a slab of --accent with the number written on it. That
+     had to go, but the reason was never "the phone should be grey": it was that
+     the cup drained the accent out from under the number as the shot landed, so
+     the one number the app exists for converged on its own ground — 1.73:1 at
+     the worst, and worst early in a shot when you are watching hardest.
+     The dial now carries an opaque well at the bore (see .g-well), so the
+     number's ground is --panel and the coffee, full stop. Nothing behind the
+     dial reaches it. That makes the tile free again, so it goes back to being
+     the coloured object it was — at a strength that reads as the instrument's
+     face rather than a saturated slab, and constant, because a ground that
+     moves is the thing that broke it the first time. */
+  .big { background:
+    linear-gradient(160deg,
+      color-mix(in srgb, var(--accent) 22%, var(--panel)),
+      color-mix(in srgb, var(--accent) 9%, var(--panel))); }
   /* The dial's own bands name the three drinks, and the ladder underneath
      gives their weights. Ruled lines across the disc saying it a third time
      is what made the middle of the instrument unreadable. */
@@ -131,7 +148,7 @@
   /* Named on the tile, so the drink is readable without the dial. */
   .now-style { display:inline-block; font:800 12px/1 var(--sans); letter-spacing:.12em;
     text-transform:uppercase; margin-top:10px; padding:5px 9px;
-    background:var(--accent-ink); color:var(--accent); }
+    background:var(--accent-ink); color:var(--accent); border-radius:var(--radius-sm); }
   .now-style[hidden] { display:none; }
 
   /* The dial itself is in app.css, mounted by core/gauge.js. What is here is
@@ -156,7 +173,8 @@
   .big .k { font:700 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     opacity:.8; margin-bottom:8px; text-align:center; }
   .strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
-  .strip .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:8px 10px; }
+  .strip .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:8px 10px;
+    border-radius:var(--radius); }
   .strip .k { font:700 9.5px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ink-mute); }
   .strip .v { font:800 clamp(19px, 6vw, 27px)/1.1 var(--sans); font-variant-numeric:tabular-nums; }
@@ -164,7 +182,7 @@
   .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .head .who { font:700 13px/1.2 var(--sans); }
   .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
-    min-height:0; overflow:hidden; }
+    min-height:0; overflow:hidden; border-radius:var(--radius); }
   .plot[hidden] { display:none !important; }
   #hint { font:600 13px/1.45 var(--sans); color:var(--ink-dim); margin:0; }
   /* The same bar as the laptop, inheriting the tile's colour so it reads on
@@ -172,13 +190,15 @@
   .fill { margin-top:14px; min-width:min(74vw, 320px); color:inherit; }
   .fill[hidden] { display:none !important; }
   .fill-track { position:relative; height:12px; border:2px solid currentColor;
-    background:color-mix(in srgb, currentColor 14%, transparent); overflow:hidden; }
+    background:color-mix(in srgb, currentColor 14%, transparent); overflow:hidden;
+    border-radius:var(--radius-sm); }
   .fill-band { position:absolute; top:0; bottom:0;
     background:color-mix(in srgb, currentColor 28%, transparent); }
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
   .reply-qr { background:#fff; padding:8px; border:var(--bw) solid var(--ink); width:220px;
+    border-radius:var(--radius);
     max-width:100%; margin:0 auto 10px; }
   .reply-qr svg { display:block; width:100%; height:auto; }
   .reply-qr:empty { display:none; }
@@ -221,6 +241,13 @@
        inches away; here the lines alone are enough. */
     .vol-mark span { display:none; }
   }
+  /* NAVIGATION IS NOT FOR MID-SHOT.
+     Five buttons and a brand bar is 16% of a phone screen, and on a 393-wide
+     iPhone it pushed the curve — the thing the laptop treats as the point —
+     off the bottom entirely. None of it can be pressed while you are watching
+     a shot land without killing the connection anyway. It comes back the
+     moment the pour ends, which is when you would want it. */
+  body.brewing #go-row { display:none; }
   /* Four of the seven mean nothing until something is pouring, and a row of
      dashes over an empty cup is furniture between you and the number. */
   body:not(.brewing) .strip .brew-only { display:none; }
@@ -241,14 +268,14 @@
   .ladder { margin:10px 0 0; }
   .ladder[hidden], body:not(.brewing) .ladder { display:none; }
   .ladder-track { position:relative; height:9px; background:var(--hair);
-    border:2px solid var(--ink); overflow:hidden; }
+    border:2px solid var(--ink); overflow:hidden; border-radius:var(--radius-sm); }
   .ladder-now { position:absolute; top:0; bottom:0; left:0; background:var(--accent);
     transition:width .1s linear; }
   .ladder-tick { position:absolute; top:0; bottom:0; width:2px; background:var(--ink); opacity:.55; }
   .ladder-tick.is-target { opacity:1; }
   .ladder-row { display:flex; gap:6px; margin-top:7px; }
   .ladder-cell { flex:1 1 0; min-width:0; padding:7px 8px; border:2px solid var(--hair);
-    background:var(--panel-2); }
+    background:var(--panel-2); border-radius:var(--radius); }
   .ladder-k { font:700 10px/1 var(--sans); letter-spacing:.09em; text-transform:uppercase;
     color:var(--ink-mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .ladder-g { font:700 19px/1.15 var(--mono); margin-top:4px; }
@@ -284,7 +311,8 @@
   #v-done { flex:1 1 auto; display:flex; flex-direction:column; gap:10px; min-height:0; }
   .grid4 { display:grid; grid-template-columns:repeat(2, 1fr); gap:9px; }
   .grid4 .span2 { grid-column:1 / -1; }
-  .grid4 .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:11px 12px; }
+  .grid4 .c { border:var(--bw) solid var(--ink); background:var(--panel); padding:11px 12px;
+    border-radius:var(--radius); }
   .grid4 .k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ink-mute); }
   .grid4 .v { font:800 clamp(23px, 8vw, 36px)/1.1 var(--sans); font-variant-numeric:tabular-nums;
@@ -293,7 +321,8 @@
   .rate-q { font:700 14px/1 var(--sans); margin:4px 0 0; }
   .rate-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:8px; }
   .rate-row button { padding:16px 0; font:800 19px/1 var(--sans); box-shadow:none;
-    border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink); }
+    border:var(--bw) solid var(--ink); background:var(--panel); color:var(--ink);
+    border-radius:var(--radius-sm); }
   .rate-row button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink); }
 </style>
 </head>

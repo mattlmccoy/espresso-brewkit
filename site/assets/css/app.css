@@ -442,6 +442,11 @@ body.browsing { overflow:hidden; }
 .g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none;
   transform: translateY(var(--g-shift, 0));
   max-width: calc(var(--g-bore, 56%) * 0.86); margin-inline: auto; }
+/* THE GROUND THE NUMBER STANDS ON, and the only one. Opaque, so whatever the
+   page puts behind the dial stops being part of the readout's contrast — see
+   the note in gauge.js. This is what lets the viewer's tile be coloured again
+   without the number sliding toward its own backdrop as the cup fills. */
+.g-well { fill: var(--panel); stroke: none; }
 /* The coffee in the cup, clipped to the bore by the SVG itself. */
 .g-fill { fill: color-mix(in srgb, var(--accent) 26%, transparent); stroke: none; }
 /* The surface, not a rule. It crosses the readout at whatever level the cup
