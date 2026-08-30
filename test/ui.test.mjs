@@ -5829,6 +5829,109 @@ try {
     && palette.light.scheme === 'light',
     themes.map((th) => `${th}:${palette[th].scheme}`).join(' '));
 
+  // THE GROUND UNDER THE ONE NUMBER THIS APP EXISTS FOR.
+  // The viewer's tile was stripped of all colour once because the cup drained
+  // the accent out from under the number as the shot landed — 1.73:1 at the
+  // worst, and worst early in a shot. The tile is coloured again, which is only
+  // safe because the dial now carries an opaque well at the bore: whatever the
+  // page puts behind the dial stops being part of the readout's contrast.
+  // So this asks the two questions that failure was made of. Not "is this
+  // particular blue legible" — that answer changes with the next theme — but
+  // "is the ground fixed, and is the ink good on it at every fill".
+  await page.goto(B + '/view.html');
+  await page.waitForFunction(() => window.__view, null, { timeout: 5000 });
+  const well = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    document.getElementById('pairing').hidden = true;
+    document.getElementById('watching').hidden = false;
+    window.__view.paint({ method: 'espresso', dose: 18, doseSet: true, target: 36,
+      tol: 1.5, lag: 1, coffee: 'Guji', hint: '', k: 'f', w: 24, q: 1.9, t: 14,
+      st: 'extracting', step: 'brew', phase: 'fill', curve: [[0, 0], [14, 24]] });
+    const num = () => (v) => v;
+    const rgba = (s) => {
+      const n = (s.match(/[\d.]+/g) || []).map(Number);
+      return [n[0] || 0, n[1] || 0, n[2] || 0, n.length > 3 ? n[3] : 1];
+    };
+    // src-over: what you actually see when the coffee lies over the well.
+    const over = (fg, bg) => fg.slice(0, 3).map((c, i) => c * fg[3] + bg[i] * (1 - fg[3]));
+    const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const out = {};
+    const disc = document.querySelector('#gauge .g-well');
+    const bore = document.querySelector('#gauge .g-nowtrack');
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const w = rgba(getComputedStyle(disc).fill);
+      const coffee = rgba(getComputedStyle(document.querySelector('#gauge .g-fill')).fill);
+      const ink = rgba(getComputedStyle(document.querySelector('#gauge .g-n')).color);
+      out[th] = {
+        opaque: w[3] === 1,
+        // Empty cup, and full cup: the two ends of the ground that used to move.
+        dry: +ratio(ink, w).toFixed(2),
+        wet: +ratio(ink, over(coffee, w)).toFixed(2),
+      };
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    return { themes: out,
+      // The well has to BE the bore, or it pins the ground somewhere the number
+      // is not. Both come off the same nowGeo radius in gauge.js.
+      fits: disc && bore ? +disc.getAttribute('r') : null };
+  });
+  const wt = Object.keys(well.themes);
+  t('viewer: the dial pins its own ground, so the tile behind cannot reach the number',
+    wt.every((th) => well.themes[th].opaque),
+    wt.filter((th) => !well.themes[th].opaque).join() || `opaque in all ${wt.length}, r=${well.fits}`);
+  t('viewer: the number survives the cup filling under it, which is what broke it before',
+    wt.every((th) => well.themes[th].dry >= 4.5 && well.themes[th].wet >= 4.5),
+    wt.map((th) => `${th} ${well.themes[th].dry}\u2192${well.themes[th].wet}`).join(' \u00b7 '));
+
+  // The other half of the same screen. While it weighs there is no dial and so
+  // no well, and the number sits straight on the coloured tile — which is only
+  // safe because that tile is a gradient between two fixed stops and nothing
+  // rises through it. Both ends get asked.
+  const tile = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    window.__view.paint({ method: 'espresso', dose: 18, doseSet: false, target: 36,
+      tol: 1.5, lag: 1, coffee: 'Guji', hint: '', k: 'g', w: 18, q: 0, t: 0,
+      st: 'ready', step: 'dose', phase: 'weigh', curve: [] });
+    const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const big = document.getElementById('v-big');
+      const ink = (getComputedStyle(document.querySelector('#v-big .n')).color
+        .match(/[\d.]+/g) || []).map(Number).slice(0, 3);
+      // Every colour stop the gradient actually paints, whatever they resolve to.
+      // color-mix() serialises as `color(srgb 0.80 0.82 0.95)` — 0-to-1 floats,
+      // not `rgb()` — so both forms are read and the float form is scaled. A
+      // parser that knew only rgb() found no stops at all and would have
+      // reported "nothing to check" as if it were "nothing wrong".
+      const stops = (getComputedStyle(big).backgroundImage
+        .match(/(?:rgba?|color)\([^)]*\)/g) || []).map((c) => {
+        const n = (c.match(/[\d.]+/g) || []).map(Number);
+        const v = c.startsWith('color(') ? n.slice(0, 3).map((x) => x * 255) : n.slice(0, 3);
+        return v;
+      });
+      out[th] = { cup: !document.getElementById('vol').hidden,
+        worst: stops.length ? +Math.min(...stops.map((c) => ratio(ink, c))).toFixed(2) : null };
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    return out;
+  });
+  const tt = Object.keys(tile);
+  t('viewer: the weight is legible on the coloured tile, at every stop of it',
+    tt.every((th) => tile[th].worst !== null && tile[th].worst >= 4.5 && !tile[th].cup),
+    tt.map((th) => `${th} ${tile[th].worst}`).join(' \u00b7 '));
+
   // Selection has to survive the theme that restyles every button.
   await page.goto(B + '/shots.html');
   await page.waitForFunction(() => document.querySelectorAll('.shot-row').length > 1,

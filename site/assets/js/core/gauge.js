@@ -97,6 +97,19 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     fillRect.setAttribute('clip-path', `url(#gfill-${uid})`);
     fillRect.setAttribute('y', geo.cy + nowGeo.r);
     fillRect.setAttribute('height', 0);
+    // AN OPAQUE WELL UNDER THE NUMBER.
+    // The fill is translucent, so before this the number's ground was
+    // "whatever the page put behind the dial, plus however much coffee has
+    // landed" — two variables, one of them moving. That is why the viewer's
+    // tile had to be stripped of colour: no ink survives a ground that slides.
+    // With the well the ground is --panel plus the fill and nothing else, at
+    // any size, in any theme, on any page. The tile behind is then free to be
+    // whatever it wants, because it is no longer under the number.
+    const well = el('circle', 'g-well');
+    well.setAttribute('cx', geo.cx);
+    well.setAttribute('cy', geo.cy);
+    well.setAttribute('r', nowGeo.r);
+
     fillLine = el('line', 'g-fill-top');
     fillLine.setAttribute('clip-path', `url(#gfill-${uid})`);
     fillLine.setAttribute('x1', geo.cx - nowGeo.r);
@@ -114,7 +127,7 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     nowTrack.setAttribute('d', arc(0, 1, nowGeo));
     ticks = el('g', 'g-ticks');
 
-    svg.append(clip, fillRect, fillLine, track, zones, labels, nowTrack, now, ticks);
+    svg.append(clip, well, fillRect, fillLine, track, zones, labels, nowTrack, now, ticks);
 
     const read = document.createElement('div');
     read.className = 'g-read';
