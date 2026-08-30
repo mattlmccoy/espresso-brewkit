@@ -545,14 +545,32 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#frames div').length > 3, { timeout: 6000 });
   t('live: frames stream in', true, (await page.locator('#frames div').count()) + ' frames');
 
+  // Two references have to be two different weights, and the weight has to be
+  // on the scale — not just typed into the box. This used to capture 0 g twice
+  // and call the second one 120 g, which asks the decoder to find an encoding
+  // where one set of bytes means both. It rightly refuses, and the test only
+  // passed when the mock's noise happened to make the two raw values differ,
+  // letting an absurd scale factor fit two points. About one run in four it
+  // did not, and the suite failed on a decoder that was behaving correctly.
+  await page.evaluate(() => { window.__mock.grams = 0; });
+  await page.waitForTimeout(300);
   await page.fill('#ref', '0');
   await page.click('#capture');
+  await page.evaluate(() => { window.__mock.grams = 120; });
   await page.waitForTimeout(1100);
   await page.fill('#ref', '120');
   await page.click('#capture');
   await page.waitForTimeout(400);
   const candCount = await page.locator('#cands .cand').count();
   t('live: auto-decoder proposes an encoding', candCount > 0, candCount + ' candidates');
+  // And it is the real encoding, not one fitted to noise: u16 big-endian
+  // centigrams at offset 3, which is what MockScale actually emits.
+  const best = await page.evaluate(() => {
+    const b = document.querySelector('#cands .cand');
+    return b ? b.textContent.replace(/\s+/g, ' ').trim() : '';
+  });
+  t('live: and the encoding it proposes is the one the scale really uses',
+    /u16BE/.test(best) && /\u00d70\.01/.test(best) && /@3/.test(best), best.slice(0, 90));
 
   await page.locator('#cands .cand button').first().click();
   await page.waitForFunction(
@@ -2415,10 +2433,30 @@ try {
   // An iPad has room for the number and the dial at once.
   await watch.setViewportSize({ width: 834, height: 1112 });
   await watch.waitForTimeout(150);
-  const tablet = await watch.evaluate(() => ({
-    dir: getComputedStyle(document.getElementById('stage')).flexDirection,
-    cols: getComputedStyle(document.getElementById('v-strip')).gridTemplateColumns.split(' ').length,
-  }));
+  const tablet = await watch.evaluate(() => {
+    const rig = document.querySelector('.rig');
+    const r = rig.getBoundingClientRect();
+    const n = document.querySelector('.big .n').getBoundingClientRect();
+    const svg = document.querySelector('#gauge svg').getBoundingClientRect();
+    // Every element on this screen showing the weight, and every one naming
+    // the drink. Two of either is the bug this layout exists to fix.
+    const w = document.querySelector('.big .n').textContent.trim();
+    const heroes = [...document.querySelectorAll('.big .n, .g-n')]
+      .filter((el) => el.offsetParent !== null && el.textContent.trim() === w).length;
+    const names = [...document.querySelectorAll('.now-style, .g-sub')]
+      .filter((el) => el.offsetParent !== null && /ristretto/i.test(el.textContent)).length;
+    return {
+      cols: getComputedStyle(document.getElementById('v-strip'))
+        .gridTemplateColumns.split(' ').length,
+      // The dial is drawn around the number, so the number's box sits inside it.
+      nested: document.querySelector('#gauge').closest('.big') !== null,
+      square: Math.abs(r.width - r.height) <= 2,
+      // Band names ride just inside r=86 of a 110 radius; past that the number
+      // crosses a label, which is what sizing it in vw did.
+      fitsInRing: n.width < (svg.height / 200) * (86 - 13) * 2 * 0.92,
+      heroes, names,
+    };
+  });
   // ---- the rest of brewkit, without dropping the link ----
   // The phone had one page. Tapping through to the log meant navigating, and a
   // navigation destroys the peer connection — a WebRTC description is good for
@@ -2467,9 +2505,22 @@ try {
     else localStorage.removeItem('brewkit.theme');
   }, themeWas);
   await watch.close();
-  t('viewer: an iPad puts the number and the dial side by side',
-    tablet.dir === 'row' && tablet.cols === 7,
-    `stage ${tablet.dir}, strip in ${tablet.cols} columns`);
+  // The cup and the dial used to sit side by side, and each carried its own
+  // copy of the weight and its own copy of the drink name — one fact printed
+  // twice at hero size, which pushed the numbers that are not duplicated off
+  // the bottom of the screen. They are one instrument now.
+  t('viewer: the weight is said once, not once per component',
+    tablet.heroes === 1 && tablet.names === 1,
+    `${tablet.heroes} hero number(s), ${tablet.names} drink name(s)`);
+  t('viewer: the dial is drawn around the number rather than beside it',
+    tablet.nested && tablet.square,
+    `nested ${tablet.nested}, rig square ${tablet.square}`);
+  // In vw this came out 84 px inside a 276 px ring, straight through the band
+  // labels. It has to be measured against the dial.
+  t('viewer: and the readout is sized to the dial, so it clears the band names',
+    tablet.fitsInRing, 'inside the labelled ring');
+  t('viewer: an iPad still fills the whole seven-cell row',
+    tablet.cols === 7, `strip in ${tablet.cols} columns`);
   }
 
   // ---- the three shots inside every shot ----
@@ -3773,6 +3824,241 @@ try {
   }
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
+
+  // ---- Live changes shape when the shot starts ----
+  //
+  // Measured on the old layout, at 1280x800, which is an ordinary laptop: the
+  // left rail held 865 px of content in the 369 px it gets. 496 px of it — 57%
+  // — sat below the fade, including the flow bar, the ladder and the button
+  // that stops the shot, which was at y=1040 in a column 740 px tall. The
+  // weight itself was cut through the middle. Meanwhile the setup column ran
+  // out of content 450 px above the fold.
+  //
+  // The cause was not spacing. The rail was carrying a second copy of the
+  // middle panel — the weight the dial already shows, and a readout
+  // `.pour-nums` already shows — and two copies of one panel do not fit in a
+  // third of the width.
+  {
+    const lap = await ctx.newPage();
+    await lap.setViewportSize({ width: 1280, height: 800 });
+    await lap.goto(B + '/live.html?mock=lefu&noshot=1');
+    await lap.waitForFunction(() => window.__mock && window.__sess, null, { timeout: 5000 });
+    await lap.evaluate(() => {
+      window.__sess.setMethod('espresso');
+      const d = document.getElementById('p-dose');
+      d.value = '18';
+      d.dispatchEvent(new Event('input', { bubbles: true }));
+      window.__sess.goto('brew');
+      window.__mock.grams = 0;
+      window.__brew.startNow(performance.now() / 1000, 0);
+      let g = 0;
+      window.__pour = setInterval(() => { g += 0.34; window.__mock.grams = +g.toFixed(2); }, 100);
+    });
+    await lap.waitForTimeout(3000);
+    const shape = await lap.evaluate(() => {
+      const q = (sel) => document.querySelector(sel);
+      const body = q('#cell-now .cell-body');
+      const stop = q('#stop').getBoundingClientRect();
+      const svg = q('#curve svg');
+      const holder = q('#curve');
+      const seen = (el) => el && el.offsetParent !== null;
+      return {
+        railOverflow: body.scrollHeight - body.clientHeight,
+        stopVisible: stop.bottom <= innerHeight && stop.height > 0 && seen(q('#stop')),
+        ladderVisible: seen(q('#ladder')),
+        sideGone: !seen(q('#cell-side')),
+        summary: (q('#pour-sum')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        // One weight on the page, not one per panel.
+        weights: [...document.querySelectorAll('#o-w, #brew-gauge .g-n')]
+          .filter(seen).length,
+        // The chart floors its viewBox at 200 and letterboxes inside anything
+        // shorter — which collapses its width, not its height.
+        chartFills: svg
+          ? Math.abs(svg.getBoundingClientRect().width - holder.clientWidth) < 4
+          : false,
+        chartH: holder.clientHeight,
+      };
+    });
+    await lap.evaluate(() => clearInterval(window.__pour));
+
+    t('live: the rail stops overflowing once the duplicates are gone',
+      shape.railOverflow === 0, `${shape.railOverflow}px of hidden content`);
+    t('live: the button that stops the shot is on the screen',
+      shape.stopVisible, 'stop is visible and in the viewport');
+    t('live: and the ladder is not cut in half either', shape.ladderVisible, 'ladder shown');
+    t('live: the weight is said once, by the dial',
+      shape.weights === 1, `${shape.weights} visible weight readout(s)`);
+    t('live: the setup column folds to a line while coffee is coming out',
+      shape.sideGone && /Dose/.test(shape.summary), shape.summary.slice(0, 70));
+    t('live: and the curve fills the width it was given',
+      shape.chartFills && shape.chartH >= 200,
+      `chart ${shape.chartH}px tall, fills width ${shape.chartFills}`);
+    await lap.close();
+  }
+
+  // ---- a link that drops puts a new code up by itself ----
+  //
+  // Reported: the phone falls off and both screens just sit there. The laptop
+  // showed a badge and no way forward; the phone dropped back to a paste box
+  // still holding the dead code, which is the one thing that cannot work — a
+  // pairing is good for exactly one connection.
+  {
+    const drop = await ctx.newPage();
+    await drop.goto(B + '/view.html');
+    await drop.waitForFunction(() => window.__view, null, { timeout: 5000 });
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+    await page.click('#watch-phone');
+    await page.waitForFunction(
+      () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await drop.fill('#offer', await page.inputValue('#pair-offer'));
+    await drop.click('#link');
+    await drop.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await drop.inputValue('#reply'));
+    await page.click('#pair-accept');
+    await drop.waitForFunction(() => window.__view.link.state === 'open', { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+    const firstCode = await page.inputValue('#pair-offer');
+
+    // The phone goes away the way a phone does: the transport under it stops.
+    // Closing the far end is not enough — WebRTC does not promptly tell the
+    // near end — so this drops the laptop's own connection, which is what a
+    // pocket, a sleep or a walk out of range actually produces.
+    await drop.evaluate(() => window.__view.link.close());
+    // pc.close() fires nothing — the spec says so — so the data channel is the
+    // transition the page actually observes, and the one a real drop produces.
+    await page.evaluate(() => window.__watch.ch.close());
+    const rearmed = await page.waitForFunction(
+      () => document.getElementById('pair-dlg').open
+        && document.getElementById('pair-offer').value.length > 40,
+      { timeout: 10000 }).then(() => true).catch(() => false);
+    t('reconnect: a phone that drops puts a fresh code on the laptop by itself',
+      rearmed, rearmed ? await page.textContent('#pair-msg') : 'dialog never reopened');
+    t('reconnect: and it is a new code, not the spent one',
+      rearmed && (await page.inputValue('#pair-offer')) !== firstCode,
+      'differs from the code that was already used');
+
+    const onPhone = await drop.evaluate(() => ({
+      dropped: !document.getElementById('pair-dropped').hidden,
+      offer: document.getElementById('offer').value,
+      replyShown: !document.getElementById('reply-wrap').hidden,
+      button: document.getElementById('link').textContent,
+    }));
+    t('reconnect: the phone says what happened and clears the code that is now spent',
+      onPhone.dropped && onPhone.offer === '' && !onPhone.replyShown,
+      `dropped ${onPhone.dropped}, box "${onPhone.offer}", reply shown ${onPhone.replyShown}`);
+
+    // And the new code works, which is the whole point.
+    await drop.fill('#offer', await page.inputValue('#pair-offer'));
+    await drop.click('#link');
+    await drop.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await drop.inputValue('#reply'));
+    await page.click('#pair-accept');
+    const back = await drop.waitForFunction(
+      () => window.__view.link.state === 'open', { timeout: 20000 })
+      .then(() => true).catch(() => false);
+    t('reconnect: and pairing again on the new code brings the phone back',
+      back, back ? 'watching again' : 'never reconnected');
+    t('reconnect: with the dropped notice put away once it is live',
+      await drop.evaluate(() => document.getElementById('pair-dropped').hidden), 'notice cleared');
+    await drop.close();
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+  }
+
+  // Stopping deliberately is not a drop, and must not throw a code back up.
+  {
+    const bye = await ctx.newPage();
+    await bye.goto(B + '/view.html');
+    await bye.waitForFunction(() => window.__view, null, { timeout: 5000 });
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+    await page.click('#watch-phone');
+    await page.waitForFunction(
+      () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await bye.fill('#offer', await page.inputValue('#pair-offer'));
+    await bye.click('#link');
+    await bye.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await bye.inputValue('#reply'));
+    await page.click('#pair-accept');
+    await bye.waitForFunction(() => window.__view.link.state === 'open', { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+    await page.click('#watch-phone');            // "Stop watching"
+    await page.waitForTimeout(1200);
+    t('reconnect: stopping on purpose does not reopen the pairing dialog',
+      !(await page.evaluate(() => document.getElementById('pair-dlg').open)),
+      'dialog stayed shut');
+    await bye.close();
+  }
+
+  // ---- the same handshake in the configuration a real browser uses ----
+  //
+  // Every page above runs in a browser launched with
+  // --disable-features=WebRtcHideLocalIpsWithMdns, because mDNS hostnames do
+  // not resolve in a headless container. That flag is a lie about the world:
+  // Chrome and Safari hide local IPs behind `<uuid>.local` by default, so the
+  // candidates a kitchen laptop actually offers are the one shape this suite
+  // had never once exercised. `packCandidate` has an mDNS branch and nothing
+  // proved it round-trips.
+  //
+  // So: a second browser, without the flag, for one handshake.
+  {
+    const real = await chromium.launch(
+      process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
+    try {
+      const rctx = await real.newContext({ viewport: { width: 1400, height: 1000 } });
+      const laptop = await rctx.newPage();
+      const pad = await rctx.newPage();
+      await pad.goto(B + '/view.html');
+      await pad.waitForFunction(() => window.__view, null, { timeout: 5000 });
+      await laptop.goto(B + '/live.html?mock=lefu&noshot=1');
+      await laptop.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+      await laptop.click('#watch-phone');
+      await laptop.waitForFunction(
+        () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+      const code = await laptop.inputValue('#pair-offer');
+
+      // What the laptop gathered, and what survived being packed.
+      const shape = await laptop.evaluate(async (c) => {
+        const S = await import('./assets/js/core/sdp.js');
+        const back = S.unpack(c) ?? '';
+        return {
+          kinds: c.split('~').pop().split('.').map((tok) => tok[0]),
+          addrs: back.split(/\r?\n/).filter((l) => l.startsWith('a=candidate:'))
+            .map((l) => l.split(' ')[4]),
+          fits: c.length <= S.MAX_CODE,
+        };
+      }, code);
+      t('link: a real browser offers mDNS candidates, and they survive packing',
+        shape.kinds.includes('m') && shape.addrs.some((a) => /\.local$/.test(a)),
+        `tokens ${shape.kinds.join(',')} \u2192 ${shape.addrs.join(' ')}`);
+      t('link: and the packed code still fits the QR budget with them in it',
+        shape.fits, `${code.length} chars`);
+
+      await pad.fill('#offer', code);
+      await pad.click('#link');
+      await pad.waitForFunction(
+        () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+      await laptop.fill('#pair-answer', await pad.inputValue('#reply'));
+      await laptop.click('#pair-accept');
+      const up = await pad.waitForFunction(
+        () => window.__view.link.state === 'open', { timeout: 25000 })
+        .then(() => true).catch(() => false);
+      t('link: two pages pair with mDNS on, the way they do outside a container',
+        up, up ? 'data channel open' : 'never connected');
+      if (up) {
+        await laptop.evaluate(() => { window.__mock.grams = 19.4; });
+        const fed = await pad.waitForFunction(
+          () => Math.abs(Number(document.getElementById('w').textContent) - 19.4) < 0.4,
+          { timeout: 10000 }).then(() => true).catch(() => false);
+        t('link: and the weight crosses that link too', fed, await pad.textContent('#w'));
+      }
+    } finally {
+      await real.close();
+    }
+  }
 
   // On screen: it appears once there is something to weigh, not before.
   await page.goto(B + '/live.html?mock=lefu&noshot=1');

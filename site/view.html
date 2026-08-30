@@ -24,10 +24,44 @@
      screen smaller than the gauge needs, and nothing here clips. The gauge
      takes its natural height and the number gets what is left. */
   .stage { flex:3 1 auto; display:flex; flex-direction:column; gap:12px; min-height:0; }
-  .big { flex:1 1 auto; position:relative; display:grid; place-items:center; overflow:hidden;
+  /* One square instrument, centred, rather than two tiles competing. The width
+     is capped by the height so the dial stays round on a wide tablet instead of
+     stretching into an oval with the number rattling around inside it. */
+  /* justify-items, not place-items: the rig has to STRETCH vertically or its
+     height stays indefinite, and then `container-type:size` silently fails and
+     every cqmin inside falls back to the viewport — which is how a number
+     meant to be 16% of the dial came out at 16% of an iPad. */
+  .big { flex:1 1 auto; position:relative; display:grid;
+    justify-items:center; align-items:stretch; overflow:hidden;
     border:var(--bw) solid var(--ink);
     background:var(--panel); color:var(--ink); min-height:150px; padding:10px; }
-  .big-in { position:relative; z-index:2; }
+  /* THE SQUARE THE INSTRUMENT LIVES IN.
+     Without it the tile is whatever shape the page leaves over — 992x260 on a
+     tablet — and a dial in that is a small ring with the number rattling
+     through its labels, while a circular fill inset from the edges comes out
+     a flat lens. The rig is square, centred, and everything round is measured
+     from it. */
+  .rig { position:relative; display:grid; place-items:center;
+    aspect-ratio:1; height:100%; max-width:100%;
+    /* A size container, so everything inside is measured against the dial
+       rather than against the viewport. A number set in vw is the right size
+       on one screen and lies across the band labels on every other. */
+    container-type:size; }
+  .big-in { position:relative; z-index:3; text-align:center; }
+  /* The dial, drawn around the number rather than beside it. Its own centre
+     readout is off: .big-in is the number now, and two of them was the bug. */
+  #gauge { position:absolute; inset:0; z-index:2; display:grid; place-items:center;
+    pointer-events:none; }
+  /* While the dial is up it carries the label and the progress, so the tile's
+     own caption and mini-bar would be a third and fourth copy inside the ring. */
+  body.brewing .big .k, body.brewing .big .fill { display:none; }
+  /* The dial's own bands name the three drinks, and the ladder underneath
+     gives their weights. Ruled lines across the disc saying it a third time
+     is what made the middle of the instrument unreadable. */
+  body.brewing .vol-marks { display:none; }
+  #gauge[hidden] { display:none; }
+  #gauge svg { width:auto; height:100%; max-width:100%; display:block; }
+  #gauge .g-read { display:none; }
 
   /* THE CUP FILLING. The bar underneath says how far along the pour is; this
      says it in the shape of the thing itself, rising from the bottom of the
@@ -49,6 +83,10 @@
      keeps one ground and stays legible; the level still rises; and the screen
      stops carrying a flat slab of saturated colour out of all proportion to
      what it encodes. */
+  /* Clipped to a disc inside the ring, so the level rises *in the dial* and the
+     two read as one instrument. Outside the ring it was a rectangle of colour
+     behind an unrelated circle. */
+  body.brewing .vol { inset:19%; border-radius:50%; overflow:hidden; }
   .vol-fill { position:absolute; left:0; right:0; bottom:0; height:0;
     background:linear-gradient(180deg,
       color-mix(in srgb, var(--accent) 34%, transparent),
@@ -78,8 +116,8 @@
 
   /* The dial itself is in app.css, mounted by core/gauge.js. What is here is
      only how it sits in this page's column. */
-  .gauge { flex:0 0 auto; display:none; }
-  body.brewing .gauge { display:block; }
+  .gauge { display:none; }
+  body.brewing .gauge { display:grid; }
 
   @media (prefers-reduced-motion: reduce) {
     .vol-fill { transition:none; }
@@ -87,6 +125,16 @@
   }
   .big .n { font:800 clamp(58px, 22vw, 150px)/0.9 var(--sans); letter-spacing:-.03em;
     font-variant-numeric:tabular-nums; }
+  /* Sized to the ring rather than to the viewport: 22vw is right for a number
+     that owns the tile and far too big for one sitting inside a dial. */
+  body.brewing .big .u { font-size:5.5cqmin; margin-left:1px; }
+  body.brewing .big .now-style { font-size:3.8cqmin; margin-top:2.5cqmin;
+    padding:1.2cqmin 2.2cqmin; letter-spacing:.1em; }
+  /* Inside the ring the surface line is decoration, not a reading — the arc
+     above it is what says how far along the pour is. A hard rule here drew
+     itself straight through the drink name. */
+  body.brewing .vol-fill { border-top-color:color-mix(in srgb, var(--accent) 55%, transparent); }
+  body.brewing .vol-fill::after { display:none; }
   .big .u { font:700 clamp(15px, 4vw, 22px)/1 var(--sans); opacity:.75; margin-left:4px; }
   .big .k { font:700 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     opacity:.8; margin-bottom:8px; text-align:center; }
@@ -128,8 +176,8 @@
      grows a fourth cell rather than everything simply getting bigger. */
   @media (min-width: 700px) {
     .watch { padding:16px 16px calc(16px + env(safe-area-inset-bottom)); gap:14px; }
-    body.brewing .stage { flex-direction:row; align-items:stretch; }
-    body.brewing .stage .big { flex:1 1 58%; min-height:220px; }
+    body.brewing .stage { flex-direction:column; }
+    body.brewing .stage .big { flex:1 1 auto; min-height:300px; }
     body.brewing .stage .gauge { flex:1 1 42%; display:flex; flex-direction:column;
       justify-content:center; }
     .gauge svg { max-height:none; }
@@ -161,7 +209,7 @@
   body:not(.brewing) .strip .brew-only { display:none; }
   /* Landscape on a phone is the same problem in miniature. */
   @media (max-height: 520px) and (orientation: landscape) {
-    body.brewing .stage { flex-direction:row; }
+    body.brewing .stage { flex-direction:column; }
     .big .n { font-size:clamp(44px, 9vw, 84px); }
     .gauge svg { max-height:132px; }
   }
@@ -202,8 +250,16 @@
   .fill.is-over { color:var(--flag); }
   [hidden] { display:none !important; }
   /* Brewing: the curve is the thing, so it takes the room the number had. */
-  body.brewing .big { flex:0 0 auto; min-height:0; }
-  body.brewing .big .n { font-size:clamp(38px, 13vw, 84px); }
+  body.brewing .big { flex:1 1 auto; min-height:240px; }
+  /* Measured against the dial, not the viewport. The dial's usable middle is
+     not the whole rig — the bands sit at r=86 of a 110 radius and their names
+     ride just inside that — so a number past roughly 55% of the width crosses
+     a label. In vw it was 84 px inside a 276 px ring, straight through
+     "Espresso" and "Lungo".
+     This is the rule that wins: an earlier `body.brewing .big .n` up in the
+     rig block has the same specificity and loses on order, so the size lives
+     here, once, rather than in two places disagreeing. */
+  body.brewing .big .n { font-size:20cqmin; }
   body.brewing .plot { flex:1 1 auto; min-height:34vh; }
   /* Done: no live number left to watch, so neither the readout nor the curve
      needs to shout — the summary does. */
@@ -261,6 +317,14 @@
   <!-- Pairing: two pastes, and only until it is linked. -->
   <section class="bx panel pair" id="pairing">
     <div class="tag" id="pair-title">Watch a shot</div>
+    <!-- A link that dropped is a different situation from one never made: the
+         laptop is already putting a new code on its screen, so the only thing
+         worth saying here is where to look. -->
+    <div id="pair-dropped" hidden>
+      <p class="msg" style="margin:0 0 8px"><strong>The laptop stopped sending.</strong>
+      It has already put a new square on its screen — point this camera at it, or press
+      <strong>Reconnect phone</strong> on the laptop if it hasn&rsquo;t.</p>
+    </div>
     <div id="pair-intro">
       <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
       browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
@@ -298,14 +362,21 @@
     <p id="hint"></p>
 
     <div class="stage" id="stage">
-      <!-- The number, and behind it the cup filling. The level is the same
-           fraction the dial shows, from the same call, so the two cannot
-           disagree about where the pour is. -->
+      <!-- ONE OBJECT, ONE NUMBER.
+           The cup and the dial used to sit side by side, and each carried its
+           own copy of the weight and its own copy of the drink name — the same
+           fact printed twice at hero size, 400 px apart, which pushed the
+           numbers that are not duplicated off the bottom of the screen.
+           They answer two halves of one question: the ring says which drink,
+           the fill says how full. So they are one thing now. The dial rings
+           the number, the cup fills inside it, and the weight is said once. -->
       <div class="big" id="v-big">
+       <div class="rig">
         <div class="vol" id="vol" hidden>
           <div class="vol-fill" id="vol-fill"></div>
           <div class="vol-marks" id="vol-marks"></div>
         </div>
+        <div id="gauge" hidden></div>
         <div class="big-in">
           <div class="k" id="big-k">Weight</div>
           <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
@@ -319,12 +390,8 @@
             <div class="fill-txt"><span id="fill-of">—</span><span id="fill-gap">—</span></div>
           </div>
         </div>
+       </div>
       </div>
-
-      <!-- The dial the laptop had and this never did. Zones are the three
-           drinks, so the question it answers is "which one am I in", not
-           "how many grams". -->
-      <div id="gauge" hidden></div>
     </div>
 
     <!-- The same numbers the laptop's middle panel carries, because this is the
@@ -389,6 +456,10 @@ let last = null;
 const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew',
                      milk: 'Milk', rate: 'Rate' };
 
+// Whether this page has ever had a live link, which is what separates
+// "dropped" from "not paired yet".
+let wasOpen = false;
+
 function setConn(state) {
   const label = { idle: 'Not linked', waiting: last ? 'Reconnecting…' : 'Waiting for the laptop',
                   open: 'Linked', closed: 'Link closed',
@@ -406,10 +477,29 @@ function setConn(state) {
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
   $('cues').hidden = !live;
+  if (state === 'open') wasOpen = true;
+
+  // Dropped after watching, rather than never linked. The old code in the box
+  // is dead — a pairing is good for exactly one connection — so leaving it
+  // there invites the one action that cannot work, and the reply below it is
+  // an answer to a question nobody is asking any more.
+  if (wasOpen && (state === 'closed' || state === 'failed')) {
+    wasOpen = false;
+    $('offer').value = '';
+    $('reply').value = '';
+    $('reply-wrap').hidden = true;
+    $('pair-dropped').hidden = false;
+    $('pair-intro').hidden = true;
+    $('pair-again').hidden = true;
+    $('pair-title').textContent = 'Reconnect';
+    $('link').textContent = 'Reconnect';
+    $('pair-msg').textContent = '';
+  }
   if (state === 'failed') {
     $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
       + 'Wi-Fi — this connects directly rather than through a server, which is also why nothing '
-      + 'about your shots leaves the room.';
+      + 'about your shots leaves the room. A guest network, or one with device isolation on, '
+      + 'blocks exactly this and nothing else.';
   }
 }
 
@@ -752,6 +842,8 @@ link.onMessage = (m) => {
 
 async function linkWith(code) {
   if (!code) { $('pair-msg').textContent = 'Paste the laptop\u2019s code first.'; return; }
+  // A new code answers the dropped notice, whether it arrived by camera or paste.
+  $('pair-dropped').hidden = true;
   $('pair-msg').textContent = 'Linking…';
   try {
     const reply = await link.answer(code);
@@ -893,6 +985,7 @@ const PAIRED_KEY = 'brewkit.view.paired';
 const seenBefore = () => { try { return !!localStorage.getItem(PAIRED_KEY); } catch { return false; } };
 function paintPairHelp(force = false) {
   const known = seenBefore() && !force;
+  $('pair-dropped').hidden = true;
   $('pair-intro').hidden = known;
   $('pair-again').hidden = !known;
   $('pair-title').textContent = known ? 'Reconnect' : 'Watch a shot';
