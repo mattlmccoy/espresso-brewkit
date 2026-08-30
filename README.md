@@ -1289,6 +1289,46 @@ Fonts (Archivo, Archivo Black, Space Mono) are self-hosted from `site/assets/fon
 linked from Google Fonts so there is no third-party request, no render-blocking
 dependency on a host outside the project, and the pages render identically offline.
 
+## Settings
+
+Most of this app's configuration was already persisted somewhere. What was not
+persisted anywhere was the set of numbers that decide how the session behaves —
+how heavy a thing has to be before it counts as a dose, how long a reading has to
+sit still before it is taken, how far from the target still counts as on target.
+
+Those were constructor options on `SessionMachine` with sensible defaults and no
+caller ever passing them, which is a particular kind of not-configurable: the
+seam exists, the wire was never run. Every shot ever pulled used the defaults,
+and the defaults were picked by reasoning about what a scale probably does rather
+than by watching one. That mattered, because the capture rules misfired in a real
+kitchen and the only remedy on offer was to edit the source.
+
+`core/prefs.js` owns them now and `settings.html` shows them, each with the
+sentence that explains what it does — the sentence lives beside the number, in
+the module that declares it, because a threshold whose meaning lives in another
+file will eventually be described wrongly. Only what you actually changed is
+stored, so a later change to a default still reaches anyone who never disagreed
+with the old one. Export a session's readings from Live first: the file shows
+what your scale really does, which is the only honest way to set these.
+
+The page also gathers what was reachable but hidden:
+
+- **The Brix factor**, which had a write path with zero callers while silently
+  governing the extraction yield derived for every shot in the log. The
+  calculator let you change it for one calculation and then threw the change
+  away.
+- **The theme**, as five swatches in their own colours rather than a cycle button
+  you press four times to see the third option — plus a way back to following the
+  system, which there was no way to undo before.
+- **The learned drip lag, per machine**, which was measured from your shots,
+  used to call the stop early, and impossible to see, correct or start over.
+- **The tap threshold**, previously behind a connected scale and a collapsed
+  panel called "Device settings".
+- **Discovery options**, which were real settings that reset on every page load,
+  so a scale that needed them needed them typed in again on every visit.
+- **Restoring hidden explanations**, whose one control was in the Live page
+  footer — including for notes hidden on other pages.
+
 ### Design language
 
 Hard edges and offset shadows, no border radius anywhere, Archivo Black for display

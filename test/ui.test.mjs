@@ -3778,8 +3778,8 @@ try {
       .every((a) => /new tab/.test(a.title)),
   }));
   t('nav guard: while the scale is connected, the other pages open in their own tab',
-    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 5
-    && guarded.rels === true, guarded.targets.slice(0, 40));
+    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 6
+    && guarded.rels === true, guarded.targets.slice(0, 48));
   t('nav guard: except the one you are on, which is not going anywhere',
     guarded.here === '-', `Live target: ${guarded.here}`);
   t('nav guard: and each link says why, rather than surprising you with a tab',
@@ -4144,7 +4144,7 @@ try {
   const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
   t('lab: the daily loop is what the nav shows',
     navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html'
-      + ',./backup.html',
+      + ',./settings.html,./backup.html',
     navLinks.join(' '));
   t('lab: and Backup rides in last, not as a sixth first-class tab',
     await page.locator('.nav a[data-backup]').count() === 1
@@ -4972,14 +4972,109 @@ try {
     /Test Guji/.test(await page.innerText('#tbl')) , 'coffee column present');
 
   // ---- every page carries the same navigation ----
-  for (const p of ['index', 'live', 'kit', 'advisor', 'calculator', 'logger', 'explore', 'quality', 'uncertainty']) {
+  for (const p of ['index', 'live', 'kit', 'advisor', 'calculator', 'logger', 'explore', 'quality', 'uncertainty', 'settings']) {
     await page.goto(`${B}/${p}.html`);
     const hrefs = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
     if (!hrefs.includes('./kit.html') || !hrefs.includes('./advisor.html')) {
       t(`nav: ${p}.html links to the new tools`, false, hrefs.join(' '));
     }
   }
-  t('nav: every page links to Kit and Advisor', true, '9 pages checked');
+  t('nav: every page links to Kit and Advisor', true, '10 pages checked');
+
+  // ---- settings, which is where the constants finally became choices ----
+  // The capture thresholds were constructor options nothing ever passed, and
+  // the Brix factor had a write path with zero callers while silently governing
+  // the extraction yield of every shot in the log.
+  await page.goto(B + '/settings.html');
+  await page.waitForFunction(() => document.querySelectorAll('#capture .pref').length > 0,
+    null, { timeout: 5000 });
+
+  // Each theme previewed in its own colours. This is worth an assertion because
+  // the first version read them off a probe div, and every palette is declared
+  // as :root[data-theme=...] — so the div matched none of them and all five
+  // swatches showed the theme already on screen, plausibly.
+  const swatches = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#themes .sw')].map((b) => ({
+      name: b.querySelector('.sw-name').textContent,
+      colours: [...b.querySelectorAll('.sw-strip i')].map((i) => i.style.background).join('|'),
+    }));
+    return { rows, distinct: new Set(rows.map((r) => r.colours)).size };
+  });
+  t('settings: every theme is previewed in its own colours, not the current one',
+    swatches.rows.length === 5 && swatches.distinct === 5,
+    `${swatches.rows.length} themes, ${swatches.distinct} distinct swatch sets`);
+
+  const prefsRound = await page.evaluate(async () => {
+    const P = await import('./assets/js/core/prefs.js');
+    const store = await import('./assets/js/core/store.js');
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('p-holdFor', 2.5);
+    set('p-minMass', 4);
+    set('p-brixFactor', 0.79);
+    const after = P.prefs();
+    const flagged = [...document.querySelectorAll('#capture .pref.is-changed')]
+      .map((n) => n.dataset.key).sort().join();
+    const opts = P.sessionOptions();
+    const out = {
+      hold: after.holdFor, min: after.minMass,
+      // The one that matters most: the store has to see it, because that is
+      // what derives yield for every shot as it is saved.
+      brixInStore: store.getSettings().brixFactor,
+      flagged,
+      // Only what was actually changed is stored, so a later change to a
+      // default still reaches anyone who never disagreed with the old one.
+      changedKeys: Object.keys(P.changed()).sort().join(),
+      passesHold: opts.holdFor,
+      msg: document.getElementById('capture-msg').textContent,
+    };
+    document.getElementById('capture-reset').click();
+    out.afterReset = P.prefs().holdFor;
+    // Reset is per-section: the Brix factor is not a capture threshold and must
+    // survive putting the capture rules back.
+    out.brixSurvives = P.prefs().brixFactor;
+    return out;
+  });
+  t('settings: a capture threshold can be changed, and the session is given it',
+    prefsRound.hold === 2.5 && prefsRound.min === 4 && prefsRound.passesHold === 2.5,
+    `holdFor ${prefsRound.hold} s, sessionOptions passes ${prefsRound.passesHold}`);
+  t('settings: only what you changed is stored, and it says which',
+    prefsRound.changedKeys === 'brixFactor,holdFor,minMass'
+    && prefsRound.flagged === 'holdFor,minMass'
+    && /2 of 8 changed/.test(prefsRound.msg),
+    `stored ${prefsRound.changedKeys}; marked ${prefsRound.flagged}; "${prefsRound.msg}"`);
+  t('settings: the Brix factor finally reaches the store that derives yield',
+    prefsRound.brixInStore === 0.79, `store says ${prefsRound.brixInStore}`);
+  t('settings: resetting the capture rules leaves the rest alone',
+    prefsRound.afterReset === 5 && prefsRound.brixSurvives === 0.79,
+    `holdFor back to ${prefsRound.afterReset}, brix still ${prefsRound.brixSurvives}`);
+
+  // The learned drip lag was invisible and unresettable.
+  const lags = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const a = kit.saveMachine({ name: 'Test Lag Machine', stop_lag_s: 1.4, stop_lag_n: 9 });
+    await new Promise((r) => setTimeout(r, 60));
+    const row = [...document.querySelectorAll('#lags tbody tr')]
+      .find((tr) => tr.children[0].textContent === 'Test Lag Machine');
+    const shown = row ? [...row.children].slice(0, 3).map((td) => td.textContent).join(' · ') : null;
+    row?.querySelector('button')?.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after = kit.stopLag(a.id);
+    kit.removeMachine(a.id);
+    return { shown, after: after.seconds, learned: after.learned };
+  });
+  t('settings: the drip lag it learned is visible, and can be started over',
+    /1\.40 s/.test(lags.shown ?? '') && /from 9 shots/.test(lags.shown ?? '')
+    && lags.after === 1 && lags.learned === false,
+    `${lags.shown} → ${lags.after} s, learned ${lags.learned}`);
+
+  await page.evaluate(async () => {
+    const P = await import('./assets/js/core/prefs.js');
+    P.reset();
+  });
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.

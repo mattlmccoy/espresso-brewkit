@@ -354,6 +354,7 @@
       <a href="./advisor.html">Advisor</a>
       <a href="./kit.html">Kit</a>
       <a href="./lab.html">Lab</a>
+      <a href="./settings.html">Settings</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
   </header>
@@ -845,6 +846,7 @@ import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
 import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
+import * as prefs from './assets/js/core/prefs.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
 import * as cue from './assets/js/core/cue.js';
@@ -2179,7 +2181,10 @@ function solve() {
 const METHOD_KEY = 'brewkit.method.v1';
 let startMethod = 'espresso';
 try { startMethod = localStorage.getItem(METHOD_KEY) || 'espresso'; } catch { /* ignore */ }
-const sess = new SessionMachine({ method: startMethod });
+// The capture thresholds were constructor options nothing ever passed, so
+// every shot ever pulled used the defaults. They are guesses, and the person
+// holding the scale is the one who can correct them — see Settings.
+const sess = new SessionMachine({ method: startMethod, ...prefs.sessionOptions() });
 let lastStep = null;
 
 function fillKitSelects() {
@@ -3282,6 +3287,15 @@ store.subscribe(() => { paintSupply(); paintCoffee(); paintHistory(); refreshGho
 $('p-bag').addEventListener('change', () => {
   paintCoffee(); paintHistory(); refreshGhostPicker();
 });
+// Discovery options used to reset on every load, so a scale that needed them
+// needed them typed again on every visit. They persist now, and the same two
+// controls appear on Settings.
+$('wide').checked = prefs.prefs().wideScan;
+$('extra-uuid').value = prefs.prefs().extraUuid;
+$('wide').addEventListener('change', () => prefs.set({ wideScan: $('wide').checked }));
+$('extra-uuid').addEventListener('input',
+  () => prefs.set({ extraUuid: $('extra-uuid').value.trim() }));
+
 initNotices();
 restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDriver); } });
 refreshAdvice();

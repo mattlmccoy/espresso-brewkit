@@ -88,7 +88,10 @@ export function el(tag, attrs = {}, ...children) {
     if (k === 'class') n.className = v;
     else if (k === 'html') n.innerHTML = v;
     else if (k.startsWith('on')) n.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (v !== null && v !== undefined) n.setAttribute(k, v);
+    // `false` means leave it off, not set it to the string "false". For a
+    // boolean attribute those are opposites: disabled="false" is disabled, and
+    // a button nobody can press looks exactly like a button that does nothing.
+    else if (v !== null && v !== undefined && v !== false) n.setAttribute(k, v === true ? '' : v);
   }
   for (const c of children.flat()) {
     if (c === null || c === undefined || c === false) continue;
