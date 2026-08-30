@@ -1656,7 +1656,12 @@ function setText(id, value, { flash = false } = {}) {
   const first = !lastText.has(id);
   lastText.set(id, value);
   node.textContent = value;
-  if (flash && !first) {
+  // A dash is not a reading. "Lands at" falls back to an em dash whenever the
+  // flow is too low to project from, and flashing that lit an accent-coloured
+  // block behind a single glyph — on the dark themes it reads as a solid
+  // rectangle where a number should be, which is what it was reported as.
+  const real = /\d/.test(String(value));
+  if (flash && !first && real) {
     node.classList.remove('tick-flash');
     void node.offsetWidth;   // restart rather than skip the animation
     node.classList.add('tick-flash');
@@ -3567,6 +3572,9 @@ if (mock && !manualMock) {
   // pocket does. A drop cannot be asked for politely — closing the far end
   // does not promptly tell this one — so the seam is the connection itself.
   window.__watch = watcher;
+  // The one-beat flash on a changed reading, so a test can drive the values it
+  // fires on rather than waiting for a pour to produce them.
+  window.__setText = setText;
   // The gesture listener, so a test can drive taps through it and see what it
   // decided rather than only what the page did afterwards.
   window.__taps = taps;

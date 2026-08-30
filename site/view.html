@@ -60,8 +60,21 @@
      is what made the middle of the instrument unreadable. */
   body.brewing .vol-marks { display:none; }
   #gauge[hidden] { display:none; }
-  #gauge svg { width:auto; height:100%; max-width:100%; display:block; }
+  #gauge svg { width:auto; height:100%; max-width:100%; display:block; grid-area:1/1; }
   #gauge .g-read { display:none; }
+  /* THE DIAL'S OWN READOUT, on this screen too.
+     This page drew its own number in the middle and hid the gauge's, which
+     meant the third line the laptop has — how much further to the next drink,
+     or the ratio once you are past the last one — existed in one place and was
+     shown on one device. The tile still owns the number while weighing, where
+     there is no dial. Once the dial is up it is the readout, and all three
+     screens say the same four things because they come from the same code. */
+  body.brewing .big-in { display:none; }
+  body.brewing #gauge .g-read { display:block; }
+  body.brewing #gauge .g-n { font-size:20cqmin; line-height:1; }
+  body.brewing #gauge .g-u { font-size:6.5cqmin; }
+  body.brewing #gauge .g-sub { font-size:4cqmin; letter-spacing:.2em; margin-top:2cqmin; }
+  body.brewing #gauge .g-gap { font-size:3.9cqmin; margin-top:1.6cqmin; }
 
   /* THE CUP FILLING. The bar underneath says how far along the pour is; this
      says it in the shape of the thing itself, rising from the bottom of the
@@ -127,9 +140,7 @@
     font-variant-numeric:tabular-nums; }
   /* Sized to the ring rather than to the viewport: 22vw is right for a number
      that owns the tile and far too big for one sitting inside a dial. */
-  body.brewing .big .u { font-size:5.5cqmin; margin-left:1px; }
-  body.brewing .big .now-style { font-size:3.8cqmin; margin-top:2.5cqmin;
-    padding:1.2cqmin 2.2cqmin; letter-spacing:.1em; }
+
   /* Inside the ring the surface line is decoration, not a reading — the arc
      above it is what says how far along the pour is. A hard rule here drew
      itself straight through the drink name. */
