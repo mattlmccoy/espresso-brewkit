@@ -293,8 +293,8 @@ try {
     return { seen, themes: THEMES, order: THEMES.join(','),
              at: document.documentElement.getAttribute('data-theme') };
   });
-  t('theme: five of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,machined,glass'
+  t('theme: six of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal,machined,glass,bloom'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
       const order = cycle.themes;
@@ -387,7 +387,9 @@ try {
     shapes.sameShape === true && shapes.span === 1.33 && shapes.rim === 0,
     `${shapes.span}\u03c0 sweep, ${shapes.rim} decorative ticks`);
   t('dial: every band carries its own name, in full',
-    shapes.labels === 'RISTRETTO,ESPRESSO,LUNGO' && shapes.here === 'ristretto',
+    // Sentence case: small caps with wide tracking is a telemetry idiom, and
+    // the dial spent a round of review being told it looked like a rev counter.
+    shapes.labels === 'Ristretto,Espresso,Lungo' && shapes.here === 'ristretto',
     `${shapes.labels} — in ${shapes.here}`);
   t('dial: the reading is inside it, and says how much longer',
     shapes.readInside === true && /to espresso/.test(shapes.gap), shapes.gap);
@@ -2381,7 +2383,7 @@ try {
     Math.abs(parseFloat(pouring.empty) - 33.6) < 0.2,
     `${pouring.empty} of the tile poured at 24.2 of 72 g`);
   t('viewer: it says which drink it is, on the tile and under the dial',
-    pouring.style === 'Ristretto' && pouring.sub === 'RISTRETTO'
+    pouring.style === 'Ristretto' && pouring.sub === 'Ristretto'
     && pouring.here === 'ristretto', `${pouring.style} / ${pouring.sub}`);
   t('viewer: the marks sit where they fall in the cup, not on the dial’s scale',
     // A cup fills from empty; the dial starts at 1:1. Sharing the dial's domain
@@ -2690,7 +2692,7 @@ try {
     `dial ${mid.dial}, chart ${mid.chartToo}px tall, overlap ${mid.overlap}`);
   t('brew page: the drinks are on it, and it knows which one is in the cup',
     mid.zones === 'ristretto,espresso,lungo' && mid.here === 'ristretto'
-    && /RISTRETTO/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
+    && /Ristretto/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
   t('brew page: and the numbers you act on sit beside it',
     Number(mid.t) > 0 && Number(mid.f) > 0 && Number(mid.ratio) > 0
     && Number(mid.lands) > Number(mid.ratio) && mid.cut !== null,
@@ -5093,7 +5095,7 @@ try {
     return { rows, distinct: new Set(rows.map((r) => r.colours)).size };
   });
   t('settings: every theme is previewed in its own colours, not the current one',
-    swatches.rows.length === 5 && swatches.distinct === 5,
+    swatches.rows.length === 6 && swatches.distinct === 6,
     `${swatches.rows.length} themes, ${swatches.distinct} distinct swatch sets`);
 
   const prefsRound = await page.evaluate(async () => {
@@ -5314,10 +5316,11 @@ try {
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass', 'bloom']) {
     const system = scheme === 'light' || scheme === 'dark';
+    const light = scheme === 'light' || scheme === 'bloom';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
-      colorScheme: system ? scheme : 'dark' });
+      colorScheme: light ? 'light' : 'dark' });
     const p2 = await c2.newPage();
     await p2.goto(B + '/explore.html');
     // The other two are never reached by a system preference, so they are

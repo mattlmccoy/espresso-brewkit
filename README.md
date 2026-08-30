@@ -1502,10 +1502,33 @@ was written in, so the palette is an interpretation and says so rather than
 claiming a match.
 
 **Glass** changes the material and nothing else. Same layout, same dial shape,
-but translucent panes floating over a ground that has colour in it, each blurring
-what is behind it, with edges that fade rather than stop. Having both is
-deliberate: one theme changes where things are, the other changes only what they
-are made of.
+but translucent panes floating over a ground that has colour in it, each
+blurring what is behind it, with edges that fade rather than stop.
+
+**Bloom** is the answer to a second complaint about the dial: not that it was
+unreadable, but that it was *unlovely*. Thick strokes, amber on near-black, mono
+capitals — a rev counter. Correct for a machine, wrong for the thing the machine
+is making.
+
+So the geometry stays an instrument and the finish stops being one. Warm oat and
+blush rather than black; plum and honey rather than amber and cyan; hairlines and
+soft shadows rather than marker outlines and stacked paper; and sentence case
+throughout, because small caps with wide tracking is a telemetry idiom while
+small text with wide tracking is an editorial one, and the difference is entirely
+the capitals.
+
+The plum and honey are not a taste decision. Those two are the chart's two
+series, so they have to be separable for a colourblind reader. The first soft
+pair — dusty rose and sage — measured ΔE 3.3 for deuteran vision, which is
+indistinguishable. These clear every check, and that is why they are a deep plum
+and a warm honey rather than two pastels: separation lives in lightness as much
+as in hue.
+
+The dial's own finish softened everywhere, not only here: thin strokes with
+rounded ends, real gaps so the three drinks read as three arcs rather than one
+graduated ring, names in sentence case riding under the bands they name, and a
+short target tick outside the band instead of a needle crossing the whole
+instrument.
 
 Page headings state the tool's name. No rhetorical questions, no taglines.
 

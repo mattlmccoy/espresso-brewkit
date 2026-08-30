@@ -6,16 +6,16 @@ import { flowBar } from './core/method.js';
 const THEME_KEY = 'brewkit.theme';
 
 /**
- * Five palettes, cycled in order.
+ * Six palettes, cycled in order.
  *
  * Light and dark also track the system preference until you choose one. The
  * other three never do, because nothing about `prefers-color-scheme` asks for
  * green phosphor, a lit instrument, or frosted glass — and the last two are
  * not palettes at all but different ways of rendering the same page.
  */
-export const THEMES = ['light', 'dark', 'terminal', 'machined', 'glass'];
+export const THEMES = ['light', 'dark', 'terminal', 'machined', 'glass', 'bloom'];
 const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal',
-                machined: 'Machined', glass: 'Glass' };
+                machined: 'Machined', glass: 'Glass', bloom: 'Bloom' };
 
 /** What is on screen right now, whether or not it was chosen. */
 export function currentTheme() {

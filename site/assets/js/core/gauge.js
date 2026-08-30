@@ -132,10 +132,11 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
       labels.replaceChildren();
 
       for (const z of d.zones) {
-        // A hair of gap between bands, so the boundary is a boundary rather
-        // than a colour change that could be anything.
-        const a = Math.min(1, z.fromFrac + 0.004);
-        const b = Math.max(0, z.toFrac - 0.004);
+        // A real gap between bands, not a hair. Three separated arcs read as
+        // three named things; a continuous ring divided by colour reads as one
+        // graduated scale, which is the rev-counter tell.
+        const a = Math.min(1, z.fromFrac + 0.012);
+        const b = Math.max(0, z.toFrac - 0.012);
         if (!(b > a)) continue;
         const path = el('path', `g-zone z-${z.id}`);
         path.setAttribute('d', arc(a, b, bandGeo));
@@ -149,7 +150,9 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
         const id = `gl-${uid}-${z.id}`;
         const guide = el('path');
         guide.setAttribute('id', id);
-        guide.setAttribute('d', arc(a, b, bandGeo));
+        // Just inside the band, so the name sits under the arc rather than on
+        // top of it and the stroke can stay thin.
+        guide.setAttribute('d', arc(a, b, { ...bandGeo, r: bandGeo.r - 13 }));
         defs.append(guide);
         const text = el('text', `g-label z-${z.id}`);
         text.dataset.id = z.id;
@@ -157,7 +160,7 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
         tp.setAttribute('href', `#${id}`);
         tp.setAttribute('startOffset', '50%');
         tp.setAttribute('text-anchor', 'middle');
-        tp.textContent = z.label.toUpperCase();
+        tp.textContent = z.label;
         text.setAttribute('dy', '3');
         text.append(tp);
         labels.append(text);
@@ -169,8 +172,9 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
       ticks.replaceChildren();
       const aim = d.marks.find((m) => m.isTarget);
       if (aim) {
-        const [x1, y1] = point(aim.frac, { ...geo, r: geo.r * 0.62 });
-        const [x2, y2] = point(aim.frac, { ...geo, r: geo.r * 1.1 });
+        // Outside the band, short. It used to cross both rings like a needle.
+        const [x1, y1] = point(aim.frac, { ...geo, r: geo.r + 8 });
+        const [x2, y2] = point(aim.frac, { ...geo, r: geo.r + 16 });
         const line = el('line', 'g-tick is-target');
         line.setAttribute('x1', x1.toFixed(1)); line.setAttribute('y1', y1.toFixed(1));
         line.setAttribute('x2', x2.toFixed(1)); line.setAttribute('y2', y2.toFixed(1));
@@ -186,8 +190,8 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     now.style.strokeDashoffset = String(len * (1 - d.frac));
 
     n_.textContent = d.net.toFixed(1);
-    sub_.textContent = d.style ? d.style.label.toUpperCase()
-      : d.over ? 'PAST LUNGO' : 'UNDER RISTRETTO';
+    sub_.textContent = d.style ? d.style.label
+      : d.over ? 'Past lungo' : 'Under ristretto';
     // How far to the end of the band you are in — "how much longer", which the
     // dial is supposed to answer and never did.
     gap_.textContent = d.toNext && d.toNext.into

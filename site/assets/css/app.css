@@ -409,6 +409,131 @@
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
+/* Bloom: soft, and not an instrument.
+   ------------------------------------------------------------------
+   The dial in the other themes read as a rev counter — thick strokes, amber on
+   near-black, shouting mono capitals. Correct for a machine, wrong for the
+   thing the machine is making.
+
+   This is the other end of that: warm oat and blush rather than black, plum and
+   honey rather than amber and cyan, thin strokes with rounded ends, and type
+   that speaks rather than announces. Nothing about a shot is urgent, and the
+   palette should not pretend otherwise.
+
+   The plum and honey are not a taste decision. The two of them are the chart's
+   two series, so they have to be separable for a colourblind reader, and the
+   first soft pair I liked — dusty rose and sage — measured ΔE 3.3 for deuteran
+   vision. These clear every check, which is why they are a deep plum and a warm
+   honey rather than two pastels: separation lives in lightness as much as hue.
+
+   Explicit only: nothing about a system preference asks for this. */
+:root[data-theme="bloom"] {
+  color-scheme: light;
+  --bg:#faf5f2; --panel:#fffcfa; --panel-2:#f4eae6;
+  --ink:#3d3037; --ink-dim:#6a565f; --ink-mute:#7a6470; --hair:#d2b9b2;
+  --accent:#9c4f66; --accent-ink:#ffffff;
+  --fit:#c48a4a; --fit-ink:#2a1a08;
+  --flag:#e7cdae; --tag-fg:#ffffff;
+  --warn:#8a4a20; --warn-bg:#fdf0e2;
+  --control:#f0e3dd;
+  --hover:color-mix(in srgb, var(--accent) 9%, var(--panel));
+  --band-a:.16;
+  /* Finishes. A hairline rather than a marker outline, and no stacked-paper
+     shadow: the offset slab is a poster device and this is not a poster. */
+  --bw: 1px;
+  --sh: 0px;
+  --petal: 18px;
+}
+:root[data-theme="bloom"] body {
+  background:
+    radial-gradient(60% 45% at 8% 0%, rgb(156 79 102 / 7%), transparent 62%),
+    radial-gradient(55% 40% at 96% 6%, rgb(196 138 74 / 8%), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+:root[data-theme="bloom"] :is(.bx, .panel, .note, .tool-card) {
+  border:0; border-radius:var(--petal);
+  background:var(--panel);
+  box-shadow:0 1px 2px rgb(61 48 55 / 4%), 0 8px 24px rgb(61 48 55 / 6%),
+             inset 0 0 0 1px rgb(61 48 55 / 6%);
+}
+:root[data-theme="bloom"] :is(button, a.btn-link, input, select, textarea) {
+  border:0; border-radius:999px;
+  background:var(--control); color:var(--ink);
+  box-shadow:inset 0 0 0 1px rgb(61 48 55 / 8%);
+}
+:root[data-theme="bloom"] :is(textarea, .fillchart, .plot) { border-radius:14px; }
+:root[data-theme="bloom"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
+  transform:none; background:var(--hover); color:var(--ink);
+  box-shadow:inset 0 0 0 1px rgb(156 79 102 / 22%);
+}
+:root[data-theme="bloom"] button:active { transform:scale(.98); }
+:root[data-theme="bloom"] button.primary {
+  background:var(--accent); color:var(--accent-ink);
+  box-shadow:0 3px 12px rgb(156 79 102 / 26%);
+}
+:root[data-theme="bloom"] button.primary:hover:not(:disabled) {
+  background:color-mix(in srgb, var(--accent) 88%, black); color:var(--accent-ink);
+}
+:root[data-theme="bloom"] .brand { background:none; color:var(--ink); padding:7px 0;
+  letter-spacing:.01em; }
+:root[data-theme="bloom"] :is(.tag, .badge) {
+  border:0; border-radius:999px; background:var(--panel-2); color:var(--ink-dim);
+  box-shadow:none; }
+:root[data-theme="bloom"] .nav a { border:0; border-radius:999px; background:transparent; }
+:root[data-theme="bloom"] .nav a[aria-current="page"] {
+  background:var(--accent); color:var(--accent-ink); }
+:root[data-theme="bloom"] th { background:transparent; color:var(--ink-mute);
+  border-bottom:1px solid var(--hair); font-weight:700; }
+:root[data-theme="bloom"] td { border-bottom:1px solid var(--hair); }
+:root[data-theme="bloom"] .st.hero {
+  background:var(--accent); color:var(--accent-ink);
+  box-shadow:0 6px 20px rgb(156 79 102 / 22%); }
+:root[data-theme="bloom"] :is(button, a.btn-link)[aria-current="true"],
+:root[data-theme="bloom"] :is(button, a.btn-link)[aria-current="step"],
+:root[data-theme="bloom"] :is(button, a.btn-link)[aria-pressed="true"] {
+  background:var(--accent); color:var(--accent-ink); box-shadow:none;
+}
+:root[data-theme="bloom"] .gauge { border:0; background:none; box-shadow:none; padding:0; }
+
+/* Type. The design language elsewhere is a poster: a black display face and
+   uppercase on every label, button and heading. Shouted in a soft palette that
+   reads as a mismatch rather than as calm, so this theme speaks instead —
+   one weight-graded sans, sentence case, and tracking doing the work that
+   capitals were doing. */
+:root[data-theme="bloom"] { --disp: var(--sans); }
+:root[data-theme="bloom"] :is(h1, .brand) { font-weight:600; letter-spacing:-.02em;
+  text-transform:none; }
+:root[data-theme="bloom"] :is(button, a.btn-link, .nav a) {
+  text-transform:none; letter-spacing:.01em; font-weight:600; }
+:root[data-theme="bloom"] label { text-transform:none; letter-spacing:.02em;
+  font-size:11.5px; color:var(--ink-dim); }
+:root[data-theme="bloom"] :is(.tag, .badge) { text-transform:none; letter-spacing:.04em; }
+:root[data-theme="bloom"] th { text-transform:none; letter-spacing:.04em; }
+/* The big readout stops being a saturated slab. A soft wash with the accent
+   kept for the level and the type is the same information with none of the
+   shouting, and it is the largest single area on the page. */
+:root[data-theme="bloom"] .st.hero {
+  background:color-mix(in srgb, var(--accent) 10%, var(--panel));
+  color:var(--ink);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent); }
+:root[data-theme="bloom"] .st.hero .k { color:var(--accent); opacity:1; }
+:root[data-theme="bloom"] .big .n { font-weight:600; }
+/* The remaining shouted labels: tile keys, section headings, disclosure
+   summaries, the ladder, the state banner. Small caps with wide tracking is a
+   telemetry idiom; small text with wide tracking is an editorial one, and the
+   difference is entirely the capitals. */
+:root[data-theme="bloom"] :is(h2, h3, .st .k, .strip .k, .ladder-k, .aim-k, .pn-k,
+  .prep-grid .k, summary, .state-strip, .steps .sk, .legend) {
+  text-transform:none; letter-spacing:.06em; }
+:root[data-theme="bloom"] :is(h2, h3) { letter-spacing:.01em; font-weight:600; }
+:root[data-theme="bloom"] .st .k { font-weight:600; opacity:1; color:var(--ink-mute); }
+/* The state banner announced itself in a saturated bar. It is a status, not an
+   alarm. */
+:root[data-theme="bloom"] .state-strip {
+  background:color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color:var(--ink); font-weight:600; }
+
 /* ---------- the rest of the app, over the top ----------
    Mounted by core/overlay.js. Both Live and the viewer hold a connection that a
    navigation would drop — a GATT connection on one, a WebRTC peer on the other
@@ -434,56 +559,58 @@ body.browsing { overflow:hidden; }
 /* ---------- the shot dial ----------
    Mounted by core/gauge.js, worn by the viewer and the brew page.
 
-   A design review called the previous one a bad speedometer and was right about
-   why. Two concentric arcs raced each other from a common origin with no legend
-   for either. A 60-tick rim looked like a graduated scale but was a fixed
-   *count*, so its spacing meant a different number of grams at every dose.
-   Landmark ticks sat six units from band boundaries that were already the
-   marks. And the progress arc shared a radius with the bands, so it painted out
-   the band you were in — the dial answered "how much" by erasing "which drink".
+   Two rounds of review shaped this. The first found it unreadable: two arcs
+   racing from a common origin, a rim of decorative ticks pretending to be a
+   scale, and a progress stroke that painted out the very band it was measuring.
+   The second found it unlovely — thick strokes, amber on near-black, mono
+   capitals: a rev counter. Correct for a machine, wrong for the thing the
+   machine is making.
 
-   What is left: bands at one radius, progress at another, names curved along
-   the bands they name, one mark for the target, and the reading in the middle.
-   Three rules of colour, not four shades of one. */
+   So the geometry is an instrument and the finish is not. Thin strokes with
+   rounded ends, wide gaps so the three drinks read as three separate arcs
+   rather than one graduated ring, and type that speaks rather than announces.
+   Nothing about a shot is urgent. */
 .gauge { position:relative; display:grid; place-items:center; }
 .gauge[hidden] { display:none; }
-.gauge svg { display:block; width:100%; height:auto; grid-area:1/1; max-height:260px; }
-.gauge path, .gauge line { fill:none; stroke-linecap:butt; }
+.gauge svg { display:block; width:100%; height:auto; grid-area:1/1; max-height:280px; }
+.gauge path, .gauge line { fill:none; stroke-linecap:round; }
 
-/* The bands: the one you are in, and the ones you are not. Two states rather
-   than a light-dark-light ramp, which is the grammar of a tolerance window on a
-   rev counter and is a large part of why this read as a gauge. */
-.g-track { stroke:var(--hair); stroke-width:18; opacity:.35; }
-.g-zone { stroke:var(--hair); stroke-width:18; transition:stroke var(--t) var(--ease-out); }
-.g-zone.here { stroke:var(--accent); }
+/* The bands. Two states, not a ramp: the drink you are in, and the ones you are
+   not. A light-dark-light ramp is the grammar of a green zone on a rev counter,
+   which is exactly the reading being avoided. */
+.g-track { display:none; }
+.g-zone { stroke:var(--hair); stroke-width:7;
+  transition:stroke var(--t-slow) var(--ease-out), stroke-width var(--t-slow) var(--ease-out); }
+.g-zone.here { stroke:var(--accent); stroke-width:9; }
 
-/* Progress, on its own ring inside the bands. Neutral, because the coloured
-   thing on this instrument is the drink you are in. */
-.g-nowtrack { stroke:var(--hair); stroke-width:9; opacity:.4; }
-.g-now { stroke:var(--ink); stroke-width:9; opacity:.62;
-  transition:stroke-dashoffset var(--t-fast) var(--ease-out); }
+/* Progress, on its own ring inside the bands, so nothing overpaints anything. */
+.g-nowtrack { stroke:var(--hair); stroke-width:2; opacity:.5; }
+.g-now { stroke:var(--ink); stroke-width:2.5; opacity:.45;
+  transition:stroke-dashoffset var(--t) var(--ease-out); }
 
-.g-label { font:700 8px/1 var(--mono); letter-spacing:.1em; fill:var(--ink-mute);
-  stroke:none; transition:fill var(--t) var(--ease-out); }
-.g-label.here { fill:var(--accent-ink); }
+/* Names ride on the bands they name, below them so the thin arc stays a thin
+   arc. Letter-spaced and small rather than heavy and shouted. */
+.g-label { font:600 7.5px/1 var(--sans); letter-spacing:.22em; fill:var(--ink-mute);
+  stroke:none; transition:fill var(--t-slow) var(--ease-out); }
+.g-label.here { fill:var(--accent); }
 
-/* One mark, for the thing you are aiming at. */
-.g-tick { stroke:var(--ink); stroke-width:2.5; opacity:.55; }
-.g-tick.is-target { stroke-width:3; opacity:1; }
+/* One mark, for the thing you are aiming at — a short tick outside the band
+   rather than a needle crossing the whole instrument. */
+.g-tick { stroke:var(--ink-mute); stroke-width:2; opacity:.5; }
+.g-tick.is-target { stroke:var(--accent); stroke-width:2.5; opacity:1; }
 
-/* The reading, inside the instrument rather than captioned under it. Pinning it
-   to the bottom left the middle of the dial empty and, on an iPad where the box
-   stretches, detached the number from the arc entirely. */
-.g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none;
-  transform:translateY(6%); }
-.g-n { font:800 34px/1 var(--sans); font-variant-numeric:tabular-nums;
-  letter-spacing:-.02em; }
-.g-u { font:700 14px/1 var(--sans); opacity:.6; margin-left:.18em; }
-.g-sub { font:800 11px/1.3 var(--sans); letter-spacing:.14em; color:var(--accent);
-  margin-top:4px; }
-.g-gap { font:700 9.5px/1.3 var(--mono); color:var(--ink-mute); margin-top:3px; }
+/* The reading, inside the instrument. */
+.g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none; }
+.g-n { font:600 40px/1 var(--sans); font-variant-numeric:tabular-nums;
+  letter-spacing:-.015em; }
+.g-u { font:600 15px/1 var(--sans); opacity:.55; margin-left:.16em; }
+.g-sub { font:600 10px/1.3 var(--sans); letter-spacing:.26em; color:var(--accent);
+  margin-top:7px; text-transform:uppercase; }
+.g-gap { font:500 10.5px/1.4 var(--sans); color:var(--ink-mute); margin-top:4px;
+  letter-spacing:.01em; }
 @media (prefers-reduced-motion: reduce) {
   .g-now, .g-zone, .g-label { transition:none; }
+}
 }
 }
 
