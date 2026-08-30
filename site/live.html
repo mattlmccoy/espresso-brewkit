@@ -786,6 +786,10 @@
 </div>
 
 
+<!-- THE REST OF BREWKIT, WITHOUT LETTING GO. While a scale or a phone is
+     attached, the nav opens into here instead of navigating. -->
+<div id="browse"></div>
+
 <!-- Pairing lives in a dialog: it happens once a session, and the page has no
      room to spare for something finished after fifteen seconds. -->
 <dialog id="pair-dlg">
@@ -869,6 +873,7 @@ import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
 import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
+import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
 import * as prefs from './assets/js/core/prefs.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
@@ -3457,26 +3462,50 @@ setPhase('connect');
 })();
 
 /**
- * Leaving Live drops the scale and any phone watching it, and the phone cannot
- * be picked back up silently the way the scale can — its pairing is per
- * connection. So while either is live, the other pages open in their own tab
- * and this one keeps running.
+ * Leaving Live drops the scale and any phone watching it.
+ *
+ * A GATT connection belongs to the document that opened it, and the phone's
+ * pairing is good for one connection, so a navigation costs both and only one
+ * of them comes back on its own. This used to be handled by pushing the other
+ * pages into a new tab, which kept the connection but left the shot on a tab
+ * you were no longer looking at.
+ *
+ * They open over the top instead, in the same frame the phone has used since
+ * it had the same problem for the same reason. The page never navigates, so
+ * there is nothing to preserve; the shot stays on screen in the bar; and the
+ * store modules already listen for `storage`, which fires across same-origin
+ * frames, so a bag edited in there updates this page underneath it.
  */
+const browse = mountBrowse($('browse'), { backLabel: 'The shot', home: 'live.html',
+  pages: BROWSE_PAGES });
+
 function guardNav() {
   const busy = !!link?.connected || watcher.state === 'open';
   for (const a of document.querySelectorAll('.nav a[href$=".html"]')) {
-    // The current page is not going anywhere, so it gets neither.
-    if (busy && !a.hasAttribute('aria-current')) {
-      a.target = '_blank';
-      a.rel = 'noopener';
-      // The arrow the CSS draws says a new tab is coming; this says why.
-      a.title = 'Opens in a new tab so this page keeps the scale and the phone';
-    } else {
-      a.removeAttribute('target');
-      a.removeAttribute('title');
-    }
+    const href = (a.getAttribute('href') || '').replace('./', '');
+    // The page you are on is not going anywhere, and neither is a link the
+    // overlay has no page for.
+    const guard = busy && !a.hasAttribute('aria-current')
+      && BROWSE_PAGES.some((pg) => pg.href === href);
+    a.classList.toggle('guarded', guard);
+    a.title = guard ? 'Opens here, so this page keeps the scale and the phone' : '';
+    if (!a.title) a.removeAttribute('title');
+    // Tabs are gone: the overlay does the job without splitting your attention
+    // across two windows.
+    a.removeAttribute('target');
+    a.removeAttribute('rel');
   }
 }
+
+// One listener rather than one per link, because guardNav re-runs every second
+// and the set of links it would be re-binding never changes.
+document.querySelector('.nav')?.addEventListener('click', (e) => {
+  const a = e.target.closest('a.guarded[href$=".html"]');
+  if (!a) return;
+  e.preventDefault();
+  browse.open((a.getAttribute('href') || '').replace('./', ''));
+});
+
 setInterval(guardNav, 1000);
 guardNav();
 </script>

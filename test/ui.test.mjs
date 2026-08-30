@@ -2450,19 +2450,19 @@ try {
     await new Promise((r) => setTimeout(r, 60));
     const open = {
       shown: !document.getElementById('browse').hidden,
-      src: document.getElementById('browse-frame').getAttribute('src'),
+      src: document.querySelector('#browse iframe').getAttribute('src'),
       locked: getComputedStyle(document.body).overflow,
     };
     // The pour does not pause because you looked away from it.
     window.__view.paint({ k: 'f', w: 24.2, q: 1.9, t: 14.3, st: 'extracting', step: 'brew',
       method: 'espresso', dose: 18, target: 36, curve: [] });
-    open.live = document.getElementById('browse-live').textContent;
-    open.conn = document.getElementById('browse-conn').textContent;
+    open.live = document.querySelector('#browse .browse-live').textContent;
+    open.conn = document.querySelector('#browse .badge').textContent;
     dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await new Promise((r) => setTimeout(r, 60));
     return { ...open,
       closed: document.getElementById('browse').hidden,
-      kept: document.getElementById('browse-frame').getAttribute('src'),
+      kept: document.querySelector('#browse iframe').getAttribute('src'),
       alive: window.__stillHere,
       link: window.__view.link.state };
   });
@@ -3852,24 +3852,50 @@ try {
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
   await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
   await page.waitForTimeout(400);
-  const guarded = await page.evaluate(() => ({
-    connected: window.__mock.connected,
-    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
-      .map((a) => a.getAttribute('target') ?? '').join(','),
-    rels: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
-      .every((a) => a.rel === 'noopener'),
-    // The page you are already on is not going anywhere, so it is left alone.
-    here: document.querySelector('.nav a[aria-current]')?.getAttribute('target') ?? '-',
-    titled: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
-      .every((a) => /new tab/.test(a.title)),
-  }));
-  t('nav guard: while the scale is connected, the other pages open in their own tab',
-    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 6
-    && guarded.rels === true, guarded.targets.slice(0, 48));
+  const guarded = await page.evaluate(async () => {
+    // A sentinel that cannot survive a navigation, which is the whole claim.
+    window.__stillHere = 'yes';
+    const guardedLinks = [...document.querySelectorAll('.nav a.guarded')]
+      .map((a) => a.getAttribute('href'));
+    const tabs = [...document.querySelectorAll('.nav a[href$=".html"]')]
+      .some((a) => a.getAttribute('target'));
+    document.querySelector('.nav a.guarded[href$="shots.html"]').click();
+    await new Promise((r) => setTimeout(r, 80));
+    const open = {
+      shown: !document.getElementById('browse').hidden,
+      src: document.querySelector('#browse iframe').getAttribute('src'),
+      locked: getComputedStyle(document.body).overflow,
+    };
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 80));
+    return { ...open, guardedLinks, tabs,
+      connected: window.__mock.connected,
+      alive: window.__stillHere,
+      closed: document.getElementById('browse').hidden,
+      kept: document.querySelector('#browse iframe').getAttribute('src'),
+      // The page you are already on is not going anywhere, so it is left alone.
+      here: document.querySelector('.nav a[aria-current]')?.classList.contains('guarded'),
+      titled: [...document.querySelectorAll('.nav a.guarded')]
+        .every((a) => /keeps the scale/.test(a.title)),
+    };
+  });
+  t('nav guard: while the scale is connected, the other pages open over this one',
+    guarded.connected === true && guarded.shown === true
+    && guarded.src === './shots.html' && guarded.locked === 'hidden',
+    `shown ${guarded.shown}, src ${guarded.src}`);
+  t('nav guard: and this page never unloads, so the scale is still held',
+    guarded.alive === 'yes' && guarded.connected === true,
+    `sentinel ${guarded.alive}, connected ${guarded.connected}`);
+  t('nav guard: no new tabs — the shot would be on a window you stopped watching',
+    guarded.tabs === false, `any target attribute: ${guarded.tabs}`);
   t('nav guard: except the one you are on, which is not going anywhere',
-    guarded.here === '-', `Live target: ${guarded.here}`);
-  t('nav guard: and each link says why, rather than surprising you with a tab',
-    guarded.titled === true, 'reason on every guarded link');
+    guarded.here === false, `Live guarded: ${guarded.here}`);
+  t('nav guard: and each link says why, rather than surprising you',
+    guarded.titled === true && guarded.guardedLinks.length === 5,
+    `${guarded.guardedLinks.length} guarded: ${guarded.guardedLinks.join(' ')}`);
+  t('nav guard: escape comes back, and the page you were on is still loaded',
+    guarded.closed === true && guarded.kept === './shots.html',
+    `closed ${guarded.closed}, frame kept ${guarded.kept}`);
 
   // Which scale this tab had open, so returning to Live picks it up with no
   // click. Session-scoped: a tab opened tomorrow should not go hunting for a
@@ -3884,13 +3910,12 @@ try {
   await page.waitForTimeout(1300);
   const afterDrop = await page.evaluate(() => ({
     held: sessionStorage.getItem('brewkit.live.connected'),
-    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
-      .map((a) => a.getAttribute('target') ?? '-').join(','),
+    guarded: document.querySelectorAll('.nav a.guarded').length,
     titled: [...document.querySelectorAll('.nav a[href$=".html"]')].some((a) => a.title),
   }));
   t('nav guard: and it lets go the moment there is nothing to protect',
-    /^-(,-)*$/.test(afterDrop.targets) && afterDrop.titled === false,
-    afterDrop.targets.slice(0, 20));
+    afterDrop.guarded === 0 && afterDrop.titled === false,
+    `${afterDrop.guarded} links still guarded`);
   t('nav guard: a dropout is not a decision, so the scale stays remembered',
     afterDrop.held === 'mock:lefu', String(afterDrop.held));
 

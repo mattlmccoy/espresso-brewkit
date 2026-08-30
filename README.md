@@ -579,10 +579,21 @@ spontaneously starts talking to Bluetooth on load would be a worse bargain than
 one click. An unexpected dropout keeps that memory, because that is exactly when
 you want it back; pressing Disconnect clears it, because that was a decision.
 
-**And while a scale or a phone is attached, the other pages open in their own
-tab**, with a line on the page saying so. The phone is why: its pairing is per
-connection, so unlike the scale it cannot be picked back up silently, and losing
-it costs two pastes.
+**And while a scale or a phone is attached, the other pages open over this one
+rather than replacing it.** A GATT connection belongs to the document that
+opened it, and the phone's pairing is good for exactly one connection, so a
+navigation costs both and only one of them comes back on its own.
+
+This used to be handled by pushing the other pages into a new tab, which kept
+the connection but left the shot on a window you were no longer watching. They
+open in a frame over the top instead — the same overlay the phone has used since
+it had the same problem for the same reason, now one shared component rather
+than two copies. The page never navigates, so there is nothing to preserve; the
+pour stays on screen in the bar with the connection's own status beside it; and
+the store modules already listen for `storage`, which fires across same-origin
+frames, so a bag edited in there updates the page underneath it. A link back to
+the host page, followed inside the frame, closes the overlay instead of loading
+a second copy that would go looking for the scale the first one is holding.
 
 ## Watching a pour on a phone
 
