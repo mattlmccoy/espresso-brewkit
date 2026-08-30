@@ -3864,6 +3864,71 @@ try {
     await fl.close();
   }
 
+  // ---- units that survive being shouted ----
+  //
+  // Every label on this site is uppercased by CSS, which turns "(g)" into "(G)"
+  // and "(s)" into "(S)" — gauss and siemens, both real units, neither of them
+  // grams or seconds. This walks the rendered pages rather than the source, so
+  // it catches a label built in JavaScript too.
+  {
+    const w = await ctx.newPage();
+    const bad = [];
+    for (const page of ['live', 'kit', 'advisor', 'logger', 'calculator',
+                        'uncertainty', 'settings', 'shots', 'view']) {
+      await w.goto(`${B}/${page}.html`);
+      const hits = await w.evaluate(() => [...document.querySelectorAll('label, .k, .pn-k')]
+        .filter((n) => getComputedStyle(n).textTransform === 'uppercase')
+        .map((n) => n.textContent.trim())
+        .filter((txt) => /\((g|s)\)/i.test(txt)));
+      for (const h of hits) bad.push(`${page}: ${h}`);
+    }
+    t('copy: no shouted label turns grams into gauss or seconds into siemens',
+      bad.length === 0, bad.length ? bad.join(' \u00b7 ') : 'nine pages clean');
+    await w.close();
+  }
+
+  // ---- an empty state has to name something that exists ----
+  {
+    const e = await ctx.newPage();
+    await e.goto(B + '/logger.html');
+    const txt = await e.evaluate(() => ({
+      msg: (document.getElementById('empty')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      buttons: [...document.querySelectorAll('button')].map((b) => b.textContent.trim()),
+    }));
+    // It used to say "or load the samples", and that button had gone with the
+    // sample dataset — an empty state naming a control the page does not have
+    // is a dead end rather than a hint.
+    const named = (txt.msg.match(/press ([A-Z][a-z]+ [a-z]+)/) || [])[1];
+    t('copy: the empty state points at a control the page actually has',
+      !/load the samples/.test(txt.msg) && !!named && txt.buttons.includes(named),
+      `"${txt.msg}" \u2014 offers ${named ?? 'nothing nameable'}`);
+    await e.close();
+  }
+
+  // ---- a name is cut to the space it has, not to a character count ----
+  {
+    const n = await ctx.newPage();
+    await n.goto(B + '/live.html?mock=lefu&noshot=1');
+    await n.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+    const cut = await n.evaluate(() => {
+      const el = document.getElementById('sv-setup');
+      if (!el) return null;
+      el.textContent = 'Ethiopia Guji Natural';
+      el.title = 'Ethiopia Guji Natural';
+      const cs = getComputedStyle(el);
+      return { ellipsis: cs.textOverflow, display: cs.display,
+               text: el.textContent, title: el.title };
+    });
+    // It was sliced to eight characters first, so "Ethiopia Guji Natural" became
+    // "Ethiopia…" in a cell with room for more — and every coffee sharing those
+    // eight characters became the same string.
+    t('copy: a long coffee name keeps its whole name and lets CSS do the cutting',
+      cut && cut.text === 'Ethiopia Guji Natural' && cut.ellipsis === 'ellipsis'
+        && cut.display === 'block' && cut.title === 'Ethiopia Guji Natural',
+      cut ? `${cut.display}/${cut.ellipsis}, full name kept` : 'no element');
+    await n.close();
+  }
+
   // ---- two families of edge, and components that know which they are in ----
   //
   // Reported: the spacing works on light, dark and terminal and looks wrong on

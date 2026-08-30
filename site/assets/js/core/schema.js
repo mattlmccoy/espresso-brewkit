@@ -88,10 +88,27 @@ export const PREDICTORS = ['grind_setting', 'temp_c', 'pressure_bar', 'time_s', 
 export const RESPONSES = ['ey_pct', 'tds_pct', 'time_s', 'flow_gs', 'ratio', 'yield_g',
   'steady_flow_gs', 't_first_drip_s', 'rating', 'retention_g'];
 
+/**
+ * A label with its unit, in a form that survives being shouted.
+ *
+ * Every label on this site is uppercased by CSS, and "(g)" uppercased is "(G)"
+ * — gauss. "(s)" is "(S)", siemens. Both are real units and neither is the one
+ * meant, so the two that collide are spelled out and the rest, which read the
+ * same either way, keep the parenthesis they had.
+ *
+ * Here rather than in the pages, because there were two places composing this
+ * string and they have to agree.
+ */
+export function withUnit(text, unit) {
+  if (!unit) return text;
+  const spelled = { g: 'grams', s: 'seconds' }[unit];
+  return spelled ? `${text}, ${spelled}` : `${text} (${unit})`;
+}
+
 export function label(key) {
   const f = byKey[key];
   if (!f) return key;
-  return f.unit ? `${f.label} (${f.unit})` : f.label;
+  return withUnit(f.label, f.unit);
 }
 
 // Legacy header -> canonical key. The "<X> Used" booleans marked whether a
