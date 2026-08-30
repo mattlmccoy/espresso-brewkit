@@ -390,6 +390,56 @@
      line and gives the width to the instrument. */
   body.pouring .stage { grid-template-columns:minmax(268px, 320px) minmax(0, 1fr); }
   body.pouring #cell-side { display:none; }
+
+  /* ------------------------------------------------------------ 04, rating
+     RATING IS READING, NOT JUST SCORING.
+     The shot ended and the page threw away everything it had just measured:
+     the curve went, the numbers went, and where they had been was a rating
+     form on an empty panel. You were being asked "how was it?" while looking
+     at nothing — the one screen in the app where the whole record exists at
+     once, and it showed none of it.
+     So the pour panel stays. It carries the curve it already drew, the numbers
+     that actually happened, and what they mean against your own past shots.
+     The setup column folds — nothing on it applies to a shot that is over —
+     and the rating takes its place, beside the thing being rated. */
+  body.rating .stage { grid-template-columns:minmax(268px, 320px) minmax(0, 1fr) minmax(280px, 340px); }
+  body.rating #cell-side { display:none; }
+  /* Live-only numbers are projections, and there is nothing left to project. */
+  body.rating .pn.live-only { display:none; }
+  .pn.done-only { display:none; }
+  body.rating .pn.done-only { display:flex; }
+  /* No live reading, so no dial: the curve takes the room the ring had. */
+  body.rating #brew-gauge { display:none; }
+  body.rating .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
+    align-items:baseline; margin:0 0 8px; padding:8px 12px;
+    border:var(--bw) solid var(--hair); background:var(--panel);
+    border-radius:var(--radius); }
+  body.rating .pour-top { flex:none; }
+  /* The curve is the point of this screen, so it takes what the row above
+     does not. Without this the container came out 686x0 and the chart drew
+     itself into nothing — an SVG in a flex child with no height. */
+  body.rating .fillchart { flex:1 1 auto; min-height:220px; }
+  /* .slide centres its children, which is right for a dial and wrong for a
+     summary: this panel carries the numbers, the curve and the reading of it,
+     and centring content taller than the box clips it equally at both ends —
+     "In 18.0 g" and "Out 26.5 g" were sliced off the top with nothing to say
+     they were there. It stacks from the top and scrolls if it has to. */
+  body.rating #slide-pour { justify-content:flex-start; overflow-y:auto; }
+  /* Ten buttons at 44 px do not fit a 340 px column, and wrapping them 7-and-3
+     makes the scale look like it stops at seven. */
+  body.rating .rate { display:grid; grid-template-columns:repeat(5, 1fr); }
+  body.rating .rate button { width:auto; }
+  /* The stop button is for a shot that is running. */
+  body.rating #stop { display:none; }
+  /* The hero tile is a live reading, and there is nothing live left: a bar
+     creeping toward the target beside a finished shot says it is still
+     landing. The summary panel carries what the shot weighed. */
+  body.rating #cell-now .st.hero,
+  body.rating #cell-now #flowrow,
+  body.rating #cell-now #ladder,
+  body.rating #cell-now .mini { display:none; }
+  .saved-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    margin:0 0 10px; }
   .pour-sum { display:none; }
   body.pouring .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
     align-items:baseline; margin:0 0 8px; padding:8px 12px;
@@ -732,24 +782,43 @@
             <div class="pour-sum" id="pour-sum"></div>
             <div class="pour-top">
               <div id="brew-gauge" hidden></div>
+              <!-- Two sets, because the questions change the moment the pump
+                   stops. "Lands at" and "Cut in" are projections, and a
+                   projection about a shot that is over is noise; what you want
+                   then is what actually happened, which nothing on this panel
+                   used to say. Time and Ratio answer both, so they stay. -->
               <div class="pour-nums">
+                <div class="pn done-only"><span class="pn-k">In</span>
+                  <span class="pn-v"><b id="c-dose">—</b>g</span></div>
+                <div class="pn done-only"><span class="pn-k">Out</span>
+                  <span class="pn-v"><b id="c-yield">—</b>g</span></div>
                 <div class="pn"><span class="pn-k">Time</span>
                   <span class="pn-v"><b id="c-t">0.0</b>s</span></div>
-                <div class="pn"><span class="pn-k">Flow</span>
+                <div class="pn live-only"><span class="pn-k">Flow</span>
                   <span class="pn-v"><b id="c-f">0.00</b>g/s</span></div>
-                <div class="pn"><span class="pn-k">Target</span>
+                <div class="pn live-only"><span class="pn-k">Target</span>
                   <span class="pn-v"><b id="c-target">—</b>g</span></div>
                 <div class="pn"><span class="pn-k">Ratio</span>
                   <span class="pn-v">1:<b id="c-ratio">—</b></span></div>
-                <div class="pn"><span class="pn-k">Lands at</span>
+                <div class="pn live-only"><span class="pn-k">Lands at</span>
                   <span class="pn-v"><b id="c-lands">—</b>g</span></div>
-                <div class="pn" id="pn-cut"><span class="pn-k">Cut in</span>
+                <div class="pn live-only" id="pn-cut"><span class="pn-k">Cut in</span>
                   <span class="pn-v"><b id="c-cut">—</b>s</span></div>
+                <div class="pn done-only"><span class="pn-k">Peak flow</span>
+                  <span class="pn-v"><b id="c-peak">—</b>g/s</span></div>
+                <div class="pn done-only"><span class="pn-k">First drip</span>
+                  <span class="pn-v"><b id="c-drip">—</b>s</span></div>
               </div>
             </div>
             <div class="fillchart" id="curve"></div>
             <p class="note warn" id="live-warn" style="display:none"></p>
             <div id="b-summary"></div>
+            <!-- WHAT THE SHOT MEANT. This used to appear under the rating form,
+                 and only after you pressed Save — so the reading of the shot
+                 arrived after the judgement of it, which is backwards. It is
+                 here, beside the curve it is about, from the moment the pump
+                 stops. -->
+            <div id="r-diag"></div>
           </div>
         </div>
 
@@ -768,8 +837,12 @@
             <div class="field" style="margin:0"><label for="r-notes">Notes</label>
               <input id="r-notes" type="text"></div>
           </div>
-          <div class="btn-row"><button class="primary" id="save" type="button">Save shot</button></div>
-          <div id="r-diag"></div>
+          <div class="btn-row">
+            <button class="primary" id="save" type="button">Save shot</button>
+            <!-- A shot that reached this screen is already in the log; this is
+                 the way back out of it, not the way into it. -->
+            <button class="ghost" id="trash" type="button" hidden>Throw this shot away</button>
+          </div>
         </div>
       </section>
 
@@ -955,7 +1028,7 @@ import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
-import { compareToBest } from './assets/js/core/compare.js';
+import { compareToBest, bestOn } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
 import { SessionMachine, fillProgress } from './assets/js/core/session.js';
@@ -1056,7 +1129,25 @@ const brew = new BrewMachine();
 
 // The shot being assembled. It is not a store record until Save: an abandoned
 // session should leave nothing behind.
+/**
+ * Is this stored field an actual number?
+ *
+ * Number(null) is 0 and Number('') is 0, both finite — so the obvious guard
+ * says yes to every field a shot does not have. Rows come back off a CSV round
+ * trip where a missing rating is null and a missing dose is '', and this page
+ * had three places that let one through: the history chip printed "11s · null",
+ * the reference picker "#003 · 11s · null/10", and the prep grid showed 0.0 g
+ * for a dose nobody typed. store.js, diagnose.js and backup.js each already
+ * carry this same guard privately; these three had it without the two clauses
+ * that matter. Now auto-save files unrated rows on purpose, so the null case is
+ * the common one rather than the odd one.
+ */
+const isNum = (v) => v !== null && v !== '' && Number.isFinite(Number(v));
+
 let draft = blankDraft();
+// The row this shot already occupies in the log, once it has one. Null until
+// the pump stops, and null again after the shot is thrown away.
+let savedId = null;
 let stopArmed = false, stopSeen = null;   // predictive-stop bookkeeping
 // Wall-clock when the pump actually started, which is the far end of the
 // grind-to-brew gap. The brew machine's own clock is scale time and only
@@ -1646,7 +1737,7 @@ function paintPrep() {
   const cell = (k, v, u = '') => el('div', { class: 'c' },
     el('div', { class: 'k' }, k),
     el('div', { class: 'v' }, v, u ? el('small', {}, u) : null));
-  const n = (v, dp = 1) => (Number.isFinite(Number(v)) ? fmt(Number(v), dp) : '—');
+  const n = (v, dp = 1) => (isNum(v) ? fmt(Number(v), dp) : '—');
   $('prep-grid').replaceChildren(
     cell('Last dose', n(last?.dose_g), 'g'),
     cell('Last yield', n(last?.yield_g), 'g'),
@@ -1664,7 +1755,8 @@ function paintSlides() {
   const brewing = sess.step === 'brew' || sess.step === 'rate';
   $('slide-prep').dataset.off = brewing ? 'left' : '';
   $('slide-pour').dataset.off = brewing ? '' : 'right';
-  $('mid-tag').textContent = brewing ? 'The pour' : 'Weighing';
+  $('mid-tag').textContent = sess.step === 'rate' ? 'The shot'
+    : brewing ? 'The pour' : 'Weighing';
   // The swatches describe a chart that is not on screen; the reference picker
   // is chosen *before* pouring, so it stays reachable throughout.
   for (const sw of $('pour-legend').querySelectorAll('i')) sw.hidden = !brewing;
@@ -2410,6 +2502,7 @@ function paintCatch(s) {
   // the left column carried ten controls in 296 px — 865 px of content in 369 —
   // and sliced the weight in half at 1280x800 with the stop button off screen.
   document.body.classList.toggle('pouring', s.step === 'brew');
+  document.body.classList.toggle('rating', s.step === 'rate');
   document.querySelector('.st.hero')?.classList.toggle('held', !!s.disturbed);
   $('state').classList.toggle('held', !!s.disturbed);
   // The highlight marks what the flow is actually waiting on, which moves: an
@@ -2659,7 +2752,10 @@ function paintSession() {
 
   const rating = s.step === 'rate';
   $('s-rate').style.display = rating ? '' : 'none';
-  $('cell-pour').style.display = rating ? 'none' : '';
+  // The pour panel used to be hidden here, which is what threw the shot away
+  // at the moment it became worth reading. It stays; what changes is which of
+  // its numbers are on, and that is decided in CSS by body.rating.
+  $('cell-pour').style.display = '';
   if (s.step !== lastStep) {
     lastStep = s.step;
     // Entering brew arms the machine so the cup landing tares and times itself.
@@ -3198,15 +3294,21 @@ function eligibleGhosts() {
 function refreshGhostPicker() {
   const sel = $('ghost-pick');
   const keep = sel.value;
+  const bagId = $('p-bag').value || null;
   const rows = eligibleGhosts();
-  const best = [...rows].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0))[0];
+  // The same "best" the comparison uses, rather than a second definition that
+  // disagrees with it. Sorting by (Number(rating) || 0) ranks an unrated shot
+  // at zero and then offers it anyway when nothing scores higher, so the picker
+  // said "best rated (—/10)" — and now that every shot is filed on landing,
+  // whether or not it was ever rated, that was about to be the usual case.
+  const best = bestOn(rows, { bagId });
   sel.replaceChildren(
     el('option', { value: '' }, rows.length ? 'no reference' : 'no past curves'),
     ...(best ? [el('option', { value: 'best:' + best.shot_id },
       `best rated (${best.rating ?? '—'}/10)`)] : []),
     ...rows.slice(0, 12).map((r) => el('option', { value: r.shot_id },
       `${r.shot_id.replace('shot-', '#')} · ${fmt(Number(r.time_s), 0)}s`
-      + `${Number.isFinite(Number(r.rating)) ? ' · ' + r.rating + '/10' : ''}`)));
+      + `${isNum(r.rating) ? ' · ' + r.rating + '/10' : ''}`)));
   sel.value = keep && [...sel.options].some((o) => o.value === keep) ? keep
     : (best ? 'best:' + best.shot_id : '');
   applyGhost();
@@ -3292,20 +3394,30 @@ function finishShot() {
   const made = styleOf(sess.method, draft.dose_g, draft.yield_g);
   $('live-msg').textContent = `${fmt(draft.yield_g, 1)} g in ${fmt(draft.time_s, 1)} s`
     + (made ? ` — a ${made.label.toLowerCase()} at 1:${made.ratio}.` : '.');
-  $('b-summary').replaceChildren(el('div', { class: 'grid g3' },
-    stat('First drip', m.t_first_drip_s, 's', 1),
-    stat('Peak flow', m.peak_flow_gs, 'g/s', 2),
-    Number.isFinite(draft.puck_prep_s)
-      ? stat('Grind to brew', draft.puck_prep_s, 's', 0)
-      : stat('Steady flow', m.steady_flow_gs, 'g/s', 2)));
+  // These three used to be cards under the curve. They are in the numbers row
+  // now, beside the rest of the shot, and saying them twice on one panel was
+  // the smaller problem: stat() renders fmt(Number(v)), and Number(null) is 0,
+  // so a shot whose first drip was never detected reported "First drip 0.0 s" —
+  // a measurement that did not happen, printed as one that did.
+  // What is left here is the one thing no other number carries.
+  $('b-summary').replaceChildren(...(Number.isFinite(draft.puck_prep_s)
+    ? [el('p', { class: 'msg', style: 'margin:8px 0 0' },
+      `${fmt(draft.puck_prep_s, 0)} s from grinding to brewing.`)]
+    : []));
   if (!$('r-yield').value) $('r-yield').value = draft.yield_g;
+  // The numbers the panel now shows in place of the projections it was making.
+  const doseIn = Number.isFinite(sess.dose) ? sess.dose : num('p-dose');
+  setText('c-dose', Number.isFinite(doseIn) ? fmt(doseIn, 1) : '\u2014');
+  setText('c-yield', fmt(draft.yield_g, 1));
+  setText('c-peak', Number.isFinite(m.peak_flow_gs) ? fmt(m.peak_flow_gs, 2) : '\u2014');
+  setText('c-drip', Number.isFinite(m.t_first_drip_s) ? fmt(m.t_first_drip_s, 1) : '\u2014');
+  setText('c-t', fmt(draft.time_s, 1));
+  setText('c-ratio', Number.isFinite(doseIn) && doseIn > 0
+    ? fmt(draft.yield_g / doseIn, 2) : '\u2014');
   sess.goto('rate');
+  autoSave();
   paintSession();
 }
-
-const stat = (k, v, u, dp) => el('div', { class: 'st bx' },
-  el('div', { class: 'k' }, k),
-  el('div', { class: 'v' }, fmt(Number(v), dp), el('span', { class: 'u' }, ' ' + u)));
 
 /* ------------------------------------------------------------------- rate */
 function buildRateControls() {
@@ -3316,6 +3428,7 @@ function buildRateControls() {
       for (const b of r.querySelectorAll('button')) {
         b.setAttribute('aria-pressed', String(Number(b.textContent) === draft.rating));
       }
+      syncSaved();
       paintSession();
     },
   }, String(i + 1))));
@@ -3324,10 +3437,14 @@ function buildRateControls() {
     type: 'button', 'aria-pressed': 'false', onclick: (e) => {
       if (draft.tags.has(tag)) draft.tags.delete(tag); else draft.tags.add(tag);
       e.currentTarget.setAttribute('aria-pressed', String(draft.tags.has(tag)));
+      syncSaved();
     },
   }, tag)));
 }
 buildRateControls();
+// Typed fields settle on blur rather than per keystroke: writing the log on
+// every character means a half-typed note is a version of the record.
+for (const id of ['r-brix', 'r-notes']) $(id).addEventListener('change', syncSaved);
 
 /**
  * Start the next shot from nothing.
@@ -3342,6 +3459,9 @@ buildRateControls();
  */
 function resetShot(why = 'Session reset.') {
   draft = blankDraft();
+  savedId = null;
+  $('trash').hidden = true;
+  $('save').hidden = false;
   brew.reset();
   est.reset(lastRaw);
   sess.reset();
@@ -3372,20 +3492,27 @@ function resetShot(why = 'Session reset.') {
 
 $('discard').addEventListener('click', () => resetShot());
 
-$('save').addEventListener('click', () => {
+/**
+ * The shot as a row, from whatever the session and the form currently hold.
+ *
+ * Pulled out of the save button so the same record can be written the moment
+ * the pump stops and rewritten as the rating comes in, rather than existing
+ * only inside a click handler.
+ *
+ * Returns { record } or { error } — the two rejections are the ones that put a
+ * number in the log every model downstream then has to survive.
+ */
+function buildRecord() {
   const yieldG = num('r-yield') ?? draft.yield_g;
   const dose = Number.isFinite(sess.dose) ? sess.dose : num('p-dose');
   if (!Number.isFinite(yieldG)) {
-    $('save-msg').textContent = 'A shot needs a yield. Pull one, or type the weight out.';
-    return;
+    return { error: 'A shot needs a yield. Pull one, or type the weight out.' };
   }
   // Nothing pours a negative amount. A shot that reaches here with one is a
-  // reading taken after the cup came off the scale, and saving it would put a
-  // number in the log that every model downstream has to survive.
+  // reading taken after the cup came off the scale.
   if (yieldG <= 0) {
-    $('save-msg').textContent = `${fmt(yieldG, 2)} g is not a yield — the cup was probably off `
-      + 'the scale when it was read. Type what the cup actually holds.';
-    return;
+    return { error: `${fmt(yieldG, 2)} g is not a yield — the cup was probably off `
+      + 'the scale when it was read. Type what the cup actually holds.' };
   }
   const m = draft.metrics ?? {};
   const record = kit.attachKit({
@@ -3410,17 +3537,95 @@ $('save').addEventListener('click', () => {
     notes: $('r-notes').value.trim()
       || (decoder ? `captured live from ${displayName()}` : 'entered on the Live page'),
   }, new Date(), { shots: store.all() });
+  return { record };
+}
+
+/** The fields the rating screen can still change after the row exists. */
+const ratingPatch = () => ({
+  brix: num('r-brix'),
+  rating: draft.rating,
+  tags: [...draft.tags].join(' '),
+  notes: $('r-notes').value.trim() || null,
+});
+
+/**
+ * Write the shot the moment it lands, rather than asking permission first.
+ *
+ * A shot that reached the rating screen was pulled — the measurement happened,
+ * and losing it because a browser tab closed before a button was pressed is a
+ * worse failure than an unrated row in the log. So it is saved here and the
+ * rating edits it in place; the way back out is the trash button, which is a
+ * decision about a bad shot rather than a toll on every good one.
+ *
+ * Only from a real capture. The stepper can walk to 04 without a shot behind
+ * it, and auto-saving that would file a row for a shot nobody pulled.
+ */
+function autoSave() {
+  if (savedId || draft.curve.length < 3) return;
+  const { record, error } = buildRecord();
+  if (error) { $('save-msg').textContent = error; return; }
   const saved = store.add(record);
+  savedId = saved.shot_id;
+  rememberSession(saved);
+  paintSaved(saved);
+  paintSupply();
+  showDiagnosis(saved);
+}
+
+/** Push a rating edit into the row that is already in the log. */
+function syncSaved() {
+  if (!savedId) return;
+  store.update(savedId, ratingPatch());
+  const saved = store.all().find((r) => r.shot_id === savedId);
+  if (saved) { paintSaved(saved); showDiagnosis(saved); }
+}
+
+/** What the save state says, and which button is the one to press. */
+function paintSaved(saved) {
+  $('trash').hidden = !savedId;
+  $('save').hidden = !!savedId;
+  if (!savedId) return;
+  const rated = Number.isFinite(draft.rating);
+  $('save-msg').textContent = `Saved as ${savedId.replace('shot-', '#')}`
+    + (Number.isFinite(saved?.ey_pct) ? ` · ${fmt(saved.ey_pct, 1)}% extracted` : '')
+    + (rated ? '.' : ' — rate it and it updates as you go.');
+}
+
+function rememberSession(record) {
   kit.saveSession({
     bag_id: record.bag_id, grinder_id: record.grinder_id, grind_setting: num('p-grind'),
     basket: record.basket, machine_id: record.machine_id,
     temp_c: record.temp_c ?? null, pressure_bar: record.pressure_bar ?? null,
     target_dose_g: num('p-dose') ?? 18, target_ratio: targetRatio(),
   });
-  $('save-msg').textContent = `Saved ${saved.shot_id}`
-    + (Number.isFinite(saved.ey_pct) ? ` — ${fmt(saved.ey_pct, 2)}% yield.` : '.');
+}
+
+// The manual path: walked to 04 from the stepper, or a shot typed in without a
+// capture behind it. Nothing was written on arrival, so the button still writes.
+$('save').addEventListener('click', () => {
+  const { record, error } = buildRecord();
+  if (error) { $('save-msg').textContent = error; return; }
+  const saved = store.add(record);
+  savedId = saved.shot_id;
+  rememberSession(saved);
+  paintSaved(saved);
   paintSupply();
   showDiagnosis(saved);
+});
+
+// The way back out. A fumbled shot in the log is worse than one lost: it goes
+// into every average, every comparison and every grind recommendation from here
+// on, and nothing downstream can tell it apart from a real one.
+$('trash').addEventListener('click', () => {
+  if (!savedId) return;
+  const id = savedId;
+  store.remove(id);
+  savedId = null;
+  $('trash').hidden = true;
+  $('save').hidden = false;
+  $('r-diag').replaceChildren();
+  $('save-msg').textContent = `Threw ${id.replace('shot-', '#')} away — it is not in the log.`;
+  paintSupply();
 });
 
 function showDiagnosis(shot) {
@@ -3563,7 +3768,7 @@ function paintHistory() {
       class: 'hist bx', type: 'button', title: `${r.shot_id} — use as the reference curve`,
       onclick: () => { $('ghost-pick').value = r.shot_id; applyGhost(); },
     }, svg, el('span', {}, `${fmt(Number(r.time_s), 0)}s`
-      + (Number.isFinite(Number(r.rating)) ? ` · ${r.rating}` : ''))));
+      + (isNum(r.rating) ? ` · ${r.rating}` : ''))));
   }
 }
 
