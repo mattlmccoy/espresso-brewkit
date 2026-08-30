@@ -50,13 +50,14 @@ export function geoFor(_theme) {
  * half circle for the ring.
  */
 export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
-  let geo, svg, zones, labels, now, ticks, defs;
+  let geo, svg, zones, labels, now, ticks, defs, fillRect, fillLine;
   let lastArgs = null;
   let n_, sub_, gap_, sig = '';
 
   function build(next) {
     geo = next;
     const viewBox = box ?? '0 0 220 200';
+    const [, , vbW, vbH] = viewBox.split(/\s+/).map(Number);
     // Two rings at different radii, and nothing is drawn over anything. The old
     // dial put the progress arc on top of the zone bands at the same radius, so
     // the band you were actually in was destroyed by the arc that told you how
@@ -75,6 +76,34 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     defs = el('defs');
     svg.append(defs);
 
+    // THE CUP, IN THE DIAL'S OWN COORDINATES.
+    // It used to be a CSS circle inset by a percentage of the box around the
+    // dial, which is a different coordinate system with a different centre —
+    // this dial's is at cy 112 of 200, six per cent below the middle — so its
+    // radius could not match the ring it sat inside and visibly did not.
+    // Drawn here it is concentric with the inner track by construction, at
+    // every size and in every theme.
+    const uid = Math.random().toString(36).slice(2, 8);
+    const clip = el('clipPath');
+    clip.setAttribute('id', `gfill-${uid}`);
+    const bore = el('circle');
+    bore.setAttribute('cx', geo.cx);
+    bore.setAttribute('cy', geo.cy);
+    bore.setAttribute('r', nowGeo.r);
+    clip.append(bore);
+    fillRect = el('rect', 'g-fill');
+    fillRect.setAttribute('x', geo.cx - nowGeo.r);
+    fillRect.setAttribute('width', nowGeo.r * 2);
+    fillRect.setAttribute('clip-path', `url(#gfill-${uid})`);
+    fillRect.setAttribute('y', geo.cy + nowGeo.r);
+    fillRect.setAttribute('height', 0);
+    fillLine = el('line', 'g-fill-top');
+    fillLine.setAttribute('clip-path', `url(#gfill-${uid})`);
+    fillLine.setAttribute('x1', geo.cx - nowGeo.r);
+    fillLine.setAttribute('x2', geo.cx + nowGeo.r);
+    fillLine.setAttribute('y1', geo.cy + nowGeo.r);
+    fillLine.setAttribute('y2', geo.cy + nowGeo.r);
+
     const track = el('path', 'g-track');
     track.setAttribute('d', arc(0, 1, bandGeo));
     zones = el('g', 'g-zones');
@@ -85,7 +114,7 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     nowTrack.setAttribute('d', arc(0, 1, nowGeo));
     ticks = el('g', 'g-ticks');
 
-    svg.append(track, zones, labels, nowTrack, now, ticks);
+    svg.append(clip, fillRect, fillLine, track, zones, labels, nowTrack, now, ticks);
 
     const read = document.createElement('div');
     read.className = 'g-read';
@@ -105,6 +134,12 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
 
     root.replaceChildren(svg, read);
     root.classList.add('gauge');
+    // What the readout has to obey, published from the geometry rather than
+    // guessed at by whoever styles it: how far the dial's centre sits from the
+    // middle of the box, and how wide the clear bore inside the ring is. Both
+    // as percentages of the drawn SVG, so they hold at any size.
+    root.style.setProperty('--g-shift', `${((geo.cy - vbH / 2) / vbH * 100).toFixed(3)}%`);
+    root.style.setProperty('--g-bore', `${(nowGeo.r * 2 / vbW * 100).toFixed(3)}%`);
     n_ = n; sub_ = sub; gap_ = gap;
     sig = '';
     geo.bandGeo = bandGeo;
@@ -188,6 +223,23 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
     const len = arcLength(nowGeo);
     now.style.strokeDasharray = String(len);
     now.style.strokeDashoffset = String(len * (1 - d.frac));
+
+    // The cup, in the dial's own coordinates. `fill` is the fraction of the
+    // vessel that is full, which is a different scale from the dial's own — a
+    // cup starts at empty, the dial starts at 1:1 — so the caller supplies it.
+    const f = Number.isFinite(opts.fill) ? Math.max(0, Math.min(1, opts.fill)) : null;
+    const { r: bore } = geo.nowGeo;
+    if (f === null) {
+      fillRect.setAttribute('height', 0);
+      fillLine.style.opacity = '0';
+    } else {
+      const top = geo.cy + bore - 2 * bore * f;
+      fillRect.setAttribute('y', top.toFixed(2));
+      fillRect.setAttribute('height', (geo.cy + bore - top).toFixed(2));
+      fillLine.setAttribute('y1', top.toFixed(2));
+      fillLine.setAttribute('y2', top.toFixed(2));
+      fillLine.style.opacity = f > 0 ? '1' : '0';
+    }
 
     n_.textContent = d.net.toFixed(1);
     sub_.textContent = d.style ? d.style.label

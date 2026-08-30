@@ -3864,6 +3864,50 @@ try {
     await fl.close();
   }
 
+  // ---- two families of edge, and components that know which they are in ----
+  //
+  // Reported: the spacing works on light, dark and terminal and looks wrong on
+  // the soft-edged themes. It did. Those themes draw no borders at all, so the
+  // only things separating two stacked surfaces are the gap between them and
+  // the radius on their corners — and every soft theme was hand-writing radius
+  // per component, so anything that had not been converted individually stayed
+  // a hard rectangle in the middle of a page of rounded ones. The state strip
+  // was exactly that.
+  {
+    const th = await ctx.newPage();
+    await th.goto(B + '/live.html?mock=lefu&noshot=1');
+    await th.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+    const edges = {};
+    for (const name of ['light', 'dark', 'terminal', 'bloom', 'machined', 'glass']) {
+      edges[name] = await th.evaluate((t) => {
+        document.documentElement.dataset.theme = t;
+        const cs = getComputedStyle(document.documentElement);
+        const px = (v) => parseFloat(cs.getPropertyValue(v)) || 0;
+        const strip = document.querySelector('.state-strip');
+        const bar = document.querySelector('.qbar');
+        return { radius: px('--radius'), seam: px('--seam'),
+                 strip: parseFloat(getComputedStyle(strip).borderTopLeftRadius) || 0,
+                 bar: bar ? parseFloat(getComputedStyle(bar).borderTopLeftRadius) || 0 : 0 };
+      }, name);
+    }
+    const hard = ['light', 'dark', 'terminal', 'bloom'];
+    const soft = ['machined', 'glass'];
+    t('themes: the bordered themes are left exactly as they were',
+      hard.every((n) => edges[n].radius === 0 && edges[n].seam === 0 && edges[n].strip === 0),
+      hard.map((n) => `${n} r${edges[n].radius}/seam${edges[n].seam}`).join(' · '));
+    t('themes: the borderless ones get a radius and real air between surfaces',
+      soft.every((n) => edges[n].radius >= 10 && edges[n].seam >= 5),
+      soft.map((n) => `${n} r${edges[n].radius}/seam${edges[n].seam}`).join(' · '));
+    // The actual bug: a surface that draws itself has to follow the theme.
+    t('themes: a hand-rolled surface follows the theme instead of staying square',
+      soft.every((n) => edges[n].strip === edges[n].radius),
+      soft.map((n) => `${n} strip ${edges[n].strip} vs token ${edges[n].radius}`).join(' · '));
+    t('themes: and so does a bar, which wants capsule ends without a border',
+      soft.every((n) => edges[n].bar > 0) && hard.every((n) => edges[n].bar === 0),
+      soft.map((n) => `${n} ${edges[n].bar}`).join(' · '));
+    await th.close();
+  }
+
   // ---- a form is read, so it gets a measure ----
   //
   // Measured on Kit: eleven fields stretched to a 1070 px panel, so the box for
