@@ -8,31 +8,43 @@
 <link rel="stylesheet" href="./assets/css/app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#9749;</text></svg>">
 <style>
-  .sect { margin-top: 22px; }
+  .sect { margin-top: var(--s5); }
   .sect h2 { font: 800 15px/1.2 var(--sans); letter-spacing: .04em; text-transform: uppercase;
-    margin: 0 0 4px; }
-  .sect .lede { color: var(--ink-dim); font-size: 13px; margin: 0 0 16px; max-width: 62ch; }
-  .swatches { display: flex; gap: 10px; flex-wrap: wrap; }
-  .sw { display: flex; flex-direction: column; gap: 7px; align-items: stretch;
-    padding: 10px; cursor: pointer; min-width: 116px; }
+    margin: 0 0 var(--s2); }
+  .sect .lede { color: var(--ink-dim); font-size: 13px; line-height: 1.6;
+    margin: 0 0 var(--s5); max-width: 62ch; }
+  .swatches { display: flex; gap: var(--s3); flex-wrap: wrap; }
+  .sw { display: flex; flex-direction: column; gap: var(--s2); align-items: stretch;
+    padding: var(--s3); cursor: pointer; min-width: 124px; }
   .sw[aria-pressed="true"] { outline: 3px solid var(--accent); outline-offset: 2px; }
   /* Each theme previewed in its own colours, so the choice is made by looking
      rather than by reading five words and clicking through all of them. */
   .sw-strip { display: flex; height: 34px; border-radius: 4px; overflow: hidden; }
   .sw-strip i { flex: 1; }
   .sw-name { font: 700 11px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; }
-  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
-  .pref .hint { font-size: 12px; color: var(--ink-mute); margin: 5px 0 0; }
-  .pref label { margin-bottom: 6px; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: var(--s4) var(--s4); }
+  .pref .hint { font-size: 12px; line-height: 1.5; color: var(--ink-mute);
+    margin: var(--s2) 0 0; }
+  .pref label { margin-bottom: var(--s2); }
   .pref.is-changed label::after { content: ' · changed'; color: var(--accent); letter-spacing: 0; }
   .rowline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .toggles { display: flex; flex-direction: column; gap: 12px; }
-  .tog { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
-  .tog p { margin: 4px 0 0; font-size: 12.5px; color: var(--ink-mute); max-width: 54ch; }
+  .toggles { display: flex; flex-direction: column; gap: var(--s4); }
+  /* A grid, not space-between: the button flew to the far right of a wide
+     panel with 350px of nothing between it and the words it belongs to, and
+     the same rule crushed the paragraph to 180px on a phone. */
+  .tog { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s5);
+    align-items: start; }
+  .tog p { margin: var(--s1) 0 0; font-size: 12.5px; line-height: 1.55;
+    color: var(--ink-mute); max-width: 62ch; }
   .tog strong { font: 700 13px/1.2 var(--sans); }
   .tog button { flex: 0 0 auto; min-width: 96px; }
   table.lags { width: 100%; border-collapse: collapse; }
   .num { font-family: var(--mono); }
+  @media (max-width: 620px) {
+    .tog { grid-template-columns: 1fr; gap: var(--s3); }
+    .tog button { justify-self: start; }
+  }
 </style>
 </head>
 <body>

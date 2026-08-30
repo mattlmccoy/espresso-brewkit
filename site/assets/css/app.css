@@ -56,6 +56,19 @@
   --sans: 'Archivo', system-ui, -apple-system, sans-serif;
   --mono: 'Space Mono', ui-monospace, monospace;
 
+  /* Spacing. One scale, so the same relationship is not spaced four different
+     ways across four files — which is what made the app read as squished: a
+     field 14px from the next, a hint 5px under its input, a grid gap of 14 and
+     a panel gap of 22, none of them agreeing about what "related" means.
+     s2 groups a label to its field, s3 separates fields, s5 separates blocks,
+     s6 separates sections. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 14px;
+  --s4: 20px;
+  --s5: 26px;
+  --s6: 36px;
+
   --band-a: .14;            /* confidence-band fill opacity */
   --bw: 2.5px;              /* border weight  */
   --sh: 5px;                /* offset shadow  */
@@ -169,7 +182,9 @@
   color-scheme: dark;
   --bg:#08090b; --panel:#111318; --panel-2:#171a21;
   --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#8a93a3; --hair:#333a47;
-  --accent:#e9a44b; --accent-ink:#08090b; --fit:#8fe4f0; --flag:#f6c473;
+  /* Softened from #e9a44b: a neon amber on near-black is the one thing that
+     most made this read as a dashboard warning light rather than as coffee. */
+  --accent:#d6a273; --accent-ink:#08090b; --fit:#8fe4f0; --flag:#e2c39c;
   --fit-ink:#08090b;
   /* Panels and controls had the same fill, so whether a button was visible
      depended on where it sat in its panel's gradient. Measured 1.00:1 on
@@ -409,24 +424,27 @@
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
-/* Bloom: soft, and not an instrument.
+/* Bloom: a palette, and only a palette.
    ------------------------------------------------------------------
-   The dial in the other themes read as a rev counter — thick strokes, amber on
-   near-black, shouting mono capitals. Correct for a machine, wrong for the
-   thing the machine is making.
+   The first version of this was a redesign — pills instead of rectangles,
+   sentence case forced over every label, a lighter display face, the hero
+   readout turned into a wash. It was worse, and instructively so: the
+   `text-transform:none` fought each page's own CSS and won in some places and
+   lost in others, so half the headings shouted and half did not; capsule radius
+   on a swatch card crammed its label against the bottom; inputs as full pills
+   put their text somewhere text does not belong.
 
-   This is the other end of that: warm oat and blush rather than black, plum and
-   honey rather than amber and cyan, thin strokes with rounded ends, and type
-   that speaks rather than announces. Nothing about a shot is urgent, and the
-   palette should not pretend otherwise.
+   The complaint was never the structure. It was a harsh amber and a dial that
+   looked like a rev counter. So this changes the colours and the weight of the
+   edges, and nothing else: same shapes, same type, same spacing as Light.
 
-   The plum and honey are not a taste decision. The two of them are the chart's
-   two series, so they have to be separable for a colourblind reader, and the
-   first soft pair I liked — dusty rose and sage — measured ΔE 3.3 for deuteran
-   vision. These clear every check, which is why they are a deep plum and a warm
-   honey rather than two pastels: separation lives in lightness as much as hue.
+   The plum and honey are not a taste decision. Those two are the chart's two
+   series, so they must be separable for a colourblind reader, and the first
+   soft pair — dusty rose and sage — measured ΔE 3.3 for deuteran vision.
+   Separation lives in lightness as much as in hue, which is why these are a
+   deep plum and a warm honey rather than two pastels.
 
-   Explicit only: nothing about a system preference asks for this. */
+   Explicit only. */
 :root[data-theme="bloom"] {
   color-scheme: light;
   --bg:#faf5f2; --panel:#fffcfa; --panel-2:#f4eae6;
@@ -438,101 +456,20 @@
   --control:#f0e3dd;
   --hover:color-mix(in srgb, var(--accent) 9%, var(--panel));
   --band-a:.16;
-  /* Finishes. A hairline rather than a marker outline, and no stacked-paper
-     shadow: the offset slab is a poster device and this is not a poster. */
-  --bw: 1px;
+  /* Softer edges, same edges. A hairline rather than a marker outline, and a
+     shadow that falls rather than one that offsets like stacked paper. */
+  --bw: 1.5px;
   --sh: 0px;
-  --petal: 18px;
-}
-:root[data-theme="bloom"] body {
-  background:
-    radial-gradient(60% 45% at 8% 0%, rgb(156 79 102 / 7%), transparent 62%),
-    radial-gradient(55% 40% at 96% 6%, rgb(196 138 74 / 8%), transparent 60%),
-    var(--bg);
-  background-attachment: fixed;
 }
 :root[data-theme="bloom"] :is(.bx, .panel, .note, .tool-card) {
-  border:0; border-radius:var(--petal);
-  background:var(--panel);
-  box-shadow:0 1px 2px rgb(61 48 55 / 4%), 0 8px 24px rgb(61 48 55 / 6%),
-             inset 0 0 0 1px rgb(61 48 55 / 6%);
+  border-color:var(--hair); border-radius:10px;
+  box-shadow:0 1px 2px rgb(61 48 55 / 4%), 0 6px 18px rgb(61 48 55 / 5%);
 }
 :root[data-theme="bloom"] :is(button, a.btn-link, input, select, textarea) {
-  border:0; border-radius:999px;
-  background:var(--control); color:var(--ink);
-  box-shadow:inset 0 0 0 1px rgb(61 48 55 / 8%);
+  border-color:var(--hair); border-radius:8px;
 }
-:root[data-theme="bloom"] :is(textarea, .fillchart, .plot) { border-radius:14px; }
 :root[data-theme="bloom"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
-  transform:none; background:var(--hover); color:var(--ink);
-  box-shadow:inset 0 0 0 1px rgb(156 79 102 / 22%);
-}
-:root[data-theme="bloom"] button:active { transform:scale(.98); }
-:root[data-theme="bloom"] button.primary {
-  background:var(--accent); color:var(--accent-ink);
-  box-shadow:0 3px 12px rgb(156 79 102 / 26%);
-}
-:root[data-theme="bloom"] button.primary:hover:not(:disabled) {
-  background:color-mix(in srgb, var(--accent) 88%, black); color:var(--accent-ink);
-}
-:root[data-theme="bloom"] .brand { background:none; color:var(--ink); padding:7px 0;
-  letter-spacing:.01em; }
-:root[data-theme="bloom"] :is(.tag, .badge) {
-  border:0; border-radius:999px; background:var(--panel-2); color:var(--ink-dim);
-  box-shadow:none; }
-:root[data-theme="bloom"] .nav a { border:0; border-radius:999px; background:transparent; }
-:root[data-theme="bloom"] .nav a[aria-current="page"] {
-  background:var(--accent); color:var(--accent-ink); }
-:root[data-theme="bloom"] th { background:transparent; color:var(--ink-mute);
-  border-bottom:1px solid var(--hair); font-weight:700; }
-:root[data-theme="bloom"] td { border-bottom:1px solid var(--hair); }
-:root[data-theme="bloom"] .st.hero {
-  background:var(--accent); color:var(--accent-ink);
-  box-shadow:0 6px 20px rgb(156 79 102 / 22%); }
-:root[data-theme="bloom"] :is(button, a.btn-link)[aria-current="true"],
-:root[data-theme="bloom"] :is(button, a.btn-link)[aria-current="step"],
-:root[data-theme="bloom"] :is(button, a.btn-link)[aria-pressed="true"] {
-  background:var(--accent); color:var(--accent-ink); box-shadow:none;
-}
-:root[data-theme="bloom"] .gauge { border:0; background:none; box-shadow:none; padding:0; }
-
-/* Type. The design language elsewhere is a poster: a black display face and
-   uppercase on every label, button and heading. Shouted in a soft palette that
-   reads as a mismatch rather than as calm, so this theme speaks instead —
-   one weight-graded sans, sentence case, and tracking doing the work that
-   capitals were doing. */
-:root[data-theme="bloom"] { --disp: var(--sans); }
-:root[data-theme="bloom"] :is(h1, .brand) { font-weight:600; letter-spacing:-.02em;
-  text-transform:none; }
-:root[data-theme="bloom"] :is(button, a.btn-link, .nav a) {
-  text-transform:none; letter-spacing:.01em; font-weight:600; }
-:root[data-theme="bloom"] label { text-transform:none; letter-spacing:.02em;
-  font-size:11.5px; color:var(--ink-dim); }
-:root[data-theme="bloom"] :is(.tag, .badge) { text-transform:none; letter-spacing:.04em; }
-:root[data-theme="bloom"] th { text-transform:none; letter-spacing:.04em; }
-/* The big readout stops being a saturated slab. A soft wash with the accent
-   kept for the level and the type is the same information with none of the
-   shouting, and it is the largest single area on the page. */
-:root[data-theme="bloom"] .st.hero {
-  background:color-mix(in srgb, var(--accent) 10%, var(--panel));
-  color:var(--ink);
-  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent); }
-:root[data-theme="bloom"] .st.hero .k { color:var(--accent); opacity:1; }
-:root[data-theme="bloom"] .big .n { font-weight:600; }
-/* The remaining shouted labels: tile keys, section headings, disclosure
-   summaries, the ladder, the state banner. Small caps with wide tracking is a
-   telemetry idiom; small text with wide tracking is an editorial one, and the
-   difference is entirely the capitals. */
-:root[data-theme="bloom"] :is(h2, h3, .st .k, .strip .k, .ladder-k, .aim-k, .pn-k,
-  .prep-grid .k, summary, .state-strip, .steps .sk, .legend) {
-  text-transform:none; letter-spacing:.06em; }
-:root[data-theme="bloom"] :is(h2, h3) { letter-spacing:.01em; font-weight:600; }
-:root[data-theme="bloom"] .st .k { font-weight:600; opacity:1; color:var(--ink-mute); }
-/* The state banner announced itself in a saturated bar. It is a status, not an
-   alarm. */
-:root[data-theme="bloom"] .state-strip {
-  background:color-mix(in srgb, var(--accent) 12%, var(--panel));
-  color:var(--ink); font-weight:600; }
+  background:var(--hover); color:var(--ink); }
 
 /* ---------- the rest of the app, over the top ----------
    Mounted by core/overlay.js. Both Live and the viewer hold a connection that a
@@ -677,7 +614,7 @@ h1 {
 h2 { font-family: var(--disp); font-size: 15px; letter-spacing: .02em; text-transform: uppercase; margin: 0 0 12px; }
 h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-transform: uppercase; margin: 0 0 12px; }
 
-.grid { display: grid; gap: 14px; }
+.grid { display: grid; gap: var(--s4); }
 .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
 .g3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 /* Six cards: three across divides evenly, auto-fit would leave a hole. */
@@ -692,8 +629,8 @@ h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-tran
 .grid > *, .split > * { min-width: 0; }
 @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
 
-.panel { padding: 22px; }
-.panel + .panel, .grid + .panel, .panel + .grid, .grid + .grid { margin-top: 22px; }
+.panel { padding: var(--s5); }
+.panel + .panel, .grid + .panel, .panel + .grid, .grid + .grid { margin-top: var(--s5); }
 /* ...but grid children are siblings too, and that adjacency margin would push
    every item after the first down a row-height, breaking the top alignment. */
 .grid > .panel, .grid > .bx { margin-top: 0; }
@@ -706,7 +643,7 @@ h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-tran
 /* ---------- forms ---------- */
 label {
   display: block; font: 700 10.5px/1 var(--sans); letter-spacing: .14em;
-  text-transform: uppercase; margin-bottom: 8px; color: var(--ink);
+  text-transform: uppercase; margin-bottom: var(--s2); color: var(--ink);
 }
 input, select, textarea {
   width: 100%; border: 2px solid var(--ink); background: var(--bg); color: var(--ink);
@@ -735,8 +672,8 @@ input:hover:not(:focus), select:hover:not(:focus), textarea:hover:not(:focus) {
   background: var(--panel-2);
 }
 select { cursor: pointer; }
-.field { margin-bottom: 14px; }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { margin-bottom: var(--s4); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
 
 button {
   font: 700 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
@@ -784,7 +721,7 @@ button.danger:hover { background: var(--fit); color: var(--fit-ink); }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* ---------- readouts ---------- */
-.st { padding: 15px 17px 17px; }
+.st { padding: var(--s4) var(--s4) 18px; }
 .st .k { font: 700 10.5px/1 var(--sans); letter-spacing: .15em; text-transform: uppercase; opacity: .82; }
 .st .v { font-family: var(--disp); font-size: 38px; line-height: 1; letter-spacing: -.04em; margin-top: 10px; }
 .st .u { font-family: var(--sans); font-size: 15px; font-weight: 700; }
@@ -985,7 +922,7 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .cell-head > .ghost, .cell-head > button { margin-left: auto; padding: 5px 10px; box-shadow: none;
   font: 700 11px/1 var(--sans); text-decoration: none; }
 .cell-scroll { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
-.cell .hint { margin: 9px 0 0; font-size: 12.5px; }
+.cell .hint { margin: var(--s2) 0 var(--s3); font-size: 12.5px; }
 .cell .msg { margin: 7px 0 0; font-size: 12px; }
 .cell .note { font-size: 12px; padding: 9px 11px; }
 .cell .field { margin-bottom: 9px; }
