@@ -69,6 +69,22 @@
   --s5: 26px;
   --s6: 36px;
 
+  /* ---- how an edge is made ----
+     Two visual families live in these themes, and they define an edge in
+     opposite ways. Light, dark, terminal and bloom draw a border and an offset
+     shadow: the border IS the edge, so stacked panels can sit flush and still
+     read as separate things. Machined and glass have no borders at all — there
+     the only things separating two surfaces are the gap between them and the
+     radius on their corners.
+     Which is why one set of spacing reads as crisp on the first family and as a
+     pile of slabs on the second. These three tokens are the difference, and any
+     component drawing its own surface reads them instead of hardcoding a square
+     corner — hardcoding is what left the state strip a hard rectangle in the
+     middle of a page of rounded ones. */
+  --radius: 0px;      /* a surface: panel, strip, bar */
+  --radius-sm: 0px;   /* a control inside one */
+  --seam: 0px;        /* extra air between stacked surfaces, where no border separates them */
+
   --band-a: .14;            /* confidence-band fill opacity */
   --bw: 2.5px;              /* border weight  */
   --sh: 5px;                /* offset shadow  */
@@ -179,6 +195,7 @@
 
    Explicit only. Nothing about a system preference asks for this. */
 :root[data-theme="machined"] {
+  --radius: 13px; --radius-sm: 9px; --seam: 7px;
   color-scheme: dark;
   --bg:#08090b; --panel:#111318; --panel-2:#171a21;
   --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#8a93a3; --hair:#333a47;
@@ -301,6 +318,7 @@
 
    Explicit only. */
 :root[data-theme="glass"] {
+  --radius: 15px; --radius-sm: 10px; --seam: 8px;
   color-scheme: dark;
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
   --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
@@ -537,7 +555,23 @@ body.browsing { overflow:hidden; }
 .g-tick.is-target { stroke:var(--accent); stroke-width:2.5; opacity:1; }
 
 /* The reading, inside the instrument. */
-.g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none; }
+/* Anchored to the dial, not to the box around it.
+   This dial's centre is at cy 112 of a 200-tall viewBox — six per cent below
+   the middle — so a readout centred in the grid cell sits above the ring it is
+   supposed to be inside, and its width has no relation to the clear bore. Both
+   numbers are published by gauge.js from the geometry itself, so they stay
+   right if the shape ever changes. The 0.86 leaves the number room to breathe
+   instead of touching the ring. */
+.g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none;
+  transform: translateY(var(--g-shift, 0));
+  max-width: calc(var(--g-bore, 56%) * 0.86); margin-inline: auto; }
+/* The coffee in the cup, clipped to the bore by the SVG itself. */
+.g-fill { fill: color-mix(in srgb, var(--accent) 26%, transparent); stroke: none; }
+/* The surface, not a rule. It crosses the readout at whatever level the cup
+   happens to be at — there is no offset that clears it at every fill — so it
+   is drawn light enough to read as the top of the liquid rather than as a line
+   struck through the text above it. */
+.g-fill-top { stroke: color-mix(in srgb, var(--accent) 42%, transparent); stroke-width: 1.25; }
 .g-n { font:600 40px/1 var(--sans); font-variant-numeric:tabular-nums;
   letter-spacing:-.015em; }
 .g-u { font:600 15px/1 var(--sans); opacity:.55; margin-left:.16em; }
@@ -979,6 +1013,9 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 
 /* The curve fills whatever height is left rather than dictating it. */
 .fillchart { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+/* Stacked surfaces need air where no border separates them. On the bordered
+   themes --seam is 0 and this changes nothing. */
+.cell > * + *, .stage > * + * { margin-top: var(--seam); }
 .fillchart svg.chart { width: 100%; height: 100%; }
 #cell-pour #b-summary .st { padding: 8px 10px; }
 #cell-pour #b-summary .v { font-size: 17px; }
@@ -1088,7 +1125,13 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
    where a healthy shot lives, so the question "is this pouring right" is
    answered by position rather than by arithmetic done in your head at arm's
    length from the screen. */
+/* A bar is a bar in both families; what changes is whether its ends are cut
+   square or rounded. --radius-sm is larger than half the height here, and a
+   radius past half the height is clamped to a capsule, which is what a thin
+   progress bar wants on a borderless theme and never gets on a bordered one
+   where the token is 0. */
 .qbar { position: relative; height: 12px; border: 2px solid currentColor;
+  border-radius: var(--radius-sm); overflow: hidden;
   background: var(--panel-2); overflow: hidden; color: var(--ink-mute);
   transition: color var(--t) var(--ease-out); }
 .qbar .band { position: absolute; top: 0; bottom: 0;
