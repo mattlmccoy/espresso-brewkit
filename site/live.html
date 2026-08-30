@@ -339,7 +339,11 @@
   #cell-now .cell-head { margin-bottom:6px; gap:6px; }
   #cell-now .cell-head .tag { padding:5px 8px; font-size:10px; }
   #cell-now .cell-head .badge { padding:4px 7px; font-size:9.5px; }
-  #cell-now > .btn-row { flex-wrap:nowrap; overflow-x:auto; gap:5px; padding-bottom:2px; }
+  /* Wraps rather than scrolls. It was a horizontal scroll strip inside a column
+     with overflow:hidden, so the third and fourth controls were guillotined
+     mid-word with no scrollbar and no way to reach them — "Taps on" rendered as
+     "T". Four small buttons fit on two lines in a 330 px column. */
+  #cell-now > .btn-row { flex-wrap:wrap; gap:5px; padding-bottom:2px; }
   #cell-now > .btn-row button { flex:0 0 auto; }
   #cell-now .hint { margin:6px 0 0; line-height:1.4; }
   .taplog { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; min-height:26px; }

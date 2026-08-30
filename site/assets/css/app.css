@@ -713,7 +713,10 @@ button.danger:hover { background: var(--fit); color: var(--fit-ink); }
 .msg { font: 600 13px/1.5 var(--sans); color: var(--ink-dim); margin: 12px 0 0; }
 
 /* ---------- tables ---------- */
-.table-scroll { overflow-x: auto; }
+/* The fade says "there is more to the right". Cut flush at the padding edge,
+   a scrollable table reads as severed data. */
+.table-scroll { overflow-x: auto; scrollbar-width: thin;
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
 table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 13px; }
 th {
   font: 700 10.5px/1 var(--sans); letter-spacing: .13em; text-transform: uppercase;
@@ -731,6 +734,7 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .chart .axis   { stroke: var(--ink); stroke-width: 2.5; }
 .chart .zero   { stroke: var(--ink-mute); stroke-width: 2; stroke-dasharray: 5 5; }
 .chart .tick   { fill: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.chart .axis-label.unit { text-transform: none; letter-spacing: 0; }
 .chart .axis-label { fill: var(--ink); font-family: var(--sans); font-weight: 700; font-size: 11px;
   letter-spacing: .14em; text-transform: uppercase; }
 .chart .pt     { fill: var(--accent); fill-opacity: 1; stroke: var(--ink); stroke-width: 2; }
@@ -769,11 +773,22 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 }
 .theme-btn { padding: 9px 13px; box-shadow: none; }
 
-/* Nav collapses to a scrolling strip rather than reflowing into stacked rows. */
-@media (max-width: 720px) {
+/* Nav collapses to a scrolling strip rather than reflowing into stacked rows.
+   At 900 rather than 720: between those widths the head wrapped but
+   `margin-left:auto` kept applying, so the brand sat alone on one line and the
+   nav sat right-aligned on the next with a void under the wordmark — and which
+   widths did it depended on the theme, because the mono themes are wider. */
+@media (max-width: 900px) {
   .site-head { gap: 12px; }
-  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px;
+    /* The strip is cut flush at the right otherwise, so the last item reads as
+       a broken label rather than as more to scroll to. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
   .nav a { flex: 0 0 auto; }
+}
+/* Form rows stack later: an 820px iPad has room for two columns, and taking it
+   away there wastes half the width. */
+@media (max-width: 720px) {
   .row { grid-template-columns: 1fr; }
   :root { --sh: 4px; }
 }

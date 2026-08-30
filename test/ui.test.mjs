@@ -5195,6 +5195,41 @@ try {
     P.reset();
   });
 
+  // ---- nothing is cut off ----
+  // A whole class of bug the DOM calls fine: an element inside an
+  // overflow:hidden ancestor, sticking out of it, with no scrollbar and no way
+  // to reach it. On Live that was a scroll strip in a hidden column, so "Taps
+  // on" rendered as "T" and two controls were simply unreachable.
+  const clipped = await page.evaluate(() => {
+    const bad = [];
+    const clips = (el) => {
+      const o = getComputedStyle(el);
+      return (o.overflow === 'hidden' || o.overflowX === 'hidden'
+              || o.overflowY === 'hidden');
+    };
+    for (const el of document.querySelectorAll('button, a, input, select, .st .v, .c .v')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (!clips(p)) continue;
+        const pr = p.getBoundingClientRect();
+        if (!pr.width) break;
+        const over = Math.max(r.right - pr.right, pr.left - r.left,
+                              r.bottom - pr.bottom, pr.top - r.top);
+        // A couple of pixels is a rounding artefact; a third of an element
+        // being outside its clipping parent is a control nobody can use.
+        if (over > 4 && over > r.width * 0.12) {
+          bad.push(`${el.textContent.trim().slice(0, 18) || el.id || el.tagName} `
+            + `out of ${p.id || p.className.split(' ')[0]} by ${Math.round(over)}px`);
+        }
+        break;
+      }
+    }
+    return bad;
+  });
+  t('layout: no control is cut off by an ancestor that hides its overflow',
+    clipped.length === 0, clipped.slice(0, 4).join(' · ') || 'nothing clipped');
+
   // ---- the palette has to keep its own promises ----
   // A design review measured five contrast failures that every existing test
   // was happy with, because the tests looked at chrome pairs and the failures
