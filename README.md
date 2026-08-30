@@ -261,6 +261,20 @@ which is the whole reason it lives in `method.js` — a pour is poured an order 
 magnitude faster than espresso flows, and espresso's scale would leave the bar
 pinned at full for three minutes.
 
+**And you say which one you are aiming at, at step 00.** The three styles were
+already on screen during the pour as landmarks, which answers *what have I
+made*. Picking one before the shot answers *what am I making* — and that is the
+half the alert needs, because the target yield is what the countdown counts to
+and what the chime chimes at. Without it the alert fired at whatever ratio
+happened to be left in the field from the last session, which is the wrong
+moment for the drink you actually wanted.
+
+The aim *is* the ratio: choosing Ristretto writes 1.5 into the ratio field, and
+everything downstream already reads that. So there is nothing else to wire and
+nothing that can disagree with it. Each button carries the grams it means for
+the dose you have set, so the choice is made in the unit the scale is about to
+show. Espresso methods only — a pour over has ratios but not these names.
+
 The laptop and the phone draw it from the same function, because the phone is
 the one you are actually looking at and the two must not disagree about what
 "too fast" means.

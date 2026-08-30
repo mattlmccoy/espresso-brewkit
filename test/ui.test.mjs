@@ -2727,6 +2727,50 @@ try {
   // Put the page back the way the rest of the suite expects to find it.
   await page.evaluate(() => window.__sess.setMethod('espresso'));
 
+  // ---- which drink, chosen before the shot rather than found during it ----
+  // The three styles were already on screen as landmarks, which answers "what
+  // have I made". This is the other half, and it is the half the alert needs:
+  // without it the chime fires at whatever ratio was left in the field from
+  // last time, which is the wrong moment for the drink you actually wanted.
+  const aim = await page.evaluate(async () => {
+    const read = () => ({
+      pressed: document.querySelector('#aims button[aria-pressed="true"]')?.dataset.aim ?? null,
+      ratio: document.getElementById('p-ratio').value,
+      target: document.getElementById('o-target').textContent,
+      labels: [...document.querySelectorAll('#aims button')].map((b) => b.textContent),
+    });
+    document.querySelector('[data-method="espresso"]').click();
+    const d = document.getElementById('p-dose');
+    d.value = '18'; d.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const start = read();
+    document.querySelector('[data-aim="ristretto"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const ristretto = read();
+    document.querySelector('[data-aim="lungo"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const lungo = read();
+    // A pour over has ratios but not these names.
+    document.querySelector('[data-method="pourover"]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    const pourover = document.getElementById('aim-box').hidden;
+    document.querySelector('[data-method="espresso"]').click();
+    document.querySelector('[data-aim="espresso"]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    return { start, ristretto, lungo, pourover };
+  });
+  t('aim: the three drinks are offered before the shot, in grams for this dose',
+    aim.start.labels.join('|') === 'Ristretto27.0 g|Espresso36.0 g|Lungo54.0 g',
+    aim.start.labels.join(' · '));
+  t('aim: picking one moves the target, which is what the chime fires at',
+    aim.ristretto.pressed === 'ristretto' && aim.ristretto.ratio === '1.5'
+    && aim.ristretto.target === '27.0'
+    && aim.lungo.pressed === 'lungo' && aim.lungo.target === '54.0',
+    `ristretto → ${aim.ristretto.target} g, lungo → ${aim.lungo.target} g`);
+  t('aim: and a pour over is not offered espresso’s vocabulary',
+    aim.pourover === true, `aim box hidden for pour over: ${aim.pourover}`);
+
+
   t('styles: a finished shot is named, and an unnameable one is not',
     st.classify.join() === 'ristretto,espresso,lungo,,' ,
     st.classify.map((x) => x ?? '—').join(' / '));
