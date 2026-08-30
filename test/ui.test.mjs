@@ -2433,10 +2433,30 @@ try {
   // An iPad has room for the number and the dial at once.
   await watch.setViewportSize({ width: 834, height: 1112 });
   await watch.waitForTimeout(150);
-  const tablet = await watch.evaluate(() => ({
-    dir: getComputedStyle(document.getElementById('stage')).flexDirection,
-    cols: getComputedStyle(document.getElementById('v-strip')).gridTemplateColumns.split(' ').length,
-  }));
+  const tablet = await watch.evaluate(() => {
+    const rig = document.querySelector('.rig');
+    const r = rig.getBoundingClientRect();
+    const n = document.querySelector('.big .n').getBoundingClientRect();
+    const svg = document.querySelector('#gauge svg').getBoundingClientRect();
+    // Every element on this screen showing the weight, and every one naming
+    // the drink. Two of either is the bug this layout exists to fix.
+    const w = document.querySelector('.big .n').textContent.trim();
+    const heroes = [...document.querySelectorAll('.big .n, .g-n')]
+      .filter((el) => el.offsetParent !== null && el.textContent.trim() === w).length;
+    const names = [...document.querySelectorAll('.now-style, .g-sub')]
+      .filter((el) => el.offsetParent !== null && /ristretto/i.test(el.textContent)).length;
+    return {
+      cols: getComputedStyle(document.getElementById('v-strip'))
+        .gridTemplateColumns.split(' ').length,
+      // The dial is drawn around the number, so the number's box sits inside it.
+      nested: document.querySelector('#gauge').closest('.big') !== null,
+      square: Math.abs(r.width - r.height) <= 2,
+      // Band names ride just inside r=86 of a 110 radius; past that the number
+      // crosses a label, which is what sizing it in vw did.
+      fitsInRing: n.width < (svg.height / 200) * (86 - 13) * 2 * 0.92,
+      heroes, names,
+    };
+  });
   // ---- the rest of brewkit, without dropping the link ----
   // The phone had one page. Tapping through to the log meant navigating, and a
   // navigation destroys the peer connection — a WebRTC description is good for
@@ -2485,9 +2505,22 @@ try {
     else localStorage.removeItem('brewkit.theme');
   }, themeWas);
   await watch.close();
-  t('viewer: an iPad puts the number and the dial side by side',
-    tablet.dir === 'row' && tablet.cols === 7,
-    `stage ${tablet.dir}, strip in ${tablet.cols} columns`);
+  // The cup and the dial used to sit side by side, and each carried its own
+  // copy of the weight and its own copy of the drink name — one fact printed
+  // twice at hero size, which pushed the numbers that are not duplicated off
+  // the bottom of the screen. They are one instrument now.
+  t('viewer: the weight is said once, not once per component',
+    tablet.heroes === 1 && tablet.names === 1,
+    `${tablet.heroes} hero number(s), ${tablet.names} drink name(s)`);
+  t('viewer: the dial is drawn around the number rather than beside it',
+    tablet.nested && tablet.square,
+    `nested ${tablet.nested}, rig square ${tablet.square}`);
+  // In vw this came out 84 px inside a 276 px ring, straight through the band
+  // labels. It has to be measured against the dial.
+  t('viewer: and the readout is sized to the dial, so it clears the band names',
+    tablet.fitsInRing, 'inside the labelled ring');
+  t('viewer: an iPad still fills the whole seven-cell row',
+    tablet.cols === 7, `strip in ${tablet.cols} columns`);
   }
 
   // ---- the three shots inside every shot ----
