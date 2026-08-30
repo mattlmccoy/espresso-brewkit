@@ -100,6 +100,28 @@
   .slide[data-off="right"] { transform:translateX(6%); opacity:0; pointer-events:none; }
   @media (prefers-reduced-motion: reduce) { .slide { transition:none; } }
 
+  /* The pour, read two ways at once. Side by side where there is width for it,
+     stacked where there is not. */
+  .pour-top { flex:0 0 auto; display:flex; gap:12px; align-items:stretch;
+    margin-bottom:10px; }
+  .pour-top > #brew-gauge { flex:1 1 58%; min-width:0; }
+  .pour-top #brew-gauge[hidden] { display:none; }
+  .pour-nums { flex:1 1 42%; display:grid; gap:6px; align-content:center;
+    grid-template-columns:1fr; min-width:0; }
+  .pn { display:flex; align-items:baseline; gap:8px; justify-content:space-between;
+    border-bottom:1px solid var(--hair); padding-bottom:4px; }
+  .pn-k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ink-mute); }
+  .pn-v { font:700 13px/1 var(--mono); color:var(--ink-dim); }
+  .pn-v b { font:800 19px/1 var(--sans); font-variant-numeric:tabular-nums;
+    color:var(--ink); margin-right:1px; }
+  /* Only meaningful when there is a target to be cutting for. */
+  #pn-cut[hidden] { display:none; }
+  @media (max-width: 1100px) {
+    .pour-top { flex-direction:column; }
+    .pour-nums { grid-template-columns:repeat(2, 1fr); }
+  }
+
   .dial-wrap { position:relative; display:grid; place-items:center; padding:6px 0 0;
     flex:0 0 auto; }
   .dial { width:min(100%, 420px); height:auto; overflow:visible; }
@@ -332,6 +354,7 @@
       <a href="./advisor.html">Advisor</a>
       <a href="./kit.html">Kit</a>
       <a href="./lab.html">Lab</a>
+      <a href="./settings.html">Settings</a>
       <button class="theme-btn" data-theme-toggle type="button">Dark</button>
     </nav>
   </header>
@@ -587,8 +610,28 @@
             <p class="msg" id="prep-note" style="margin:10px 0 0"></p>
           </div>
 
-          <!-- Brewing: the chart, which slides across as the shot begins. -->
+          <!-- Brewing: the chart, and beside it the reading the chart cannot
+               give you. A curve answers "how is it running"; the dial answers
+               "which drink is this and how much longer", which is the question
+               you have with a cup in your hand. Both, because during a shot
+               this is the biggest panel on the screen and it was carrying one
+               of the two. -->
           <div class="slide" id="slide-pour">
+            <div class="pour-top">
+              <div id="brew-gauge" hidden></div>
+              <div class="pour-nums">
+                <div class="pn"><span class="pn-k">Time</span>
+                  <span class="pn-v"><b id="c-t">0.0</b>s</span></div>
+                <div class="pn"><span class="pn-k">Flow</span>
+                  <span class="pn-v"><b id="c-f">0.00</b>g/s</span></div>
+                <div class="pn"><span class="pn-k">Ratio</span>
+                  <span class="pn-v">1:<b id="c-ratio">—</b></span></div>
+                <div class="pn"><span class="pn-k">Lands at</span>
+                  <span class="pn-v"><b id="c-lands">—</b>g</span></div>
+                <div class="pn" id="pn-cut"><span class="pn-k">Cut in</span>
+                  <span class="pn-v"><b id="c-cut">—</b>s</span></div>
+              </div>
+            </div>
             <div class="fillchart" id="curve"></div>
             <p class="note warn" id="live-warn" style="display:none"></p>
             <div id="b-summary"></div>
@@ -801,6 +844,9 @@ import { LiveLink, frameOf } from './assets/js/core/link.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
 import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
+import { shotDial } from './assets/js/core/dial.js';
+import { mountGauge, geoFor } from './assets/js/core/gauge.js';
+import * as prefs from './assets/js/core/prefs.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
 import * as cue from './assets/js/core/cue.js';
@@ -1618,6 +1664,37 @@ function paintLadder(s) {
   }
 }
 
+// Shape is the one part of a theme CSS cannot reach, so the dial is reshaped
+// when the theme changes. It keeps whatever was on it.
+const brewGauge = mountGauge($('brew-gauge'), { geo: geoFor(currentTheme()) });
+document.addEventListener('brewkit:theme', () => brewGauge.setGeo(geoFor(currentTheme())));
+
+/**
+ * The middle panel while it pours: the curve, and beside it the reading the
+ * curve cannot give.
+ *
+ * The dial comes from the same `shotDial` the phone uses, so the two screens
+ * cannot disagree about which drink is in the cup — and the numbers beside it
+ * are the ones you act on rather than the ones that happen to be cheap: how
+ * long it has run, how fast, what ratio it is at now, where it lands if you
+ * cut when the drip stops, and how long until the target.
+ */
+function paintPourTop(s, { lands, eta }) {
+  const dose = targetDose();
+  const d = brew.state === BREW.EXTRACTING || brew.state === BREW.DRIPPING
+    ? shotDial(sess.method, dose, { net: s.net, target: targetYield() })
+    : null;
+  brewGauge.paint(d, { flow: s.flow, flowMax: 4 });
+  setText('c-t', fmt(s.elapsed, 1));
+  setText('c-f', fmt(s.flow, 2));
+  setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
+    ? (s.net / dose).toFixed(2) : '—');
+  setText('c-lands', fmt(lands, 1), { flash: true });
+  const cut = Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : null;
+  $('pn-cut').hidden = cut === null;
+  setText('c-cut', cut ?? '—');
+}
+
 function render(s) {
   $('o-w').textContent = fmt(s.net, 1);
   paintFill(s.net);
@@ -1639,6 +1716,7 @@ function render(s) {
   setText('o-proj', fmt(lands, 1), { flash: true });
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   setText('o-trend', fmt(s.trend, 3));
+  paintPourTop(s, { lands, eta });
 
   // A channel is worth knowing about while the shot is still running, not only
   // in the post-mortem. The trend is NaN until there is enough shot to judge,
@@ -2103,7 +2181,10 @@ function solve() {
 const METHOD_KEY = 'brewkit.method.v1';
 let startMethod = 'espresso';
 try { startMethod = localStorage.getItem(METHOD_KEY) || 'espresso'; } catch { /* ignore */ }
-const sess = new SessionMachine({ method: startMethod });
+// The capture thresholds were constructor options nothing ever passed, so
+// every shot ever pulled used the defaults. They are guesses, and the person
+// holding the scale is the one who can correct them — see Settings.
+const sess = new SessionMachine({ method: startMethod, ...prefs.sessionOptions() });
 let lastStep = null;
 
 function fillKitSelects() {
@@ -3206,6 +3287,15 @@ store.subscribe(() => { paintSupply(); paintCoffee(); paintHistory(); refreshGho
 $('p-bag').addEventListener('change', () => {
   paintCoffee(); paintHistory(); refreshGhostPicker();
 });
+// Discovery options used to reset on every load, so a scale that needed them
+// needed them typed again on every visit. They persist now, and the same two
+// controls appear on Settings.
+$('wide').checked = prefs.prefs().wideScan;
+$('extra-uuid').value = prefs.prefs().extraUuid;
+$('wide').addEventListener('change', () => prefs.set({ wideScan: $('wide').checked }));
+$('extra-uuid').addEventListener('input',
+  () => prefs.set({ extraUuid: $('extra-uuid').value.trim() }));
+
 initNotices();
 restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDriver); } });
 refreshAdvice();

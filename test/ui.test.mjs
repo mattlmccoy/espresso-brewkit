@@ -293,8 +293,8 @@ try {
     return { seen, themes: THEMES, order: THEMES.join(','),
              at: document.documentElement.getAttribute('data-theme') };
   });
-  t('theme: four of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,machined'
+  t('theme: five of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal,machined,glass'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
       const order = cycle.themes;
@@ -313,32 +313,123 @@ try {
     term.sans === term.disp && /Space Mono|monospace/i.test(term.font),
     `${term.font.slice(0, 40)} · ink ${term.ink}`);
 
-  // Machined is the machine on the counter: monochrome metal, one warm signal,
-  // hairlines and corners rather than marker outlines and stacked paper.
+  // Machined is a lit instrument, not a page with a different palette. The
+  // first attempt at it was a recolour of the same hard-edged panels, which is
+  // exactly what these assertions have to be able to tell apart: nothing is
+  // drawn with an outline, everything is lit from a single source.
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
-  // Buttons transition their shadow, and a computed style read mid-transition
+  // Surfaces transition their shadow, and a computed style read mid-transition
   // is a half-interpolated value that says nothing about either theme.
   await page.waitForTimeout(250);
   const mach = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
-    const btn = getComputedStyle(document.querySelector('button'));
+    const panel = getComputedStyle(document.querySelector('.bx'));
     // How far a colour is from grey, on a 0-255 scale.
     const chroma = (c) => { const [r, g, b] = c.replace('#', '').match(/../g)
       .map((h) => parseInt(h, 16)); return Math.max(r, g, b) - Math.min(r, g, b); };
-    return { bg: v('--bg'), ink: v('--ink'), accent: v('--accent'),
-             bw: parseFloat(v('--bw')), sh: parseFloat(v('--sh')),
-             radius: parseFloat(btn.borderTopLeftRadius),
-             shadow: btn.boxShadow,
+    return { accent: v('--accent'),
+             border: parseFloat(panel.borderTopWidth),
+             radius: parseFloat(panel.borderTopLeftRadius),
+             shadow: panel.boxShadow,
              greys: [chroma(v('--bg')), chroma(v('--ink')), chroma(v('--panel'))],
              warm: chroma(v('--accent')) };
   });
-  t('theme: machined keeps the chrome grey and spends colour only on the shot',
-    Math.max(...mach.greys) <= 6 && mach.warm >= 60,
+  t('theme: machined keeps the chrome near-grey and spends colour on the shot',
+    // A slight cool cast is the instrument's own; what must not happen is a
+    // second hue competing with the one the pour is drawn in.
+    Math.max(...mach.greys) <= 12 && mach.warm >= 60,
     `chrome chroma ${mach.greys.join('/')}, accent ${mach.accent} at ${mach.warm}`);
-  t('theme: hairlines and corners, and none of the stacked-paper shadow',
-    mach.bw < 2 && mach.sh === 0 && mach.radius >= 8 && mach.shadow === 'none',
-    `${mach.bw}px rules, ${mach.radius}px corners, shadow ${mach.shadow}`);
+  t('theme: nothing is outlined and every surface is lit from one source',
+    mach.border === 0 && mach.radius >= 8
+    && /inset/.test(mach.shadow) && /rgba\(255, 255, 255/.test(mach.shadow)
+    // The brutalist offset slab — an opaque shadow at a diagonal offset with
+    // no blur — is the thing this theme is not.
+    && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(mach.shadow),
+    `${mach.border}px border, ${mach.radius}px corners, shadow ${mach.shadow}`);
+
+  // And the dial is a different shape, which is the part a stylesheet cannot
+  // reach: a path's geometry is in the path.
+  const shapes = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const D = await import('./assets/js/core/dial.js');
+    const half = G.geoFor('dark');
+    const ring = G.geoFor('machined');
+    const box = document.createElement('div');
+    document.body.append(box);
+    const mounted = G.mountGauge(box, { geo: ring });
+    const out = {
+      halfSpan: +(half.span / Math.PI).toFixed(2),
+      ringSpan: +(ring.span / Math.PI).toFixed(2),
+      isRing: mounted.ring,
+      rim: box.querySelectorAll('.g-rim-t').length,
+      // Past half a turn the arc has to say so, or SVG draws the short way
+      // round and the band silently becomes its own complement.
+      large: D.arc(0, 1, ring).includes(' 1 1 '),
+      shortNotLarge: D.arc(0, 0.2, ring).includes(' 0 1 '),
+    };
+    box.remove();
+    return out;
+  });
+  // Glass changes the material and nothing else: same layout, same dial shape,
+  // but no element is outlined and every surface is translucent over a ground
+  // that has colour in it. A pane with nothing behind it is just grey.
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass'));
+  await page.waitForTimeout(250);
+  const glass = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const panel = getComputedStyle(document.querySelector('.bx'));
+    const body = getComputedStyle(document.body);
+    // parseFloat, not Number: the fourth part is " 0)" and Number(" 0)") is NaN.
+    const alpha = (c) => (c.startsWith('rgba') ? parseFloat(c.split(',')[3]) : 1);
+    return {
+      border: parseFloat(panel.borderTopWidth),
+      blur: panel.backdropFilter || panel.webkitBackdropFilter,
+      // The panel's own fill must let the ground through, or the blur is
+      // doing work nobody can see.
+      translucent: /gradient/.test(panel.backgroundImage)
+        && /rgba\(255, 255, 255, 0\./.test(panel.backgroundImage),
+      ground: /gradient/.test(body.backgroundImage),
+      shape: G.geoFor('glass').span === Math.PI,
+      brandBg: alpha(getComputedStyle(document.querySelector('.brand')).backgroundColor),
+    };
+  });
+  t('theme: glass is translucent panes over a ground, not outlined boxes',
+    glass.border === 0 && /blur/.test(glass.blur) && glass.translucent === true
+    && glass.ground === true && glass.brandBg === 0,
+    `border ${glass.border}px, ${glass.blur}, ground ${glass.ground}`);
+  t('theme: and it changes the material without moving anything',
+    glass.shape === true, 'the dial keeps its half circle');
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
+
+  // Reshaping must not blank it. The first version rebuilt the SVG on the
+  // theme event and left it empty until the next sample — which, on a scale
+  // that has settled, is forever.
+  const reshaped = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const { shotDial } = await import('./assets/js/core/dial.js');
+    const box = document.createElement('div');
+    document.body.append(box);
+    const g = G.mountGauge(box, { geo: G.geoFor('dark') });
+    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }), { flow: 2 });
+    const before = box.querySelector('.g-n').textContent;
+    g.setGeo(G.geoFor('machined'));
+    const out = { before, after: box.querySelector('.g-n').textContent,
+                  ring: box.classList.contains('is-ring'),
+                  zones: box.querySelectorAll('.g-zone').length };
+    box.remove();
+    return out;
+  });
+  t('theme: reshaping the dial keeps the reading that was on it',
+    reshaped.before === '24.0' && reshaped.after === '24.0'
+    && reshaped.ring === true && reshaped.zones === 3,
+    `${reshaped.before} → ${reshaped.after}, ring ${reshaped.ring}, ${reshaped.zones} zones redrawn`);
+
+  t('theme: and it swaps the half circle for a ring, which CSS cannot do',
+    shapes.halfSpan === 1 && shapes.ringSpan === 1.5 && shapes.isRing === true
+    && shapes.rim > 0 && shapes.large === true && shapes.shortNotLarge === true,
+    `${shapes.halfSpan}π vs ${shapes.ringSpan}π, ${shapes.rim} rim ticks, `
+    + `large-arc flag ${shapes.large}`);
   await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('brewkit.theme', 'light');
@@ -2286,8 +2377,10 @@ try {
       gauge: !document.getElementById('gauge').hidden,
       empty: document.getElementById('vol-fill').style.height,
       style: document.getElementById('now-style').textContent,
-      sub: document.getElementById('g-sub').textContent,
-      here: [...document.getElementById('g-zones').children]
+      // The dial is mounted by core/gauge.js and uses classes, not ids, so a
+      // page can carry more than one of them.
+      sub: document.querySelector('#gauge .g-sub').textContent,
+      here: [...document.querySelector('#gauge .g-zones').children]
         .filter((z) => z.classList.contains('here')).map((z) => z.dataset.id).join(),
       marks: [...document.getElementById('vol-marks').children].map((m) => m.style.bottom),
       theme: document.documentElement.getAttribute('data-theme'),
@@ -2588,6 +2681,39 @@ try {
     ramping.ticks.join() === '44.6%,59.5%,89.3%', ramping.ticks.join(' '));
   t('ladder: and it folds away the tile that was showing the same number',
     ramping.tile === true, `tile hidden: ${ramping.tile}`);
+
+  // ---- the middle panel carries both readings ----
+  // During a shot the biggest panel on the page was a chart and nothing else.
+  // A curve answers "how is it running"; it cannot answer "which drink is this
+  // and how much longer", which is the question you have with a cup in hand.
+  const mid = await page.evaluate(() => {
+    const g = document.getElementById('brew-gauge');
+    const txt = (id) => document.getElementById(id).textContent;
+    const chart = document.getElementById('curve').getBoundingClientRect();
+    const box = g.getBoundingClientRect();
+    return {
+      dial: !g.hidden,
+      zones: [...g.querySelectorAll('.g-zone')].map((z) => z.dataset.id).join(),
+      here: [...g.querySelectorAll('.g-zone.here')].map((z) => z.dataset.id).join(),
+      sub: g.querySelector('.g-sub').textContent,
+      t: txt('c-t'), f: txt('c-f'), ratio: txt('c-ratio'), lands: txt('c-lands'),
+      cut: document.getElementById('pn-cut').hidden ? null : txt('c-cut'),
+      // Both, at once — not one replacing the other.
+      chartToo: chart.height > 80,
+      // And the dial must not be drawn over the chart beneath it.
+      overlap: box.bottom > chart.top + 1,
+    };
+  });
+  t('brew page: the dial is up beside the chart, not instead of it',
+    mid.dial === true && mid.chartToo === true && mid.overlap === false,
+    `dial ${mid.dial}, chart ${mid.chartToo}px tall, overlap ${mid.overlap}`);
+  t('brew page: the drinks are on it, and it knows which one is in the cup',
+    mid.zones === 'ristretto,espresso,lungo' && mid.here === 'ristretto'
+    && /Ristretto/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
+  t('brew page: and the numbers you act on sit beside it',
+    Number(mid.t) > 0 && Number(mid.f) > 0 && Number(mid.ratio) > 0
+    && Number(mid.lands) > Number(mid.ratio) && mid.cut !== null,
+    `${mid.t} s · ${mid.f} g/s · 1:${mid.ratio} · lands ${mid.lands} g · cut in ${mid.cut} s`);
 
   // A pour over has ratios but not these names, so it keeps the plain tile.
   await page.evaluate(() => {
@@ -3652,8 +3778,8 @@ try {
       .every((a) => /new tab/.test(a.title)),
   }));
   t('nav guard: while the scale is connected, the other pages open in their own tab',
-    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 5
-    && guarded.rels === true, guarded.targets.slice(0, 40));
+    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 6
+    && guarded.rels === true, guarded.targets.slice(0, 48));
   t('nav guard: except the one you are on, which is not going anywhere',
     guarded.here === '-', `Live target: ${guarded.here}`);
   t('nav guard: and each link says why, rather than surprising you with a tab',
@@ -4018,7 +4144,7 @@ try {
   const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
   t('lab: the daily loop is what the nav shows',
     navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html'
-      + ',./backup.html',
+      + ',./settings.html,./backup.html',
     navLinks.join(' '));
   t('lab: and Backup rides in last, not as a sixth first-class tab',
     await page.locator('.nav a[data-backup]').count() === 1
@@ -4846,18 +4972,113 @@ try {
     /Test Guji/.test(await page.innerText('#tbl')) , 'coffee column present');
 
   // ---- every page carries the same navigation ----
-  for (const p of ['index', 'live', 'kit', 'advisor', 'calculator', 'logger', 'explore', 'quality', 'uncertainty']) {
+  for (const p of ['index', 'live', 'kit', 'advisor', 'calculator', 'logger', 'explore', 'quality', 'uncertainty', 'settings']) {
     await page.goto(`${B}/${p}.html`);
     const hrefs = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
     if (!hrefs.includes('./kit.html') || !hrefs.includes('./advisor.html')) {
       t(`nav: ${p}.html links to the new tools`, false, hrefs.join(' '));
     }
   }
-  t('nav: every page links to Kit and Advisor', true, '9 pages checked');
+  t('nav: every page links to Kit and Advisor', true, '10 pages checked');
+
+  // ---- settings, which is where the constants finally became choices ----
+  // The capture thresholds were constructor options nothing ever passed, and
+  // the Brix factor had a write path with zero callers while silently governing
+  // the extraction yield of every shot in the log.
+  await page.goto(B + '/settings.html');
+  await page.waitForFunction(() => document.querySelectorAll('#capture .pref').length > 0,
+    null, { timeout: 5000 });
+
+  // Each theme previewed in its own colours. This is worth an assertion because
+  // the first version read them off a probe div, and every palette is declared
+  // as :root[data-theme=...] — so the div matched none of them and all five
+  // swatches showed the theme already on screen, plausibly.
+  const swatches = await page.evaluate(() => {
+    const rows = [...document.querySelectorAll('#themes .sw')].map((b) => ({
+      name: b.querySelector('.sw-name').textContent,
+      colours: [...b.querySelectorAll('.sw-strip i')].map((i) => i.style.background).join('|'),
+    }));
+    return { rows, distinct: new Set(rows.map((r) => r.colours)).size };
+  });
+  t('settings: every theme is previewed in its own colours, not the current one',
+    swatches.rows.length === 5 && swatches.distinct === 5,
+    `${swatches.rows.length} themes, ${swatches.distinct} distinct swatch sets`);
+
+  const prefsRound = await page.evaluate(async () => {
+    const P = await import('./assets/js/core/prefs.js');
+    const store = await import('./assets/js/core/store.js');
+    const set = (id, v) => {
+      const el = document.getElementById(id);
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    set('p-holdFor', 2.5);
+    set('p-minMass', 4);
+    set('p-brixFactor', 0.79);
+    const after = P.prefs();
+    const flagged = [...document.querySelectorAll('#capture .pref.is-changed')]
+      .map((n) => n.dataset.key).sort().join();
+    const opts = P.sessionOptions();
+    const out = {
+      hold: after.holdFor, min: after.minMass,
+      // The one that matters most: the store has to see it, because that is
+      // what derives yield for every shot as it is saved.
+      brixInStore: store.getSettings().brixFactor,
+      flagged,
+      // Only what was actually changed is stored, so a later change to a
+      // default still reaches anyone who never disagreed with the old one.
+      changedKeys: Object.keys(P.changed()).sort().join(),
+      passesHold: opts.holdFor,
+      msg: document.getElementById('capture-msg').textContent,
+    };
+    document.getElementById('capture-reset').click();
+    out.afterReset = P.prefs().holdFor;
+    // Reset is per-section: the Brix factor is not a capture threshold and must
+    // survive putting the capture rules back.
+    out.brixSurvives = P.prefs().brixFactor;
+    return out;
+  });
+  t('settings: a capture threshold can be changed, and the session is given it',
+    prefsRound.hold === 2.5 && prefsRound.min === 4 && prefsRound.passesHold === 2.5,
+    `holdFor ${prefsRound.hold} s, sessionOptions passes ${prefsRound.passesHold}`);
+  t('settings: only what you changed is stored, and it says which',
+    prefsRound.changedKeys === 'brixFactor,holdFor,minMass'
+    && prefsRound.flagged === 'holdFor,minMass'
+    && /2 of 8 changed/.test(prefsRound.msg),
+    `stored ${prefsRound.changedKeys}; marked ${prefsRound.flagged}; "${prefsRound.msg}"`);
+  t('settings: the Brix factor finally reaches the store that derives yield',
+    prefsRound.brixInStore === 0.79, `store says ${prefsRound.brixInStore}`);
+  t('settings: resetting the capture rules leaves the rest alone',
+    prefsRound.afterReset === 5 && prefsRound.brixSurvives === 0.79,
+    `holdFor back to ${prefsRound.afterReset}, brix still ${prefsRound.brixSurvives}`);
+
+  // The learned drip lag was invisible and unresettable.
+  const lags = await page.evaluate(async () => {
+    const kit = await import('./assets/js/core/kit.js');
+    const a = kit.saveMachine({ name: 'Test Lag Machine', stop_lag_s: 1.4, stop_lag_n: 9 });
+    await new Promise((r) => setTimeout(r, 60));
+    const row = [...document.querySelectorAll('#lags tbody tr')]
+      .find((tr) => tr.children[0].textContent === 'Test Lag Machine');
+    const shown = row ? [...row.children].slice(0, 3).map((td) => td.textContent).join(' · ') : null;
+    row?.querySelector('button')?.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after = kit.stopLag(a.id);
+    kit.removeMachine(a.id);
+    return { shown, after: after.seconds, learned: after.learned };
+  });
+  t('settings: the drip lag it learned is visible, and can be started over',
+    /1\.40 s/.test(lags.shown ?? '') && /from 9 shots/.test(lags.shown ?? '')
+    && lags.after === 1 && lags.learned === false,
+    `${lags.shown} → ${lags.after} s, learned ${lags.learned}`);
+
+  await page.evaluate(async () => {
+    const P = await import('./assets/js/core/prefs.js');
+    P.reset();
+  });
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal', 'machined']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass']) {
     const system = scheme === 'light' || scheme === 'dark';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
       colorScheme: system ? scheme : 'dark' });
@@ -4879,11 +5100,21 @@ try {
       const ratio = (a, b) => { const [x,y] = [lum(a), lum(b)].sort((m,n)=>n-m);
         return (x + 0.05) / (y + 0.05); };
       let out = { sel: null, r: 99 };
+      // A transparent background is not a white one, and reading it as
+      // rgba(0,0,0,0) scores light-on-dark as 21:1 whichever way round it
+      // really is. So walk up to whatever actually paints behind the element.
+      const behind = (el) => {
+        for (let n = el; n; n = n.parentElement) {
+          const bg = getComputedStyle(n).backgroundColor;
+          const a = bg.startsWith('rgba') ? Number(bg.split(',')[3]) : 1;
+          if (a > 0.5) return bg;
+        }
+        return getComputedStyle(document.body).backgroundColor;
+      };
       for (const sel of ['.brand', '.tag', '.nav a[aria-current="page"]', '.eq', 'th', 'button.primary']) {
         const el = document.querySelector(sel);
         if (!el) continue;
-        const cs = getComputedStyle(el);
-        const r = ratio(cs.color, cs.backgroundColor);
+        const r = ratio(getComputedStyle(el).color, behind(el));
         if (r < out.r) out = { sel, r: Math.round(r * 100) / 100 };
       }
       return out;

@@ -1289,6 +1289,46 @@ Fonts (Archivo, Archivo Black, Space Mono) are self-hosted from `site/assets/fon
 linked from Google Fonts so there is no third-party request, no render-blocking
 dependency on a host outside the project, and the pages render identically offline.
 
+## Settings
+
+Most of this app's configuration was already persisted somewhere. What was not
+persisted anywhere was the set of numbers that decide how the session behaves —
+how heavy a thing has to be before it counts as a dose, how long a reading has to
+sit still before it is taken, how far from the target still counts as on target.
+
+Those were constructor options on `SessionMachine` with sensible defaults and no
+caller ever passing them, which is a particular kind of not-configurable: the
+seam exists, the wire was never run. Every shot ever pulled used the defaults,
+and the defaults were picked by reasoning about what a scale probably does rather
+than by watching one. That mattered, because the capture rules misfired in a real
+kitchen and the only remedy on offer was to edit the source.
+
+`core/prefs.js` owns them now and `settings.html` shows them, each with the
+sentence that explains what it does — the sentence lives beside the number, in
+the module that declares it, because a threshold whose meaning lives in another
+file will eventually be described wrongly. Only what you actually changed is
+stored, so a later change to a default still reaches anyone who never disagreed
+with the old one. Export a session's readings from Live first: the file shows
+what your scale really does, which is the only honest way to set these.
+
+The page also gathers what was reachable but hidden:
+
+- **The Brix factor**, which had a write path with zero callers while silently
+  governing the extraction yield derived for every shot in the log. The
+  calculator let you change it for one calculation and then threw the change
+  away.
+- **The theme**, as five swatches in their own colours rather than a cycle button
+  you press four times to see the third option — plus a way back to following the
+  system, which there was no way to undo before.
+- **The learned drip lag, per machine**, which was measured from your shots,
+  used to call the stop early, and impossible to see, correct or start over.
+- **The tap threshold**, previously behind a connected scale and a collapsed
+  panel called "Device settings".
+- **Discovery options**, which were real settings that reset on every page load,
+  so a scale that needed them needed them typed in again on every visit.
+- **Restoring hidden explanations**, whose one control was in the Live page
+  footer — including for notes hidden on other pages.
+
 ### Design language
 
 Hard edges and offset shadows, no border radius anywhere, Archivo Black for display
@@ -1298,24 +1338,42 @@ Every theme is defined in `site/assets/css/app.css` as custom properties; the ch
 module reads those properties and knows nothing about the palette, which is why
 restyling the site does not touch the maths.
 
-**Four palettes.** Light and dark follow the system preference until you pick one.
-Terminal is green phosphor on black and one typeface for everything — not a novelty,
-but the condition these pages are actually read in: almost entirely numbers, at arm's
+**Five palettes**, and the last two are not palettes.
+
+Light and dark follow the system preference until you pick one. Terminal is green
+phosphor on black and one typeface for everything — not a novelty, but the
+condition these pages are actually read in: almost entirely numbers, at arm's
 length, beside a machine, often in a dark kitchen.
 
-**Machined** is the fourth, and it is the machine on the counter rather than the
-terminal beside it. It came from the Meraki: three matte cylinders and one circular
-display on top, black or white, with an interface reviewers describe as clean and
-functional rather than animated — time, weight and flow, and nothing else asking for
-attention. So the chrome is monochrome aluminium and the only colour in the app is
-warm, and it is spent on the shot. Hairlines instead of marker outlines, corners
-instead of edges, and none of the offset shadow the rest of the app uses: brushed
-metal is machined out of one piece, it is not stacked paper.
+**Machined** is a lit instrument rather than a page with a different palette. The
+first attempt at it was a recolour — the same hard-edged panels in grey and amber
+— and it missed the point. What an appliance display looks like is not a palette,
+it is a rendering model: nothing is drawn with an outline, everything is lit.
+Surfaces glow faintly from within, an edge is a hairline of light rather than a
+border, and the one thing that matters is a ring in the middle with the reading
+inside it.
 
-It is designed from the machine's character, not sampled from its screen. Every
-review page carrying a close photograph of the display is unreachable from this
-sandbox, so the palette is an interpretation and the code says so rather than
+So it does three things a palette cannot. Every border becomes a light edge and
+every panel a gradient with a direction. The shot becomes the only colour on the
+screen. And the dial stops being a half circle and becomes a three-quarter ring
+with a tick rim, an inner flow track and a travelling head — which is the part
+CSS cannot reach, because a path's geometry is in the path. `core/gauge.js` holds
+a table of which shape each theme wants, and reshaping keeps whatever reading was
+on the dial: rebuilding it empty would blank it until the next sample, which on a
+scale that has settled is forever.
+
+It is drawn from the Meraki — three matte cylinders and a circular display on top,
+with an interface reviewers describe as clean and functional rather than animated
+— but from the machine's character, not from its screen. Every review page
+carrying a close photograph of that display is unreachable from the sandbox this
+was written in, so the palette is an interpretation and says so rather than
 claiming a match.
+
+**Glass** changes the material and nothing else. Same layout, same dial shape,
+but translucent panes floating over a ground that has colour in it, each blurring
+what is behind it, with edges that fade rather than stop. Having both is
+deliberate: one theme changes where things are, the other changes only what they
+are made of.
 
 Page headings state the tool's name. No rhetorical questions, no taglines.
 
