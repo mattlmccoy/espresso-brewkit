@@ -844,7 +844,7 @@ import { svg as qrSvg } from './assets/js/core/qr.js';
 import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
 import { shotDial } from './assets/js/core/dial.js';
-import { mountGauge } from './assets/js/core/gauge.js';
+import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
 import * as cue from './assets/js/core/cue.js';
@@ -1662,7 +1662,10 @@ function paintLadder(s) {
   }
 }
 
-const brewGauge = mountGauge($('brew-gauge'));
+// Shape is the one part of a theme CSS cannot reach, so the dial is reshaped
+// when the theme changes. It keeps whatever was on it.
+const brewGauge = mountGauge($('brew-gauge'), { geo: geoFor(currentTheme()) });
+document.addEventListener('brewkit:theme', () => brewGauge.setGeo(geoFor(currentTheme())));
 
 /**
  * The middle panel while it pours: the curve, and beside it the reading the
@@ -1679,7 +1682,7 @@ function paintPourTop(s, { lands, eta }) {
   const d = brew.state === BREW.EXTRACTING || brew.state === BREW.DRIPPING
     ? shotDial(sess.method, dose, { net: s.net, target: targetYield() })
     : null;
-  brewGauge.paint(d);
+  brewGauge.paint(d, { flow: s.flow, flowMax: 4 });
   setText('c-t', fmt(s.elapsed, 1));
   setText('c-f', fmt(s.flow, 2));
   setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0

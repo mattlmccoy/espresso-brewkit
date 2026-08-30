@@ -1298,24 +1298,42 @@ Every theme is defined in `site/assets/css/app.css` as custom properties; the ch
 module reads those properties and knows nothing about the palette, which is why
 restyling the site does not touch the maths.
 
-**Four palettes.** Light and dark follow the system preference until you pick one.
-Terminal is green phosphor on black and one typeface for everything — not a novelty,
-but the condition these pages are actually read in: almost entirely numbers, at arm's
+**Five palettes**, and the last two are not palettes.
+
+Light and dark follow the system preference until you pick one. Terminal is green
+phosphor on black and one typeface for everything — not a novelty, but the
+condition these pages are actually read in: almost entirely numbers, at arm's
 length, beside a machine, often in a dark kitchen.
 
-**Machined** is the fourth, and it is the machine on the counter rather than the
-terminal beside it. It came from the Meraki: three matte cylinders and one circular
-display on top, black or white, with an interface reviewers describe as clean and
-functional rather than animated — time, weight and flow, and nothing else asking for
-attention. So the chrome is monochrome aluminium and the only colour in the app is
-warm, and it is spent on the shot. Hairlines instead of marker outlines, corners
-instead of edges, and none of the offset shadow the rest of the app uses: brushed
-metal is machined out of one piece, it is not stacked paper.
+**Machined** is a lit instrument rather than a page with a different palette. The
+first attempt at it was a recolour — the same hard-edged panels in grey and amber
+— and it missed the point. What an appliance display looks like is not a palette,
+it is a rendering model: nothing is drawn with an outline, everything is lit.
+Surfaces glow faintly from within, an edge is a hairline of light rather than a
+border, and the one thing that matters is a ring in the middle with the reading
+inside it.
 
-It is designed from the machine's character, not sampled from its screen. Every
-review page carrying a close photograph of the display is unreachable from this
-sandbox, so the palette is an interpretation and the code says so rather than
+So it does three things a palette cannot. Every border becomes a light edge and
+every panel a gradient with a direction. The shot becomes the only colour on the
+screen. And the dial stops being a half circle and becomes a three-quarter ring
+with a tick rim, an inner flow track and a travelling head — which is the part
+CSS cannot reach, because a path's geometry is in the path. `core/gauge.js` holds
+a table of which shape each theme wants, and reshaping keeps whatever reading was
+on the dial: rebuilding it empty would blank it until the next sample, which on a
+scale that has settled is forever.
+
+It is drawn from the Meraki — three matte cylinders and a circular display on top,
+with an interface reviewers describe as clean and functional rather than animated
+— but from the machine's character, not from its screen. Every review page
+carrying a close photograph of that display is unreachable from the sandbox this
+was written in, so the palette is an interpretation and says so rather than
 claiming a match.
+
+**Glass** changes the material and nothing else. Same layout, same dial shape,
+but translucent panes floating over a ground that has colour in it, each blurring
+what is behind it, with edges that fade rather than stop. Having both is
+deliberate: one theme changes where things are, the other changes only what they
+are made of.
 
 Page headings state the tool's name. No rhetorical questions, no taglines.
 

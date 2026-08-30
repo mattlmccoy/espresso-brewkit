@@ -293,8 +293,8 @@ try {
     return { seen, themes: THEMES, order: THEMES.join(','),
              at: document.documentElement.getAttribute('data-theme') };
   });
-  t('theme: four of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,machined'
+  t('theme: five of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal,machined,glass'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
       const order = cycle.themes;
@@ -313,32 +313,123 @@ try {
     term.sans === term.disp && /Space Mono|monospace/i.test(term.font),
     `${term.font.slice(0, 40)} · ink ${term.ink}`);
 
-  // Machined is the machine on the counter: monochrome metal, one warm signal,
-  // hairlines and corners rather than marker outlines and stacked paper.
+  // Machined is a lit instrument, not a page with a different palette. The
+  // first attempt at it was a recolour of the same hard-edged panels, which is
+  // exactly what these assertions have to be able to tell apart: nothing is
+  // drawn with an outline, everything is lit from a single source.
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
-  // Buttons transition their shadow, and a computed style read mid-transition
+  // Surfaces transition their shadow, and a computed style read mid-transition
   // is a half-interpolated value that says nothing about either theme.
   await page.waitForTimeout(250);
   const mach = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
-    const btn = getComputedStyle(document.querySelector('button'));
+    const panel = getComputedStyle(document.querySelector('.bx'));
     // How far a colour is from grey, on a 0-255 scale.
     const chroma = (c) => { const [r, g, b] = c.replace('#', '').match(/../g)
       .map((h) => parseInt(h, 16)); return Math.max(r, g, b) - Math.min(r, g, b); };
-    return { bg: v('--bg'), ink: v('--ink'), accent: v('--accent'),
-             bw: parseFloat(v('--bw')), sh: parseFloat(v('--sh')),
-             radius: parseFloat(btn.borderTopLeftRadius),
-             shadow: btn.boxShadow,
+    return { accent: v('--accent'),
+             border: parseFloat(panel.borderTopWidth),
+             radius: parseFloat(panel.borderTopLeftRadius),
+             shadow: panel.boxShadow,
              greys: [chroma(v('--bg')), chroma(v('--ink')), chroma(v('--panel'))],
              warm: chroma(v('--accent')) };
   });
-  t('theme: machined keeps the chrome grey and spends colour only on the shot',
-    Math.max(...mach.greys) <= 6 && mach.warm >= 60,
+  t('theme: machined keeps the chrome near-grey and spends colour on the shot',
+    // A slight cool cast is the instrument's own; what must not happen is a
+    // second hue competing with the one the pour is drawn in.
+    Math.max(...mach.greys) <= 12 && mach.warm >= 60,
     `chrome chroma ${mach.greys.join('/')}, accent ${mach.accent} at ${mach.warm}`);
-  t('theme: hairlines and corners, and none of the stacked-paper shadow',
-    mach.bw < 2 && mach.sh === 0 && mach.radius >= 8 && mach.shadow === 'none',
-    `${mach.bw}px rules, ${mach.radius}px corners, shadow ${mach.shadow}`);
+  t('theme: nothing is outlined and every surface is lit from one source',
+    mach.border === 0 && mach.radius >= 8
+    && /inset/.test(mach.shadow) && /rgba\(255, 255, 255/.test(mach.shadow)
+    // The brutalist offset slab — an opaque shadow at a diagonal offset with
+    // no blur — is the thing this theme is not.
+    && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(mach.shadow),
+    `${mach.border}px border, ${mach.radius}px corners, shadow ${mach.shadow}`);
+
+  // And the dial is a different shape, which is the part a stylesheet cannot
+  // reach: a path's geometry is in the path.
+  const shapes = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const D = await import('./assets/js/core/dial.js');
+    const half = G.geoFor('dark');
+    const ring = G.geoFor('machined');
+    const box = document.createElement('div');
+    document.body.append(box);
+    const mounted = G.mountGauge(box, { geo: ring });
+    const out = {
+      halfSpan: +(half.span / Math.PI).toFixed(2),
+      ringSpan: +(ring.span / Math.PI).toFixed(2),
+      isRing: mounted.ring,
+      rim: box.querySelectorAll('.g-rim-t').length,
+      // Past half a turn the arc has to say so, or SVG draws the short way
+      // round and the band silently becomes its own complement.
+      large: D.arc(0, 1, ring).includes(' 1 1 '),
+      shortNotLarge: D.arc(0, 0.2, ring).includes(' 0 1 '),
+    };
+    box.remove();
+    return out;
+  });
+  // Glass changes the material and nothing else: same layout, same dial shape,
+  // but no element is outlined and every surface is translucent over a ground
+  // that has colour in it. A pane with nothing behind it is just grey.
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass'));
+  await page.waitForTimeout(250);
+  const glass = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const panel = getComputedStyle(document.querySelector('.bx'));
+    const body = getComputedStyle(document.body);
+    // parseFloat, not Number: the fourth part is " 0)" and Number(" 0)") is NaN.
+    const alpha = (c) => (c.startsWith('rgba') ? parseFloat(c.split(',')[3]) : 1);
+    return {
+      border: parseFloat(panel.borderTopWidth),
+      blur: panel.backdropFilter || panel.webkitBackdropFilter,
+      // The panel's own fill must let the ground through, or the blur is
+      // doing work nobody can see.
+      translucent: /gradient/.test(panel.backgroundImage)
+        && /rgba\(255, 255, 255, 0\./.test(panel.backgroundImage),
+      ground: /gradient/.test(body.backgroundImage),
+      shape: G.geoFor('glass').span === Math.PI,
+      brandBg: alpha(getComputedStyle(document.querySelector('.brand')).backgroundColor),
+    };
+  });
+  t('theme: glass is translucent panes over a ground, not outlined boxes',
+    glass.border === 0 && /blur/.test(glass.blur) && glass.translucent === true
+    && glass.ground === true && glass.brandBg === 0,
+    `border ${glass.border}px, ${glass.blur}, ground ${glass.ground}`);
+  t('theme: and it changes the material without moving anything',
+    glass.shape === true, 'the dial keeps its half circle');
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
+
+  // Reshaping must not blank it. The first version rebuilt the SVG on the
+  // theme event and left it empty until the next sample — which, on a scale
+  // that has settled, is forever.
+  const reshaped = await page.evaluate(async () => {
+    const G = await import('./assets/js/core/gauge.js');
+    const { shotDial } = await import('./assets/js/core/dial.js');
+    const box = document.createElement('div');
+    document.body.append(box);
+    const g = G.mountGauge(box, { geo: G.geoFor('dark') });
+    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }), { flow: 2 });
+    const before = box.querySelector('.g-n').textContent;
+    g.setGeo(G.geoFor('machined'));
+    const out = { before, after: box.querySelector('.g-n').textContent,
+                  ring: box.classList.contains('is-ring'),
+                  zones: box.querySelectorAll('.g-zone').length };
+    box.remove();
+    return out;
+  });
+  t('theme: reshaping the dial keeps the reading that was on it',
+    reshaped.before === '24.0' && reshaped.after === '24.0'
+    && reshaped.ring === true && reshaped.zones === 3,
+    `${reshaped.before} → ${reshaped.after}, ring ${reshaped.ring}, ${reshaped.zones} zones redrawn`);
+
+  t('theme: and it swaps the half circle for a ring, which CSS cannot do',
+    shapes.halfSpan === 1 && shapes.ringSpan === 1.5 && shapes.isRing === true
+    && shapes.rim > 0 && shapes.large === true && shapes.shortNotLarge === true,
+    `${shapes.halfSpan}π vs ${shapes.ringSpan}π, ${shapes.rim} rim ticks, `
+    + `large-arc flag ${shapes.large}`);
   await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('brewkit.theme', 'light');
@@ -4892,7 +4983,7 @@ try {
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal', 'machined']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass']) {
     const system = scheme === 'light' || scheme === 'dark';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
       colorScheme: system ? scheme : 'dark' });
@@ -4914,11 +5005,21 @@ try {
       const ratio = (a, b) => { const [x,y] = [lum(a), lum(b)].sort((m,n)=>n-m);
         return (x + 0.05) / (y + 0.05); };
       let out = { sel: null, r: 99 };
+      // A transparent background is not a white one, and reading it as
+      // rgba(0,0,0,0) scores light-on-dark as 21:1 whichever way round it
+      // really is. So walk up to whatever actually paints behind the element.
+      const behind = (el) => {
+        for (let n = el; n; n = n.parentElement) {
+          const bg = getComputedStyle(n).backgroundColor;
+          const a = bg.startsWith('rgba') ? Number(bg.split(',')[3]) : 1;
+          if (a > 0.5) return bg;
+        }
+        return getComputedStyle(document.body).backgroundColor;
+      };
       for (const sel of ['.brand', '.tag', '.nav a[aria-current="page"]', '.eq', 'th', 'button.primary']) {
         const el = document.querySelector(sel);
         if (!el) continue;
-        const cs = getComputedStyle(el);
-        const r = ratio(cs.color, cs.backgroundColor);
+        const r = ratio(getComputedStyle(el).color, behind(el));
         if (r < out.r) out = { sel, r: Math.round(r * 100) / 100 };
       }
       return out;

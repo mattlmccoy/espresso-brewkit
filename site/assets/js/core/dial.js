@@ -23,21 +23,38 @@ import { stylesFor, landmarks, ladderScale, styleOf } from './styles.js';
  *
  * The numbers are the laptop's, kept so the two dials are the same shape at
  * different sizes rather than two dials that happen to both be round.
+ *
+ * `a0` is where fraction 0 sits and `span` how far the scale sweeps, both in
+ * radians. They are here so the same arithmetic can draw a instrument ring as
+ * well as a half circle: a theme that reorganises the page around one big dial
+ * needs a different sweep, and it should not need a different dial.
  */
-export const GEO = { cx: 100, cy: 108, r: 86 };
-
-/** Length of the full arc, for stroke-dasharray. */
-export const arcLength = (geo = GEO) => geo.r * Math.PI;
+export const GEO = { cx: 100, cy: 108, r: 86, a0: 0, span: Math.PI };
 
 /**
- * A point on the arc. Fraction 0 is the left end, 1 the right.
+ * Most of a circle, with a gap at the bottom, in a 200x200 box.
  *
- * Left to right, so it fills the way a bar does and the way English reads.
- * Getting this backwards puts every band on the opposite side of the dial from
- * the arc that is supposed to reach it, and it looks plausible either way.
+ * Three quarters of a turn starting at the lower left, which is the shape a
+ * gauge on an appliance takes: the opening at the bottom is where the scale
+ * starts and ends, so the reading has somewhere to sit in the middle.
+ */
+export const RING = { cx: 100, cy: 100, r: 72, a0: -Math.PI / 4, span: Math.PI * 1.5 };
+
+const spanOf = (geo) => (Number.isFinite(geo?.span) ? geo.span : Math.PI);
+
+/** Length of the full arc, for stroke-dasharray. */
+export const arcLength = (geo = GEO) => geo.r * spanOf(geo);
+
+/**
+ * A point on the arc. Fraction 0 is the start of the sweep, 1 the end.
+ *
+ * For the half circle that is left to right, so it fills the way a bar does and
+ * the way English reads. Getting this backwards puts every band on the opposite
+ * side of the dial from the arc that is supposed to reach it, and it looks
+ * plausible either way.
  */
 export function point(frac, geo = GEO) {
-  const a = Math.PI * Math.max(0, Math.min(1, frac));
+  const a = (geo.a0 ?? 0) + spanOf(geo) * Math.max(0, Math.min(1, frac));
   return [geo.cx - geo.r * Math.cos(a), geo.cy - geo.r * Math.sin(a)];
 }
 
@@ -48,7 +65,10 @@ export function arc(from, to, geo = GEO) {
   if (!(b > a)) return '';
   const [x1, y1] = point(a, geo);
   const [x2, y2] = point(b, geo);
-  return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${geo.r} ${geo.r} 0 0 1 `
+  // Past half a turn SVG needs telling, or it draws the short way round and the
+  // band silently becomes its own complement.
+  const large = (b - a) * spanOf(geo) > Math.PI ? 1 : 0;
+  return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${geo.r} ${geo.r} 0 ${large} 1 `
     + `${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 

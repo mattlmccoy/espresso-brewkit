@@ -116,61 +116,245 @@
   :root[data-theme="terminal"] h1::after { animation: none; }
 }
 
-/* Machined: the espresso machine on the counter rather than the terminal
-   beside it.
+/* Machined: a lit instrument, not a page with a different palette.
+   ------------------------------------------------------------------
+   The first attempt at this was a recolour — the same hard-edged panels in
+   grey and amber — and it missed the point. What an appliance display looks
+   like is not a palette, it is a rendering model: nothing is drawn with an
+   outline, everything is lit. Surfaces glow faintly from within, edges are a
+   single hairline of light rather than a border, and the one thing that
+   matters is a ring in the middle with the reading inside it.
 
-   Drawn from the Meraki: three matte cylinders and one circular display on
-   top, in black or white, with the interface reviewers describe as clean and
-   functional rather than animated — time, weight and flow, and nothing else
-   asking for attention.
+   So this theme does three things a palette cannot:
+     - it replaces every border with a light edge and every panel with a
+       gradient that has a top-lit direction;
+     - it turns the dial into a three-quarter ring with a tick rim, an inner
+       flow track and a travelling head (the shape swap is in core/gauge.js,
+       because a path's geometry is in the path);
+     - it lets the shot be the only source of colour on the screen.
 
-   What that means here is monochrome and one warm signal. Everything is
-   aluminium grey or off-white except the things the shot is actually doing,
-   which are the colour of the coffee. Hairlines instead of marker outlines,
-   corners instead of edges, and none of the offset shadow the rest of the app
-   uses — brushed metal is machined out of one piece, it is not stacked paper.
-
-   It is designed from the machine's character, not sampled from its screen:
-   every review site carrying a close photograph of the display is unreachable
-   from here, so the palette is an interpretation and is not claimed to match.
-   Explicit only, like terminal. */
+   Explicit only. Nothing about a system preference asks for this. */
 :root[data-theme="machined"] {
-  --bg:#0b0b0c; --panel:#151517; --panel-2:#1e1e21;
-  --ink:#ededec; --ink-dim:#b6b6b3; --ink-mute:#8a8a85; --hair:#34343a;
-  /* --flag is the highlighter, not the error colour: it backs a hovered row,
-     a hovered nav item, and the ring around a dose that has landed in its
-     window. So it is the accent lit up rather than a second hue — near enough
-     to read as the same signal, far enough that a hovered row is visibly
-     brighter than a button. */
-  --accent:#e3a24a; --accent-ink:#0b0b0c; --fit:#7fb6cc; --flag:#f5c26b;
-  --tag-fg:#0b0b0c;
-  --band-a:.10;
-  --warn:#e3a24a; --warn-bg:#2a2015;
-  /* One weight of one typeface. A display face would be the flashiness the
-     machine deliberately does not have. */
+  --bg:#08090b; --panel:#111318; --panel-2:#171a21;
+  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#6e7686; --hair:#262b35;
+  --accent:#e9a44b; --accent-ink:#08090b; --fit:#5fc8d8; --flag:#f6c473;
+  --tag-fg:#08090b;
+  --band-a:.12;
+  --warn:#e9a44b; --warn-bg:#241a0e;
+  /* One typeface. A display face is exactly the flourish an instrument does
+     not have. */
   --disp: var(--sans);
-  --bw: 1.5px;
+  --bw: 1px;
   --sh: 0px;
+  /* The light itself, so every surface refers to one source rather than each
+     inventing its own. */
+  --lit: rgb(255 255 255 / 7%);
+  --glow: color-mix(in srgb, var(--accent) 55%, transparent);
 }
-:root[data-theme="machined"] :is(.bx, button, input, select, textarea, .tag) {
-  border-radius: 10px;
+
+/* Nothing is bordered; everything is lit. The inset hairline is the top edge
+   catching the light, the outer shadow is the surface sitting above the one
+   behind it. */
+:root[data-theme="machined"] :is(.bx, .panel) {
+  border:0;
+  border-radius:14px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  box-shadow:inset 0 1px 0 var(--lit),
+             inset 0 0 0 1px rgb(255 255 255 / 4%),
+             0 10px 30px rgb(0 0 0 / 45%);
+}
+/* The page itself has a light source: a soft pool behind the middle of the
+   screen, so panels sit in a room rather than on a flat field. */
+:root[data-theme="machined"] body {
+  background:
+    radial-gradient(120% 70% at 50% -10%, #12151c 0%, transparent 60%),
+    var(--bg);
 }
 :root[data-theme="machined"] :is(button, input, select, textarea) {
-  border-width: var(--bw);
+  border:0; border-radius:10px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 5%);
+  color:var(--ink);
 }
-/* The offset shadow is drawn by a hardcoded rule rather than by --sh, so
-   zeroing the token is not enough to take it off a button. */
-:root[data-theme="machined"] button,
-:root[data-theme="machined"] button:active { box-shadow: none; }
-/* A pressed button on a machine travels; it does not slide sideways out from
-   under a shadow that is not there. */
-:root[data-theme="machined"] button:active { transform: scale(.975); }
 :root[data-theme="machined"] button:hover:not(:disabled):not([aria-pressed="true"]) {
-  transform: none; box-shadow: none; background: var(--panel-2); color: var(--ink);
+  transform:none; background:var(--panel-2); color:var(--ink);
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 10%);
+}
+/* A control on a machine travels when you press it. It does not slide out from
+   under a shadow that is not there. */
+:root[data-theme="machined"] button:active { transform:scale(.975); box-shadow:none; }
+:root[data-theme="machined"] button.primary {
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 92%, white), var(--accent));
+  color:var(--accent-ink);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 35%), 0 4px 14px var(--glow);
 }
 :root[data-theme="machined"] button.primary:hover:not(:disabled) {
-  background: var(--accent); color: var(--accent-ink); filter: brightness(1.12);
+  background:linear-gradient(180deg, white, var(--accent));
+  color:var(--accent-ink);
 }
+/* The big readout keeps its accent, and gains the light. Without this the
+   panel rule above wins on specificity and leaves near-black type on a
+   near-black tile — the number the whole page exists for, unreadable. */
+:root[data-theme="machined"] .st.hero {
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--accent) 92%, white), var(--accent));
+  color:var(--accent-ink);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 35%), 0 8px 26px var(--glow);
+}
+:root[data-theme="machined"] .tag {
+  border-radius:999px; background:var(--panel-2); color:var(--ink-dim);
+  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 8%);
+}
+/* The wordmark is a slab of pure --ink everywhere else, which on a lit screen
+   is a rectangle of white light and the brightest thing on the page. Here it is
+   type, not a block. */
+:root[data-theme="machined"] .brand {
+  background:none; color:var(--ink); padding:7px 0;
+  letter-spacing:.02em; }
+:root[data-theme="machined"] .nav a {
+  border:0; border-radius:999px; background:var(--panel);
+  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 7%); }
+:root[data-theme="machined"] .nav a[aria-current="page"] {
+  background:var(--accent); color:var(--accent-ink);
+  box-shadow:0 3px 12px var(--glow); }
+:root[data-theme="machined"] .badge { border-radius:999px; border:0;
+  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 10%); }
+
+/* ---- the dial, which is the whole point ----
+   Three quarters of a turn, a tick rim, flow on its own inner track, and the
+   reading in the middle of it rather than under it. */
+:root[data-theme="machined"] .gauge { border:0; background:none;
+  box-shadow:none; padding:0; }
+:root[data-theme="machined"] .g-rim,
+:root[data-theme="machined"] .g-flowtrack,
+:root[data-theme="machined"] .g-flow,
+:root[data-theme="machined"] .g-head { display:block; }
+:root[data-theme="machined"] .g-track { stroke:rgb(255 255 255 / 6%); stroke-width:13; }
+:root[data-theme="machined"] .g-zone { stroke-width:13; }
+:root[data-theme="machined"] .g-zone.z-ristretto,
+:root[data-theme="machined"] .g-zone.z-lungo {
+  stroke:color-mix(in srgb, var(--accent) 16%, transparent); }
+:root[data-theme="machined"] .g-zone.z-espresso {
+  stroke:color-mix(in srgb, var(--accent) 26%, transparent); }
+:root[data-theme="machined"] .g-zone.here {
+  stroke:color-mix(in srgb, var(--accent) 45%, transparent); }
+/* The arc that has actually happened is the lit one. */
+:root[data-theme="machined"] .g-now {
+  stroke:var(--accent); stroke-width:13; stroke-linecap:round;
+  filter:drop-shadow(0 0 6px var(--glow)); }
+:root[data-theme="machined"] .g-head {
+  fill:#fff; filter:drop-shadow(0 0 7px var(--accent)); }
+:root[data-theme="machined"] .g-tick { stroke:var(--ink-mute); }
+:root[data-theme="machined"] .g-tick.is-target { stroke:var(--ink); }
+/* Centred in the ring, and big: on a machine the reading is the screen. */
+:root[data-theme="machined"] .gauge.is-ring .g-read {
+  top:50%; bottom:auto; transform:translateY(-50%); }
+:root[data-theme="machined"] .gauge.is-ring .g-n {
+  font-size:44px; letter-spacing:-.02em; }
+:root[data-theme="machined"] .g-sub { color:var(--ink-mute); }
+
+/* Glass: the same layout, rendered with depth instead of outlines.
+   ------------------------------------------------------------------
+   Where machined is an instrument, this is a surface: translucent panels
+   floating over a coloured ground, each one blurring what is behind it, with
+   edges that fade rather than stop. Nothing here is a border — the edge of a
+   panel is a gradient of light along its top and a shadow beneath it, which is
+   how a real pane of glass announces itself.
+
+   It keeps every position the brutalist layout puts things in. That is the
+   point of having it as well as machined: one theme changes where things are,
+   this one changes only what they are made of.
+
+   Explicit only. */
+:root[data-theme="glass"] {
+  --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
+  --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#7d8698; --hair:#2b3243;
+  --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
+  --tag-fg:#0b0e15;
+  --band-a:.13;
+  --warn:#f0b357; --warn-bg:#2a220f;
+  --bw: 1px;
+  --sh: 0px;
+  /* One pane, described once. Every surface below refers to these rather than
+     inventing its own translucency, which is what keeps a page of them looking
+     like one material. */
+  --pane: rgb(255 255 255 / 6%);
+  --pane-lit: rgb(255 255 255 / 14%);
+  --pane-edge: rgb(255 255 255 / 10%);
+}
+/* The ground the glass sits on. Without something coloured behind it there is
+   nothing for a pane to be translucent *to*, and the whole theme collapses
+   into flat grey. */
+:root[data-theme="glass"] body {
+  background:
+    radial-gradient(70% 55% at 12% 0%, rgb(122 162 255 / 16%), transparent 62%),
+    radial-gradient(60% 50% at 92% 12%, rgb(255 159 110 / 12%), transparent 60%),
+    radial-gradient(80% 60% at 50% 108%, rgb(122 162 255 / 10%), transparent 65%),
+    var(--bg);
+  background-attachment: fixed;
+}
+:root[data-theme="glass"] :is(.bx, .panel) {
+  border:0;
+  border-radius:16px;
+  background:linear-gradient(160deg, var(--pane-lit), var(--pane));
+  -webkit-backdrop-filter:blur(18px) saturate(1.4);
+  backdrop-filter:blur(18px) saturate(1.4);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 18%),
+             inset 0 0 0 1px var(--pane-edge),
+             0 16px 40px rgb(0 0 0 / 35%);
+}
+:root[data-theme="glass"] :is(button, input, select, textarea) {
+  border:0; border-radius:11px;
+  background:linear-gradient(160deg, var(--pane-lit), var(--pane));
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 16%), inset 0 0 0 1px var(--pane-edge);
+  color:var(--ink);
+}
+:root[data-theme="glass"] button:hover:not(:disabled):not([aria-pressed="true"]) {
+  transform:none; color:var(--ink);
+  background:linear-gradient(160deg, rgb(255 255 255 / 20%), rgb(255 255 255 / 10%));
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 24%), inset 0 0 0 1px rgb(255 255 255 / 18%);
+}
+:root[data-theme="glass"] button:active { transform:scale(.98); }
+:root[data-theme="glass"] button.primary {
+  background:linear-gradient(160deg,
+    color-mix(in srgb, var(--accent) 90%, white), var(--accent));
+  color:var(--accent-ink);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 40%),
+             0 8px 24px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+:root[data-theme="glass"] button.primary:hover:not(:disabled) {
+  background:linear-gradient(160deg, white, var(--accent)); color:var(--accent-ink);
+}
+/* The wordmark is a slab of pure --ink elsewhere, which on glass is an opaque
+   brick sitting on top of the one material the theme is made of. */
+:root[data-theme="glass"] .brand { background:none; color:var(--ink); padding:7px 0; }
+:root[data-theme="glass"] :is(.tag, .badge) {
+  border:0; border-radius:999px; background:var(--pane); color:var(--ink-dim);
+  box-shadow:inset 0 0 0 1px var(--pane-edge);
+}
+:root[data-theme="glass"] .nav a {
+  border:0; border-radius:999px; background:var(--pane);
+  box-shadow:inset 0 0 0 1px var(--pane-edge);
+}
+:root[data-theme="glass"] .nav a[aria-current="page"] {
+  background:var(--accent); color:var(--accent-ink);
+}
+:root[data-theme="glass"] .st.hero {
+  background:linear-gradient(160deg,
+    color-mix(in srgb, var(--accent) 88%, white), var(--accent));
+  color:var(--accent-ink);
+  box-shadow:inset 0 1px 0 rgb(255 255 255 / 40%),
+             0 12px 32px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+/* The dial keeps its half circle here — this theme changes the material, not
+   the furniture — but it stops being a bordered box. */
+:root[data-theme="glass"] .gauge { border:0; background:none; box-shadow:none; padding:0; }
+:root[data-theme="glass"] .g-track { stroke:rgb(255 255 255 / 8%); }
+:root[data-theme="glass"] .g-now { stroke:var(--accent);
+  filter:drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 55%, transparent)); }
 
 /* ---------- the shot dial ----------
    Mounted by core/gauge.js, worn by the viewer and the brew page. The zones are
@@ -181,8 +365,23 @@
   background:var(--panel); padding:10px 12px 12px; }
 .gauge[hidden] { display:none; }
 .gauge svg { display:block; width:100%; height:auto; max-height:180px; }
+.gauge.is-ring svg { max-height:none; }
 .gauge path, .gauge line { fill:none; stroke-linecap:butt; }
 .g-track { stroke:var(--hair); stroke-width:15; }
+/* The rim and the inner flow track are the instrument's furniture: off by
+   default, because the half circle sits in a panel with a chart under it and
+   has no room for either. A theme organised around the dial turns them on. */
+.g-rim, .g-flowtrack, .g-flow, .g-head { display:none; }
+.g-rim-t { stroke:var(--hair); stroke-width:1; }
+.g-rim-t.is-major { stroke:var(--ink-mute); stroke-width:1.6; }
+.g-flowtrack { stroke:var(--hair); stroke-width:3; }
+.g-flow { stroke:var(--fit); stroke-width:3;
+  transition:stroke-dashoffset var(--t-fast) var(--ease-out); }
+.g-head { fill:var(--ink); stroke:none;
+  transition:cx var(--t-fast) var(--ease-out), cy var(--t-fast) var(--ease-out); }
+.g-label { font:700 7px/1 var(--mono); letter-spacing:.1em; fill:var(--ink-mute);
+  text-anchor:middle; stroke:none; }
+.g-label.is-target { fill:var(--ink-dim); }
 .g-zone { stroke-width:15; }
 .g-zone.z-ristretto { stroke:color-mix(in srgb, var(--accent) 22%, transparent); }
 .g-zone.z-espresso  { stroke:color-mix(in srgb, var(--accent) 42%, transparent); }
@@ -197,7 +396,9 @@
 .g-u { font:700 13px/1 var(--sans); opacity:.6; margin-left:2px; }
 .g-sub { font:700 11px/1.3 var(--mono); letter-spacing:.05em; color:var(--ink-dim);
   margin-top:3px; }
-@media (prefers-reduced-motion: reduce) { .g-now { transition:none; } }
+@media (prefers-reduced-motion: reduce) {
+  .g-now, .g-flow, .g-head { transition:none; }
+}
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }

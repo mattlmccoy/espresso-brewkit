@@ -357,7 +357,7 @@
 </div>
 
 <script type="module">
-import { initTheme, paintFlow, applyTheme, themeChosen } from './assets/js/ui.js';
+import { initTheme, paintFlow, applyTheme, themeChosen, currentTheme } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import * as cue from './assets/js/core/cue.js';
@@ -367,7 +367,7 @@ import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
   from './assets/js/core/styles.js';
 import { shotDial } from './assets/js/core/dial.js';
-import { mountGauge } from './assets/js/core/gauge.js';
+import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 initTheme();
 
 const $ = (id) => document.getElementById(id);
@@ -468,14 +468,17 @@ function wearTheme(theme) {
  * showing a dial at two thirds beside a glass at half.
  */
 let zoneSig = '';
-const gauge = mountGauge($('gauge'));
+// Shape is the one part of a theme CSS cannot reach, so the dial is reshaped
+// when the theme changes. It keeps whatever was on it.
+const gauge = mountGauge($('gauge'), { geo: geoFor(currentTheme()) });
+document.addEventListener('brewkit:theme', () => gauge.setGeo(geoFor(currentTheme())));
 
 function paintGauge(f) {
   const brewing = f.st === 'extracting' || f.st === 'dripping';
   const d = brewing
     ? shotDial(f.method, f.dose, { net: f.w, target: f.target })
     : null;
-  gauge.paint(d);
+  gauge.paint(d, { flow: f.q, flowMax: 4 });
   $('vol').hidden = !d;
   $('now-style').hidden = !d;
   if (!d) { zoneSig = ''; return; }
