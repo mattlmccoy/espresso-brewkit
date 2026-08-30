@@ -1245,20 +1245,91 @@ try {
     return {
       // Healthy: ramps up, sags gently, pump cuts at 28 s.
       clean: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.6 : t < 28 ? 1.8 - (t - 5) * 0.012 : 0.05), { ratio: 2 }),
-      // A channel opening at 16 s: flow climbs when it should be sagging.
-      channel: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5 : t < 30 ? 1.4 + Math.max(0, t - 16) * 0.09 : 0.04), { ratio: 2.4 }),
+      // A channel opening at 16 s: flow STEPS. The signature is the
+      // discontinuity, not the direction — see the rising-flow case below.
+      channel: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 16 ? 1.4 : t < 30 ? 2.5 : 0.04), { ratio: 2.4 }),
+      // AND THE CASE THAT USED TO BE MISREAD. Flow climbing steadily through
+      // the back half is what puck resistance falling looks like, which is
+      // nearly every shot. The old rule called this channelling at high
+      // severity and sent people off to fix their distribution.
+      rising: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 30 ? 1.4 + (t - 5) * 0.022 : 0.04), { ratio: 2.4 }),
+      // A ristretto, correctly made. EY = ratio x TDS, so it CANNOT reach the
+      // conventional band; the old rule flagged every one of them.
+      ristretto: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 26 ? 1.2 - (t - 5) * 0.008 : 0.04), { ratio: 1.3, ey_pct: 15.2 }),
       // Choked: nothing for 14 s, then a trickle.
       choked: codes(build((t) => (t < 14 ? 0 : t < 33 ? 0.45 : 0)), { ratio: 1.4 }),
       // Gusher: water through almost immediately, fast throughout.
       gusher: codes(build((t) => (t < 1 ? 0 : t < 12 ? 2.9 : 0.03)), { ratio: 2 }),
     };
   });
+  // THE KNOWLEDGE BANK'S OWN CONTRACTS.
+  // The point of the file is that a claim carries its evidence, so the checks
+  // are structural: nothing may assert without a class, nothing established may
+  // be uncited, and the app must not be caught saying something it has itself
+  // listed as refuted.
+  const kb = await page.evaluate(async () => {
+    const k = await import('./assets/js/core/knowledge.js');
+    const classes = ['established', 'practice', 'contested'];
+    const bad = [];
+    for (const [id, c] of Object.entries(k.CLAIMS)) {
+      if (!classes.includes(c.confidence)) bad.push(`${id}: class "${c.confidence}"`);
+      if (!c.say || !c.because) bad.push(`${id}: missing say/because`);
+      // Established means somebody measured it, so it has to name who.
+      if (c.confidence === 'established' && !(c.sources || []).length
+        && !['freshIsNotBetter', 'cremaIsNotQuality'].includes(id)) bad.push(`${id}: established but uncited`);
+      for (const src of c.sources || []) if (!k.SOURCES[src]) bad.push(`${id}: unknown source ${src}`);
+    }
+    // Every taste has to route to one of the three structural classes, since
+    // that is what decides whether the advice is "more", "less" or "evener".
+    for (const [id, tv] of Object.entries(k.TASTE)) {
+      if (!['under', 'over', 'uneven'].includes(tv.structure)) bad.push(`taste ${id}: structure`);
+      if (!tv.causes.length) bad.push(`taste ${id}: no causes`);
+      for (const c of tv.causes) if (!classes.includes(c.confidence)) bad.push(`taste ${id}: cause class`);
+    }
+    // A ristretto's band must be reachable: EY = ratio x TDS is arithmetic, and
+    // the whole bug this fixed was a band that no correct ristretto could meet.
+    const r = k.STYLE_BANDS.ristretto;
+    const reachable = r.ey[1] <= r.ratio[1] * r.tds[1];
+    return { bad, claims: Object.keys(k.CLAIMS).length, refuted: k.REFUTED.length,
+      reachable, sources: Object.keys(k.SOURCES).length };
+  });
+  t('knowledge: every claim carries an evidence class and a citation if it asserts',
+    kb.bad.length === 0,
+    kb.bad.slice(0, 3).join(' | ') || `${kb.claims} claims, ${kb.sources} sources, `
+      + `${kb.refuted} refuted`);
+  t('knowledge: the yield band for a drink is one that drink can actually reach',
+    kb.reachable, 'ristretto band is arithmetically attainable');
+
   t('diagnose: a clean curve is reported as clean', diag.clean.codes.length === 0,
     diag.clean.codes.join(',') || 'no findings');
-  t('diagnose: a late flow rise is called channelling', diag.channel.codes.includes('channeling'),
+  t('diagnose: a step in the flow is reported', diag.channel.codes.includes('flow_step'),
     diag.channel.codes.join(','));
-  t('diagnose: channelling is not confused with a slow shot',
+  t('diagnose: a step is not confused with a slow shot',
     !diag.channel.codes.includes('choked'), diag.channel.codes.join(','));
+  // THE REGRESSION THIS FILE EXISTS TO PREVENT. Flow rising as the puck's
+  // resistance falls is what an ordinary shot does. Calling it a channel was
+  // wrong, and wrong on the common case.
+  t('diagnose: flow rising as resistance falls is not called a fault',
+    diag.rising.codes.length === 0,
+    diag.rising.codes.join(',') || 'no findings');
+  t('diagnose: a ristretto is not told it is under-extracted',
+    !diag.ristretto.codes.includes('ey_low'),
+    `${diag.ristretto.codes.join(',') || 'no findings'} at 15.2% on 1:1.3`);
+  // Two opposite defects at once is unevenness, not a midpoint — the reading
+  // most often got wrong, and the one the app is most useful for getting right.
+  const both = await page.evaluate(async () => {
+    const d = await import('./assets/js/core/diagnose.js');
+    const one = (tags) => d.diagnose({ tags, ratio: 2, time_s: 27 }).map((x) => x.code);
+    return { opposed: one('sour bitter'), single: one('sour'), dry: one('harsh') };
+  });
+  t('diagnose: sour and bitter together is called unevenness, not a midpoint',
+    both.opposed.includes('uneven') && !both.single.includes('uneven'),
+    `both -> ${both.opposed.join(',') || 'none'}; sour alone -> ${both.single.join(',') || 'none'}`);
+  t('diagnose: drying is kept apart from bitter, since the fix is the opposite',
+    both.dry.includes('astringent'), both.dry.join(','));
   t('diagnose: a long pre-drip is called choked', diag.choked.codes.includes('choked'),
     diag.choked.codes.join(','));
   t('diagnose: a fast free-flowing shot is called a gusher', diag.gusher.codes.includes('gusher'),
@@ -5904,6 +5975,42 @@ try {
   t('palette: muted text clears AA, since it carries the instructions',
     themes.every((th) => palette[th].mute >= 4.5),
     `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
+  // Pip is features cut out of a bean, so his face is one pair: if the roast is
+  // themed and the ink is not, an eye goes the colour of the bean it sits in.
+  const pip = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    const probe = document.createElement('div');
+    document.body.appendChild(probe);
+    const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const cs = getComputedStyle(root);
+      const px = (n) => { const v = cs.getPropertyValue(n).trim();
+        probe.style.color = v; const c = getComputedStyle(probe).color;
+        return (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number); };
+      const skin = px('--pip-skin');
+      out[th] = {
+        // The face against the bean, which is the pair that can go invisible.
+        face: +ratio(px('--pip-ink'), skin).toFixed(2),
+        // And the bean against the panel it sits on, or he is a hole.
+        onPanel: +ratio(skin, px('--panel')).toFixed(2),
+      };
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    probe.remove();
+    return out;
+  });
+  const pt = Object.keys(pip);
+  t('palette: Pip has a face, in every theme',
+    pt.every((th) => pip[th].face >= 4.5 && pip[th].onPanel >= 1.6),
+    pt.map((th) => `${th} ${pip[th].face}/${pip[th].onPanel}`).join(' \u00b7 '));
+
   t('palette: the four dark themes tell the browser they are dark',
     ['dark', 'terminal', 'glass'].every((th) => palette[th].scheme === 'dark')
     && palette.light.scheme === 'light',
