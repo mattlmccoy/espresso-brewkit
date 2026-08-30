@@ -3864,6 +3864,65 @@ try {
     await fl.close();
   }
 
+  // ---- an axis one bad sample cannot set ----
+  //
+  // Reported from a real shot: the flow trace hugged the floor of the chart.
+  // The axis was the raw maximum, and a hand resting on the scale for a moment
+  // took it to 50 g/s, so a real 1-3 g/s pour was squashed into the bottom few
+  // per cent for the rest of the shot. A knock or the cup shifting does the
+  // same. The ninetieth percentile cannot be moved by a few samples; the
+  // plateau a real pour sits at can move it.
+  {
+    const ax = await ctx.newPage();
+    await ax.goto(B + '/live.html?mock=lefu&noshot=1');
+    const axis = await ax.evaluate(async () => {
+      const C = await import('./assets/js/core/chart.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'width:900px;height:320px';
+      document.body.append(host);
+      const clean = [];
+      for (let i = 0; i < 120; i++) {
+        const t = i * 0.25;
+        const f = t < 3 ? t * 0.6
+          : t < 22 ? 1.9 + Math.sin(t) * 0.12
+            : Math.max(0, 1.9 - (t - 22) * 0.5);
+        clean.push([t, +f.toFixed(3)]);
+      }
+      const spiked = clean.map((q, i) => (i >= 40 && i < 43 ? [q[0], 22] : q));
+      // ...and a pour that genuinely runs fast, which must still be scaled for.
+      const fast = clean.map(([t, f]) => [t, f * 2.6]);
+      const read = (series) => {
+        host.replaceChildren();
+        C.livePlot(host, { weight: series.map(([t]) => [t, t]), flow: series,
+                           target: 36, width: 900, height: 320 });
+        return {
+          top: Math.max(...[...host.querySelectorAll('.tick-alt')]
+            .map((n) => parseFloat(n.textContent))),
+          label: host.querySelector('.axis-label.alt')?.textContent ?? '',
+          // Nothing may be drawn above the frame: a clamped sample rides it.
+          above: [...host.querySelectorAll('path.flowline')].some((n) =>
+            (n.getAttribute('d') || '').split('L').some((seg) => {
+              const y = parseFloat(seg.split(',')[1]);
+              return Number.isFinite(y) && y < 13;
+            })),
+        };
+      };
+      return { clean: read(clean), spiked: read(spiked), fast: read(fast) };
+    });
+    t('chart: a momentary spike does not set the flow axis',
+      axis.spiked.top === axis.clean.top,
+      `clean top ${axis.clean.top} g/s, with a 22 g/s transient ${axis.spiked.top} g/s`);
+    t('chart: but the spike is reported rather than quietly clamped away',
+      /peak/.test(axis.spiked.label) && !/peak/.test(axis.clean.label),
+      axis.spiked.label);
+    t('chart: and nothing is drawn outside the plot when it is clamped',
+      axis.spiked.above === false, 'flow line stays inside the frame');
+    t('chart: a pour that genuinely runs fast still gets an axis to match',
+      axis.fast.top > axis.clean.top * 2,
+      `${axis.clean.top} g/s normally, ${axis.fast.top} g/s for a fast pour`);
+    await ax.close();
+  }
+
   // ---- two families of edge, and components that know which they are in ----
   //
   // Reported: the spacing works on light, dark and terminal and looks wrong on

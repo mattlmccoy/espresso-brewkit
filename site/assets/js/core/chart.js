@@ -386,6 +386,20 @@ export function surface3d(container, { points, model, labels, size = 560 }) {
  * Pulling to match a curve you already liked is a far more direct instruction
  * than "aim for 28 seconds".
  */
+/**
+ * The value at a given rank, for scaling an axis to the data rather than to
+ * the worst sample in it.
+ *
+ * Exported so a test can hold it to the thing it exists for: a brief spike
+ * must not move it, and a sustained level must.
+ */
+export function percentile(values, p) {
+  const v = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (!v.length) return 0;
+  const i = Math.min(v.length - 1, Math.max(0, Math.round(p * (v.length - 1))));
+  return v[i];
+}
+
 /** Round a scale top up to something a person would have chosen. */
 function niceTop(v) {
   if (!(v > 0)) return 1;
@@ -415,15 +429,29 @@ export function livePlot(container, {
     10, ...[...weight, ...ghost].map((p) => p[1]),
   );
   const hasFlow = flow.length > 0 || ghostFlow.length > 0;
-  // Headroom. Without it the peak sample lands exactly on the top of the plot,
-  // where the line runs along the frame and reads as a border rather than as a
-  // series — which is what a 2.00 g/s pour did against a 1.2 floor.
-  const fPeak = Math.max(1.2, ...[...flow, ...ghostFlow].map((p) => p[1]));
-  const fMax = niceTop(fPeak * 1.15);
+  // AN AXIS ONE BAD SAMPLE CANNOT SET.
+  //
+  // This was the raw maximum, and a hand resting on the scale for a moment
+  // pushed it to 50 g/s — so the real 1-3 g/s pour spent the rest of the shot
+  // squashed onto the floor of the chart, unreadable, because of a transient
+  // that lasted a fraction of a second. A knock, the cup shifting or a
+  // portafilter going back in does the same thing.
+  //
+  // The ninetieth percentile is the bound instead: a spike is a few samples
+  // out of a few hundred and cannot move it, while the plateau a real pour
+  // spends most of its time at does. The headroom on top is still needed —
+  // without it the peak sample lands exactly on the frame and reads as a
+  // border rather than as a series.
+  const flowVals = [...flow, ...ghostFlow].map((q) => q[1]).filter(Number.isFinite);
+  const fTrue = flowVals.length ? Math.max(...flowVals) : 0;
+  const fMax = niceTop(Math.max(1.2, percentile(flowVals, 0.9)) * 1.15);
 
   const sx = (t) => m.l + (t / tMax) * iw;
   const sy = (w) => m.t + ih - (w / wMax) * ih;
-  const sf = (f) => m.t + ih - (f / fMax) * ih;
+  // Clamped, so a sample above the axis rides the top of the plot instead of
+  // being drawn off the canvas. It is still not silent — see the note by the
+  // flow axis, which says what the real peak was.
+  const sf = (f) => m.t + ih - (Math.min(f, fMax) / fMax) * ih;
 
   for (const t of ticks(0, tMax, 6)) {
     el('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: m.t + ih, class: 'grid' }, svg);
@@ -480,8 +508,13 @@ export function livePlot(container, {
     // Anchored to the right edge: left-anchored it ran off the end of the plot
     // and rendered as "flow (g/", because the right margin is 46px and the
     // label is wider than that.
+    // If anything went over the top, say so rather than letting a clamped line
+    // pass for a real reading. An axis that ignores a spike must not hide it.
+    const over = fTrue > fMax * 1.001;
     el('text', { x: width - 4, y: m.t - 3, class: 'axis-label alt unit',
-      'text-anchor': 'end' }, svg).textContent = 'flow (g/s)';
+      'text-anchor': 'end' }, svg).textContent = over
+      ? `flow (g/s) \u00b7 peak ${fmtTick(fTrue)}`
+      : 'flow (g/s)';
   }
   el('text', { x: m.l + iw / 2, y: height - 6, class: 'axis-label unit', 'text-anchor': 'middle' },
     svg).textContent = 'seconds';
