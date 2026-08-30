@@ -63,6 +63,13 @@ export const DEFAULTS = Object.freeze({
   // Brix to TDS. Governs the extraction yield derived for every stored shot,
   // and was previously readable by the store and writable by nothing.
   brixFactor: 0.85,
+
+  // ---- the character ----
+  // On by default, because a coach that has to be found is a coach nobody
+  // meets. Off is one click and it stays off — the whole design of the thing
+  // rests on it never being in the way, and a dismissal that does not stick is
+  // how an assistant becomes an adversary.
+  coach: true,
 });
 
 /** Which keys are numbers, so a form field cannot store the string "18". */
@@ -98,6 +105,10 @@ export const ABOUT = Object.freeze({
     'What a new shot starts at. Empty means the brew method decides.'],
   defaultRatio: ['Default ratio', ':1',
     'What a new shot aims for. Empty means the brew method decides.'],
+  coach: ['Pip, the shot coach', '',
+    'The bean in the corner. Reads the curve while it pours and the whole shot '
+    + 'afterwards, and says nothing at all unless it has something you cannot '
+    + 'already see on the screen.'],
   brixFactor: ['Brix to TDS factor', '',
     'The refractometer conversion behind every extraction yield in the log. '
     + 'Changing it changes what past shots are said to have extracted.'],

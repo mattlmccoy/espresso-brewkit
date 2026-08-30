@@ -1265,6 +1265,114 @@ try {
       gusher: codes(build((t) => (t < 1 ? 0 : t < 12 ? 2.9 : 0.03)), { ratio: 2 }),
     };
   });
+  // PIP, WIRED IN. The character on the page, as opposed to the judgement
+  // behind it: does he appear, does he stay out of the way, and — the one that
+  // matters most — does dismissing him actually make him go away and stay away.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+  const pipWire = await page.evaluate(async () => {
+    const prefs = await import('./assets/js/core/prefs.js');
+    prefs.set({ coach: true });
+    const host = document.getElementById('pip');
+    const drawn = () => ({
+      bean: !!host.querySelector('.pip-body'),
+      eyes: host.querySelectorAll('.pip-eye').length,
+      // The crease doubles as the mouth, so one path is both.
+      mouth: !!host.querySelector('.pip-mouth'),
+    });
+    const before = { hidden: host.hidden, ...drawn() };
+    // Dismissing is not "hide this message" — it is being told to go away.
+    host.querySelector('.pip-x')?.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after = { hidden: host.hidden, pref: prefs.prefs().coach };
+    prefs.set({ coach: true });
+    await new Promise((r) => setTimeout(r, 60));
+    return { before, after, back: !document.getElementById('pip').hidden };
+  });
+  t('pip: is on the page and drawn from parts, not an image',
+    pipWire.before.bean && pipWire.before.eyes === 2 && pipWire.before.mouth
+    && !pipWire.before.hidden,
+    `bean ${pipWire.before.bean}, ${pipWire.before.eyes} eyes, crease ${pipWire.before.mouth}`);
+  t('pip: dismissing him turns him off for good, not just for now',
+    pipWire.after.hidden && pipWire.after.pref === false,
+    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
+  t('pip: and turning him back on brings him back',
+    pipWire.back, 'remounted');
+
+  // THE COACH. The half that decides whether to speak at all.
+  // The failure mode being tested for is not "says the wrong thing" but "says
+  // anything at all when it should not" — an assistant that talks through a
+  // normal shot is the thing everyone hated about the last one.
+  const coach = await page.evaluate(async () => {
+    const c = await import('./assets/js/core/coach.js');
+    const run = (frames) => {
+      const said = new Set();
+      const spoke = [];
+      for (const f of frames) {
+        const r = c.live({ running: true, ...f }, said);
+        if (r) spoke.push({ at: f.elapsed, id: r.id });
+      }
+      return spoke;
+    };
+    // An ordinary shot: ramps, settles at 1.8 g/s, lands on target.
+    const normal = [];
+    for (let t = 0.5; t <= 27; t += 0.5) {
+      const q = t < 4 ? t * 0.45 : 1.8;
+      normal.push({ elapsed: t, net: Math.max(0, (t - 2) * 1.6), flow: q, trend: -0.01, target: 36 });
+    }
+    // The same shot with a step in the middle.
+    const stepped = normal.map((f) => ({ ...f, trend: f.elapsed > 14 && f.elapsed < 16 ? 0.4 : -0.01 }));
+    // A gusher.
+    const gusher = normal.map((f) => ({ ...f, flow: f.elapsed < 4 ? f.elapsed : 4.6 }));
+
+    const hist = (n, times) => times.slice(0, n).map((tt, i) => ({
+      shot_id: `s${i}`, bag_id: 'b', grinder_id: 'g', grind_setting: 12, dose_g: 18,
+      time_s: tt, rating: 7, ratio: 2,
+    }));
+    const base = { shot_id: 'now', bag_id: 'b', grinder_id: 'g', grind_setting: 12,
+      dose_g: 18, time_s: 28, ratio: 2, rating: 7 };
+    return {
+      normal: run(normal),
+      stepped: run(stepped),
+      gusher: run(gusher),
+      // Same settings, wildly different times: the puck, not the dial.
+      erratic: c.after(base, hist(6, [21, 34, 25, 39, 22, 31])).map((x) => x.id),
+      // Same settings, tight times.
+      tight: c.after(base, hist(6, [27.5, 28, 27.8, 28.2, 27.6, 28.1])).map((x) => x.id),
+      // Two moves finer, slower each time, no better rated.
+      pastPeak: c.after({ ...base, grind_setting: 8, time_s: 40, rating: 5 }, [
+        { bag_id: 'b', grind_setting: 12, time_s: 27, rating: 7 },
+        { bag_id: 'b', grind_setting: 10, time_s: 33, rating: 6 },
+      ]).map((x) => x.id),
+      // The grind conversion, and its refusal on a conical.
+      move: c.grindAdvice({ nowSeconds: 30, wantSeconds: 26, grinderId: 'df64' }),
+      conical: c.grindAdvice({ nowSeconds: 30, wantSeconds: 26, grinderId: 'niche-zero' }),
+    };
+  });
+  t('coach: says nothing at all through an ordinary shot',
+    coach.normal.length === 0,
+    coach.normal.map((x) => `${x.id}@${x.at}s`).join(',') || 'silent, as it should be');
+  t('coach: speaks once when the flow steps, and only once',
+    coach.stepped.filter((x) => x.id === 'stepping').length === 1,
+    coach.stepped.map((x) => `${x.id}@${x.at}s`).join(',') || 'nothing');
+  t('coach: calls out a shot running far outside the usual flow band',
+    coach.gusher.some((x) => x.id === 'fast'),
+    coach.gusher.map((x) => x.id).join(',') || 'nothing');
+  // The two readings a single shot cannot produce.
+  t('coach: spread across shots at one setting is read as the puck, not the dial',
+    coach.erratic.includes('erratic') && !coach.tight.includes('erratic'),
+    `erratic -> ${coach.erratic.join(',')}; tight -> ${coach.tight.join(',')}`);
+  t('coach: a tight run of shots is recognised as worth keeping',
+    coach.tight.includes('repeatable'), coach.tight.join(','));
+  t('coach: two finer moves that only made it slower are named as the far side of the peak',
+    coach.pastPeak.includes('past_peak'), coach.pastPeak.join(','));
+  t('coach: a grind move comes back in the grinder\u2019s own steps, hedged',
+    coach.move && coach.move.steps > 0 && /under-predicts/.test(coach.move.say),
+    coach.move ? coach.move.say : 'nothing');
+  t('coach: and refuses to invent steps for a conical, where there is no honest number',
+    coach.conical && !coach.conical.steps && /conical/.test(coach.conical.say),
+    coach.conical ? coach.conical.say : 'nothing');
+
   // THE KNOWLEDGE BANK'S OWN CONTRACTS.
   // The point of the file is that a claim carries its evidence, so the checks
   // are structural: nothing may assert without a class, nothing established may

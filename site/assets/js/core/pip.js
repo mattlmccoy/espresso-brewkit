@@ -123,7 +123,9 @@ export function mountPip(host, { onDismiss = null, name = 'Pip' } = {}) {
   close.addEventListener('click', () => { hide(); onDismiss?.(); });
   bubble.append(text, close);
 
-  host.append(bubble, fig);
+  // The figure first, then what he says. A speech bubble that arrives before
+  // the speaker reads as a system message with a mascot stuck on the end.
+  host.append(fig, bubble);
 
   let mood = 'idle';
   let blinkTimer = null;

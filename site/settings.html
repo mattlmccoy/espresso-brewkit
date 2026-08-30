@@ -134,6 +134,11 @@
         <button class="ghost" id="t-taps" type="button" aria-pressed="false">—</button>
       </div>
       <div class="tog">
+        <div><strong id="pip-label">Pip, the shot coach</strong>
+          <p id="pip-hint"></p></div>
+        <button class="ghost" id="t-coach" type="button" aria-pressed="false">&mdash;</button>
+      </div>
+      <div class="tog">
         <div><strong>Tap sensitivity</strong>
           <p id="tap-state">How many grams of platter deflection counts as a tap.</p></div>
         <button class="ghost" id="tap-reset" type="button">Reset</button>
@@ -333,6 +338,23 @@ function toggle(btnId, key, dflt, labels) {
   paint();
 }
 toggle('t-cues', 'brewkit.cues', true, ['Sound on', 'Sound off']);
+// The coach lives in prefs rather than behind its own localStorage key, because
+// its label and its explanation belong with the setting — same rule the numeric
+// fields above follow, so it cannot end up described wrongly in two places.
+{
+  const [label, , hint] = prefs.ABOUT.coach;
+  $('pip-label').textContent = label;
+  $('pip-hint').textContent = hint;
+  const btn = $('t-coach');
+  const paint = () => {
+    const on = prefs.prefs().coach !== false;
+    btn.textContent = on ? 'Pip on' : 'Pip off';
+    btn.setAttribute('aria-pressed', String(on));
+  };
+  btn.addEventListener('click', () => { prefs.set({ coach: !(prefs.prefs().coach !== false) }); paint(); });
+  prefs.subscribe(paint);
+  paint();
+}
 toggle('t-taps', 'brewkit.taps.v1', true, ['Taps on', 'Taps off']);
 
 const TAP_KEY = 'brewkit.taptune.v1';

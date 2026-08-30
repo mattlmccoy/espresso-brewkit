@@ -425,6 +425,16 @@
      "In 18.0 g" and "Out 26.5 g" were sliced off the top with nothing to say
      they were there. It stacks from the top and scrolls if it has to. */
   body.rating #slide-pour { justify-content:flex-start; overflow-y:auto; }
+  /* Pip gets his own row rather than being absolutely positioned, so his
+     arriving mid-pour cannot push the curve or land on the stop button. The
+     min-height is reserved whether or not he is talking: a chart that jumps
+     4 mm every time he speaks is worse than a little unused space. */
+  #pip { margin-top:10px; font-size:13px; min-height:0; align-items:center; }
+  #pip[hidden] { display:none; }
+  body.pouring #pip, body.rating #pip { min-height:56px; }
+  /* One line while it pours. The panel is the constraint and the constraint is
+     correct — there is no reading three lines with a cup filling. */
+  body.pouring #pip .pip-bubble { max-width:none; }
   /* Ten buttons at 44 px do not fit a 340 px column, and wrapping them 7-and-3
      makes the scale look like it stops at seven. */
   body.rating .rate { display:grid; grid-template-columns:repeat(5, 1fr); }
@@ -812,6 +822,11 @@
             </div>
             <div class="fillchart" id="curve"></div>
             <p class="note warn" id="live-warn" style="display:none"></p>
+            <!-- Pip sits IN the column, under the curve, rather than floating
+                 over the page. An assistant that overlaps a control is an
+                 assistant in the way, and this panel is the one place on the
+                 screen with nothing underneath it that has to be pressed. -->
+            <div id="pip" hidden></div>
             <div id="b-summary"></div>
             <!-- WHAT THE SHOT MEANT. This used to appear under the rating form,
                  and only after you pressed Save — so the reading of the shot
@@ -1042,6 +1057,8 @@ import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
 import * as prefs from './assets/js/core/prefs.js';
+import { mountPip } from './assets/js/core/pip.js';
+import * as coach from './assets/js/core/coach.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
 import * as cue from './assets/js/core/cue.js';
@@ -1145,6 +1162,13 @@ const brew = new BrewMachine();
 const isNum = (v) => v !== null && v !== '' && Number.isFinite(Number(v));
 
 let draft = blankDraft();
+// The character, and what it has already said this shot. Declared here with the
+// rest of the shot state rather than beside its own code further down: the
+// render loop calls pipLive() on the first scale frame, which can arrive before
+// a `let` further down the module has initialised, and reading it then throws
+// rather than returning undefined.
+let pip = null;
+let pipSaid = new Set();
 // The row this shot already occupies in the log, once it has one. Null until
 // the pump stops, and null again after the shot is thrown away.
 let savedId = null;
@@ -1977,6 +2001,7 @@ function render(s) {
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   setText('o-trend', fmt(s.trend, 3));
   paintPourTop(s, { lands, eta });
+  pipLive(s);
 
   // A channel is worth knowing about while the shot is still running, not only
   // in the post-mortem. The trend is NaN until there is enough shot to judge,
@@ -3337,6 +3362,7 @@ $('tare').addEventListener('click', () => {
 });
 $('arm').addEventListener('click', () => {
   est.reset(lastRaw); brew.arm(); sess.goto('brew');
+  pipSaid = new Set();
   draft.time_s = null; draft.yield_g = null; draft.curve = []; draft.metrics = {};
   stopArmed = false; stopSeen = null;
   $('live-msg').textContent = ''; $('b-summary').replaceChildren();
@@ -3441,6 +3467,78 @@ function buildRateControls() {
     },
   }, tag)));
 }
+/* ------------------------------------------------------------------- Pip */
+// The character, and the rule that keeps it from being Clippy: it is mounted
+// once, it is told things, and it decides nothing. What is worth saying lives
+// in coach.js, which has no DOM and is tested on its own.
+function pipOn() { return prefs.prefs().coach !== false; }
+
+function mountCoach() {
+  const host = $('pip');
+  if (!pipOn()) { pip?.destroy(); pip = null; host.hidden = true; return; }
+  if (pip) return;
+  host.hidden = false;
+  pip = mountPip(host, {
+    // Dismissing is not "hide this one message". Someone who closes the bubble
+    // mid-shot is telling you to go away, and an assistant that comes back
+    // thirty seconds later has not listened.
+    onDismiss: () => { prefs.set({ coach: false }); mountCoach(); },
+  });
+}
+mountCoach();
+prefs.subscribe?.(mountCoach);
+
+/** Offer the live state to the coach, which will usually decline to comment. */
+function pipLive(s) {
+  if (!pip || !pipOn()) return;
+  const said = coach.live({
+    running: s.state === BREW.EXTRACTING,
+    elapsed: s.elapsed, net: s.net, flow: s.flow,
+    // The live channel signal is the same shape as the post-shot one: a step,
+    // measured against the flow already running rather than as a slope.
+    trend: liveStep(),
+    target: targetYield(),
+  }, pipSaid);
+  if (said) pip.say(said.text, { mood: said.mood, ms: said.ms });
+}
+
+/**
+ * The biggest recent jump in flow, as a fraction of the flow before it.
+ *
+ * The same quantity curveMetrics computes after the fact, but it has to be
+ * derivable from what exists so far, so it compares the last second against
+ * the second before the one before that — the gap in the middle is where the
+ * smoothing lives, exactly as in the post-shot version.
+ */
+function liveStep() {
+  const c = brew.curve;
+  if (!c || c.length < 40) return NaN;
+  const now = c.at(-1)[0];
+  const mean = (a, b) => {
+    const v = [];
+    for (let i = c.length - 1; i >= 1; i--) {
+      const t = c[i][0];
+      if (t > b) continue;
+      if (t < a) break;
+      const dt = t - c[i - 1][0];
+      if (dt > 0) v.push((c[i][1] - c[i - 1][1]) / dt);
+    }
+    return v.length >= 4 ? v.reduce((x, y) => x + y, 0) / v.length : NaN;
+  };
+  const after = mean(now - 1.0, now);
+  const before = mean(now - 3.2, now - 2.2);
+  if (!(before > 0.25) || !Number.isFinite(after)) return NaN;
+  return (after - before) / before;
+}
+
+/** The full read, once there is a whole shot to read. */
+function pipAfter(savedShot) {
+  if (!pip || !pipOn()) return;
+  const notes = coach.after(savedShot, store.all());
+  if (!notes.length) { pip.say('Nothing stood out.', { mood: 'idle' }); return; }
+  pip.say(notes[0].text, { mood: notes[0].mood });
+}
+
 buildRateControls();
 // Typed fields settle on blur rather than per keystroke: writing the log on
 // every character means a half-typed note is a version of the record.
@@ -3571,6 +3669,7 @@ function autoSave() {
   paintSaved(saved);
   paintSupply();
   showDiagnosis(saved);
+  pipAfter(saved);
 }
 
 /** Push a rating edit into the row that is already in the log. */

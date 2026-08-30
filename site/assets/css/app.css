@@ -1056,7 +1056,7 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
    phone and a 96 px figure on a laptop without a second set of rules. */
 .pip { display: flex; align-items: flex-end; gap: 10px; pointer-events: none; }
 .pip > * { pointer-events: auto; }
-.pip-fig { flex: none; width: 4.2em; height: 4.2em; }
+.pip-fig { flex: none; width: 4.6em; height: 4.6em; }
 .pip-svg { width: 100%; height: 100%; display: block; overflow: visible; }
 
 /* The bean, and the face cut out of it. Both come off the themed pair. */
