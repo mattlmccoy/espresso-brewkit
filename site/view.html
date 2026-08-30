@@ -26,7 +26,7 @@
   .stage { flex:3 1 auto; display:flex; flex-direction:column; gap:12px; min-height:0; }
   .big { flex:1 1 auto; position:relative; display:grid; place-items:center; overflow:hidden;
     border:var(--bw) solid var(--ink);
-    background:var(--accent); color:var(--accent-ink); min-height:150px; padding:10px; }
+    background:var(--panel); color:var(--ink); min-height:150px; padding:10px; }
   .big-in { position:relative; z-index:2; }
 
   /* THE CUP FILLING. The bar underneath says how far along the pour is; this
@@ -36,30 +36,40 @@
      visible from across a kitchen without reading anything. */
   .vol { position:absolute; inset:0; z-index:1; pointer-events:none; }
   .vol[hidden] { display:none; }
-  /* WHAT IS NOT IN THE CUP YET, rather than what is. Drawn the other way round
-     — a tint over the poured part — the tile reads as draining: the bright
-     region is the empty one and it shrinks as coffee arrives. So the fill is
-     the tile's own colour left alone, and everything above the level is washed
-     out. The line between them is the surface. */
-  .vol-fill { position:absolute; left:0; right:0; top:0; height:100%;
-    background:color-mix(in srgb, var(--bg) 62%, transparent);
-    border-bottom:2px solid color-mix(in srgb, var(--accent-ink) 70%, transparent);
+  /* WHAT IS IN THE CUP, rising from the bottom.
+     This was drawn the other way round — a whole tile of accent, with the
+     unpoured part washed toward the background — for a good reason: tinting the
+     poured part of a *bright* tile makes the empty region the bright one, and
+     the tile reads as draining. The mistake was the bright tile. Washing it
+     slid the ground the number sits on from the accent toward the background,
+     so the one number the app exists for converged on its own backdrop in all
+     five themes — 1.73:1 at worst, and worst early in a shot when you are
+     watching hardest.
+     So the tile is neutral and the coffee is the coloured thing. The number
+     keeps one ground and stays legible; the level still rises; and the screen
+     stops carrying a flat slab of saturated colour out of all proportion to
+     what it encodes. */
+  .vol-fill { position:absolute; left:0; right:0; bottom:0; height:0;
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 34%, transparent),
+      color-mix(in srgb, var(--accent) 52%, transparent));
+    border-top:2px solid var(--accent);
     transition:height .18s cubic-bezier(.22,.68,.32,1); }
   /* A slow swell at the surface, because a pour is not a step function and a
      level that only ratchets reads as a progress bar rather than a liquid.
-     Small enough that it never argues with the number on top of it. */
-  .vol-fill::after { content:''; position:absolute; left:0; right:0; bottom:-4px; height:7px;
-    background:color-mix(in srgb, var(--accent-ink) 22%, transparent);
+     Small enough that it never argues with the number over it. */
+  .vol-fill::after { content:''; position:absolute; left:0; right:0; top:-4px; height:7px;
+    background:color-mix(in srgb, var(--accent) 30%, transparent);
     animation:swell 2.6s ease-in-out infinite; }
   @keyframes swell { 50% { transform:translateY(2px) scaleY(.55); } }
   .vol-marks { position:absolute; inset:0; }
   .vol-mark { position:absolute; left:0; right:0; height:0;
-    border-top:1px dashed color-mix(in srgb, var(--accent-ink) 40%, transparent); }
+    border-top:1px dashed var(--hair); }
   .vol-mark span { position:absolute; left:8px; top:-13px;
     font:700 9.5px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
-    color:color-mix(in srgb, var(--accent-ink) 68%, transparent); }
-  .vol-mark.passed { border-top-style:solid; }
-  .vol-mark.passed span { color:var(--accent-ink); }
+    color:var(--ink-mute); }
+  .vol-mark.passed { border-top-style:solid; border-top-color:var(--accent); }
+  .vol-mark.passed span { color:var(--ink); }
   /* Named on the tile, so the drink is readable without the dial. */
   .now-style { display:inline-block; font:800 12px/1 var(--sans); letter-spacing:.12em;
     text-transform:uppercase; margin-top:10px; padding:5px 9px;
@@ -527,8 +537,8 @@ function paintGauge(f) {
     }));
   }
 
-  // The element is the space above the coffee, so it shrinks as the cup fills.
-  $('vol-fill').style.height = `${((1 - d.frac) * 100).toFixed(1)}%`;
+  // The element is the coffee, so it grows as the cup fills.
+  $('vol-fill').style.height = `${(d.frac * 100).toFixed(1)}%`;
   for (const row of $('vol-marks').children) {
     const at = parseFloat(row.style.bottom) / 100;
     row.classList.toggle('passed', d.frac >= at);

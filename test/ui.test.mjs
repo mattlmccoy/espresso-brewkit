@@ -2258,7 +2258,15 @@ try {
     const big = new Trace({ now: () => (clock += 100) });
     big.describe({ scale: 'Bench, "quoted"', session_thresholds: { holdFor: 5 } });
     // Ten seconds of nothing, then a plateau that lasts three.
-    for (let i = 0; i < 100; i++) big.push({ raw_g: 52, net_g: +(Math.random() * 30).toFixed(2), step: 'dose' });
+    // Seeded, because with Math.random() two consecutive samples occasionally
+    // land within the 0.3 g plateau window and invent a longer run than the one
+    // this is about — a coin-toss assertion that fails a few runs in a hundred.
+    let seed = 0x9e3779b9;
+    const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    for (let i = 0; i < 100; i++) big.push({ raw_g: 52, net_g: +(rnd() * 30).toFixed(2), step: 'dose' });
     for (let i = 0; i < 30; i++) big.push({ raw_g: 70, net_g: 18.0, step: 'dose' });
     big.mark('captured dose=18 g');
     const sum = summarise(big);
@@ -2400,9 +2408,9 @@ try {
   t('viewer: the dial is up while it pours and gone while it weighs',
     pouring.gauge === true && weighing.gauge === false,
     `pouring ${pouring.gauge}, weighing ${weighing.gauge}`);
-  t('viewer: the tile empties from the top as the cup fills',
-    Math.abs(parseFloat(pouring.empty) - 60) < 0.2,
-    `${pouring.empty} of the tile still to fill at 24.2 of 60.5 g`);
+  t('viewer: the coffee rises from the bottom as the cup fills',
+    Math.abs(parseFloat(pouring.empty) - 40) < 0.2,
+    `${pouring.empty} of the tile poured at 24.2 of 60.5 g`);
   t('viewer: it says which drink it is, on the tile and under the dial',
     pouring.style === 'Ristretto' && /Ristretto · 1:1\.34/.test(pouring.sub)
     && pouring.here === 'ristretto', `${pouring.style} / ${pouring.sub}`);
@@ -5186,6 +5194,115 @@ try {
     const P = await import('./assets/js/core/prefs.js');
     P.reset();
   });
+
+  // ---- the palette has to keep its own promises ----
+  // A design review measured five contrast failures that every existing test
+  // was happy with, because the tests looked at chrome pairs and the failures
+  // were in the tokens underneath. This asks the palette directly, per theme.
+  const palette = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const lum = (c) => {
+      const [r, g, b] = c.map((v) => { const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+      return +((x + 0.05) / (y + 0.05)).toFixed(2); };
+    // Resolve a token to rgb by painting it, so color-mix and hex both work.
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.append(probe);
+    const rgb = (expr) => {
+      probe.style.color = '';
+      probe.style.color = expr;
+      const c = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g);
+      return c ? c.slice(0, 3).map(Number) : null;
+    };
+
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const v = (n) => getComputedStyle(root).getPropertyValue(n).trim();
+      const accent = rgb(v('--accent'));
+      const accentInk = rgb(v('--accent-ink'));
+      out[th] = {
+        // The accent and the ink meant to sit on it. The viewer's cup tile used
+        // to slide this ground from the accent toward --bg as the level rose,
+        // which took the one number the app exists for down to 1.73:1; the tile
+        // is neutral now and the coffee is the coloured thing, so this pair is
+        // the only one that has to hold.
+        hero: ratio(accentInk, accent),
+        heroWashed: ratio(accentInk, accent),
+        fitInk: ratio(rgb(v('--fit-ink')), rgb(v('--fit'))),
+        // Hover must not be the error colour: a hovered row and a flagged one
+        // were the same pixels.
+        hoverIsNotFlag: ratio(rgb(v('--hover')), rgb(v('--flag'))) > 1.6,
+        // A control needs to be visible against the panel it sits on before
+        // anyone focuses it.
+        control: ratio(rgb(v('--control')), rgb(v('--panel'))),
+        mute: ratio(rgb(v('--ink-mute')), rgb(v('--panel'))),
+        scheme: getComputedStyle(root).colorScheme,
+      };
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    probe.remove();
+    return out;
+  });
+  const themes = Object.keys(palette);
+  const worst = (k) => themes.reduce((a, th) =>
+    palette[th][k] < palette[a][k] ? th : a, themes[0]);
+  t('palette: ink meant for the accent is legible on the accent',
+    themes.every((th) => palette[th].hero >= 4.5),
+    themes.map((th) => `${th} ${palette[th].hero}`).join(' · '));
+  t('palette: --fit carries ink that survives it, rather than a hardcoded white',
+    themes.every((th) => palette[th].fitInk >= 4.5),
+    `worst ${worst('fitInk')} at ${palette[worst('fitInk')].fitInk}:1`);
+  t('palette: hover is a lift, not the colour that means something is wrong',
+    themes.every((th) => palette[th].hoverIsNotFlag),
+    themes.filter((th) => !palette[th].hoverIsNotFlag).join() || 'all five distinct');
+  // Only the two borderless themes: light, dark and terminal draw a real border
+  // on every control, so a control there is visible without a fill step and
+  // demanding one would be demanding the wrong thing.
+  const LIT = ['machined', 'glass'];
+  t('palette: a control is visible against its panel before it is focused',
+    LIT.every((th) => palette[th].control >= 1.15),
+    LIT.map((th) => `${th} ${palette[th].control}:1`).join(' · '));
+  t('palette: muted text clears AA, since it carries the instructions',
+    themes.every((th) => palette[th].mute >= 4.5),
+    `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
+  t('palette: the four dark themes tell the browser they are dark',
+    ['dark', 'terminal', 'machined', 'glass'].every((th) => palette[th].scheme === 'dark')
+    && palette.light.scheme === 'light',
+    themes.map((th) => `${th}:${palette[th].scheme}`).join(' '));
+
+  // Selection has to survive the theme that restyles every button.
+  await page.goto(B + '/shots.html');
+  await page.waitForFunction(() => document.querySelectorAll('.shot-row').length > 1,
+    null, { timeout: 5000 });
+  const selected = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    document.querySelector('.shot-row').click();
+    const on = document.querySelector('.shot-row[aria-current="true"]');
+    const off = [...document.querySelectorAll('.shot-row')].find((r) => r !== on);
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const a = getComputedStyle(on);
+      const b = getComputedStyle(off);
+      out[th] = a.backgroundColor !== b.backgroundColor || a.backgroundImage !== b.backgroundImage;
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    return out;
+  });
+  t('palette: a chosen thing looks chosen in every theme',
+    Object.values(selected).every(Boolean),
+    Object.entries(selected).map(([k, v]) => `${k}:${v ? 'yes' : 'NO'}`).join(' '));
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.

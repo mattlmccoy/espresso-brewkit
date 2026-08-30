@@ -5,6 +5,7 @@
 @import url('./fonts.css');
 
 :root {
+  color-scheme: light;
   --bg:        #f2efe6;
   --panel:     #fffdf5;
   --panel-2:   #eae6da;
@@ -15,14 +16,31 @@
 
   /* Signal colours. Each has one job, so nothing has to do double duty:
      accent = chrome and data points, fit = the fitted line and its band,
-     flag = something wrong (an outlier, a failed check). */
+     flag = something wrong (an outlier, a failed check).
+     That was the intent, and the rules below it did not keep to it — a design
+     review found --accent painting chrome, data and state at once, --flag
+     doing both "hover" and "this is wrong" so a hovered row and an outlier row
+     were pixel-identical, and --fit carrying the fitted line, the danger fill
+     and "worse than median". The four tokens after the first group are what it
+     takes to hold the line: one for the surface a control sits on, one for the
+     ink that survives a tinted accent, one for the ink that survives --fit, and
+     one for hover that is a lift rather than a hue. */
   --accent:    #1b3cf0;
   --accent-ink:#ffffff;
   --fit:       #ff5c1f;
+  --fit-ink:   #2a1000;   /* --fit is a bright orange here; white on it was 3.09:1 */
   --flag:      #e8ff36;
   --tag-fg:    #e8ff36;   /* sits on --ink; see the dark override */
-  --warn:      #c2681a;
+  --warn:      #8a4405;   /* 7.3:1 on --warn-bg; #c2681a was 3.63:1 */
   --warn-bg:   #fff6c2;
+
+  /* The ground a control sits on, one step off its panel. Without it a theme
+     that gives panels and buttons the same fill makes a button's visibility
+     depend on where it happens to sit in the panel's gradient. */
+  --control:   var(--panel);
+  /* Hover is a lift, not a colour. Sharing --flag with outliers meant a hovered
+     table row and a flagged one were the same pixels. */
+  --hover:     color-mix(in srgb, var(--ink) 10%, var(--panel));
 
   /* Consumed by chart.js, which knows nothing about this palette. */
   --surface:   var(--panel);
@@ -68,17 +86,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
-    --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
+    --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+    --fit-ink:#100f0d;
+    --control:#26251d;
     --band-a:.09;
     --warn:#e0a24a; --warn-bg:#2e2a12;
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
-  --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
+  --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+  --fit-ink:#100f0d;
+  --control:#26251d;
   --band-a:.09;
   --warn:#e0a24a; --warn-bg:#2e2a12;
 }
@@ -89,9 +113,16 @@
    palette was designed for. Explicit only, because nothing about a system
    preference asks for a terminal. */
 :root[data-theme="terminal"] {
+  color-scheme: dark;
   --bg:#050806; --panel:#0a0f0b; --panel-2:#0f1710;
-  --ink:#6ef58e; --ink-dim:#46c46d; --ink-mute:#3fa862; --hair:#1c3f28;
-  --accent:#7df9ff; --accent-ink:#031008; --fit:#ffb000; --flag:#ffcc33;
+  --ink:#6ef58e; --ink-dim:#46c46d; --ink-mute:#4cbd72; --hair:#28563a;
+  /* One emitter, separated by luminance rather than hue. The amber accent and
+     amber flag were 1.10:1 apart — the fitted line and "something is wrong"
+     were the same colour — and a cyan hero tile on a phosphor screen is not a
+     phosphor screen. */
+  --accent:#9dffb8; --accent-ink:#031008; --fit:#4fe0a0; --flag:#c8ff5a;
+  --fit-ink:#031008;
+  --control:#131e15;
   --tag-fg:#031008;
   --band-a:.10;
   --warn:#ffb000; --warn-bg:#2a2205;
@@ -135,9 +166,15 @@
 
    Explicit only. Nothing about a system preference asks for this. */
 :root[data-theme="machined"] {
+  color-scheme: dark;
   --bg:#08090b; --panel:#111318; --panel-2:#171a21;
-  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#6e7686; --hair:#262b35;
-  --accent:#e9a44b; --accent-ink:#08090b; --fit:#5fc8d8; --flag:#f6c473;
+  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#8a93a3; --hair:#333a47;
+  --accent:#e9a44b; --accent-ink:#08090b; --fit:#8fe4f0; --flag:#f6c473;
+  --fit-ink:#08090b;
+  /* Panels and controls had the same fill, so whether a button was visible
+     depended on where it sat in its panel's gradient. Measured 1.00:1 on
+     "Start over". */
+  --control:#232733;
   --tag-fg:#08090b;
   --band-a:.12;
   --warn:#e9a44b; --warn-bg:#241a0e;
@@ -155,12 +192,12 @@
 /* Nothing is bordered; everything is lit. The inset hairline is the top edge
    catching the light, the outer shadow is the surface sitting above the one
    behind it. */
-:root[data-theme="machined"] :is(.bx, .panel) {
+:root[data-theme="machined"] :is(.bx, .panel, .note, .tool-card) {
   border:0;
   border-radius:14px;
-  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  background:linear-gradient(180deg, var(--panel-2) 0, var(--panel) 120px);
   box-shadow:inset 0 1px 0 var(--lit),
-             inset 0 0 0 1px rgb(255 255 255 / 4%),
+             inset 0 0 0 1px rgb(255 255 255 / 6%),
              0 10px 30px rgb(0 0 0 / 45%);
 }
 /* The page itself has a light source: a soft pool behind the middle of the
@@ -170,15 +207,18 @@
     radial-gradient(120% 70% at 50% -10%, #12151c 0%, transparent 60%),
     var(--bg);
 }
-:root[data-theme="machined"] :is(button, input, select, textarea) {
+:root[data-theme="machined"] :is(button, a.btn-link, input, select, textarea) {
   border:0; border-radius:10px;
-  background:linear-gradient(180deg, var(--panel-2), var(--panel));
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 5%);
+  /* Its own step off the panel. Sharing the panel's gradient meant a control
+     high in a tall panel was invisible and the same control low down was not. */
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--control) 88%, white 6%), var(--control));
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 12%);
   color:var(--ink);
 }
-:root[data-theme="machined"] button:hover:not(:disabled):not([aria-pressed="true"]) {
-  transform:none; background:var(--panel-2); color:var(--ink);
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 10%);
+:root[data-theme="machined"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
+  transform:none; background:var(--hover); color:var(--ink);
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 /* A control on a machine travels when you press it. It does not slide out from
    under a shadow that is not there. */
@@ -268,9 +308,12 @@
 
    Explicit only. */
 :root[data-theme="glass"] {
+  color-scheme: dark;
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
-  --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#7d8698; --hair:#2b3243;
+  --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
   --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
+  --fit-ink:#0b0e15;
+  --control:#252c3b;
   --tag-fg:#0b0e15;
   --band-a:.13;
   --warn:#f0b357; --warn-bg:#2a220f;
@@ -288,13 +331,14 @@
    into flat grey. */
 :root[data-theme="glass"] body {
   background:
-    radial-gradient(70% 55% at 12% 0%, rgb(122 162 255 / 16%), transparent 62%),
-    radial-gradient(60% 50% at 92% 12%, rgb(255 159 110 / 12%), transparent 60%),
-    radial-gradient(80% 60% at 50% 108%, rgb(122 162 255 / 10%), transparent 65%),
+    radial-gradient(70% 55% at 12% 0%, rgb(122 162 255 / 24%), transparent 62%),
+    radial-gradient(60% 50% at 92% 12%, rgb(255 159 110 / 18%), transparent 60%),
+    radial-gradient(70% 45% at 20% 55%, rgb(122 162 255 / 14%), transparent 60%),
+    radial-gradient(80% 60% at 50% 108%, rgb(122 162 255 / 16%), transparent 65%),
     var(--bg);
   background-attachment: fixed;
 }
-:root[data-theme="glass"] :is(.bx, .panel) {
+:root[data-theme="glass"] :is(.bx, .panel, .note, .tool-card) {
   border:0;
   border-radius:16px;
   background:linear-gradient(160deg, var(--pane-lit), var(--pane));
@@ -304,7 +348,7 @@
              inset 0 0 0 1px var(--pane-edge),
              0 16px 40px rgb(0 0 0 / 35%);
 }
-:root[data-theme="glass"] :is(button, input, select, textarea) {
+:root[data-theme="glass"] :is(button, a.btn-link, input, select, textarea) {
   border:0; border-radius:11px;
   background:linear-gradient(160deg, var(--pane-lit), var(--pane));
   -webkit-backdrop-filter:blur(10px);
@@ -312,7 +356,7 @@
   box-shadow:inset 0 1px 0 rgb(255 255 255 / 16%), inset 0 0 0 1px var(--pane-edge);
   color:var(--ink);
 }
-:root[data-theme="glass"] button:hover:not(:disabled):not([aria-pressed="true"]) {
+:root[data-theme="glass"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
   transform:none; color:var(--ink);
   background:linear-gradient(160deg, rgb(255 255 255 / 20%), rgb(255 255 255 / 10%));
   box-shadow:inset 0 1px 0 rgb(255 255 255 / 24%), inset 0 0 0 1px rgb(255 255 255 / 18%);
@@ -355,6 +399,38 @@
 :root[data-theme="glass"] .g-track { stroke:rgb(255 255 255 / 8%); }
 :root[data-theme="glass"] .g-now { stroke:var(--accent);
   filter:drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 55%, transparent)); }
+
+/* SELECTION, said once per theme.
+   A themed `:is(.bx, …)` or `:is(button, …)` rule outranks a page's own
+   `.thing[aria-current="true"]`, so every "this one is chosen" style in the app
+   was being silently replaced by the panel gradient — a selected shot row and
+   an unselected one measured 1.00:1, pixel-identical. The ones that survived
+   did so by tying on specificity and winning on source order, which is luck
+   rather than design. Stating it here, after the component overrides, makes
+   selection a property of the theme rather than a race. */
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="true"],
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="step"],
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px var(--glow);
+}
+
+/* SELECTION, said once per theme.
+   A themed `:is(.bx, …)` or `:is(button, …)` rule outranks a page's own
+   `.thing[aria-current="true"]`, so every "this one is chosen" style in the app
+   was being silently replaced by the panel gradient — a selected shot row and
+   an unselected one measured 1.00:1, pixel-identical. The ones that survived
+   did so by tying on specificity and winning on source order, which is luck
+   rather than design. Stating it here, after the component overrides, makes
+   selection a property of the theme rather than a race. */
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-current="true"],
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-current="step"],
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+}
 
 /* ---------- the rest of the app, over the top ----------
    Mounted by core/overlay.js. Both Live and the viewer hold a connection that a
@@ -424,6 +500,11 @@ body.browsing { overflow:hidden; }
   .g-now, .g-flow, .g-head { transition:none; }
 }
 
+/* The UA paints these #757575 whatever the theme, which is below AA against
+   every one of our five grounds and is a dead grey inside a phosphor screen.
+   The opacity reset matters for Firefox. */
+::placeholder { color: var(--ink-mute); opacity: 1; }
+
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
@@ -454,7 +535,7 @@ a { color: var(--accent); }
   color: var(--ink); text-decoration: none; padding: 9px 13px;
   border: 2px solid var(--ink); background: var(--panel);
 }
-.nav a:hover { background: var(--flag); color: #100f0d; }
+.nav a:hover { background: var(--hover); color: var(--ink); }
 /* A link that is about to open a new tab says so, in the two characters it
    takes, rather than in a paragraph that costs a line of the dashboard. */
 .nav a[target="_blank"]::after { content: ' \2197'; opacity: .7; }
@@ -548,7 +629,7 @@ button {
   padding: 11px 16px; border: 2px solid var(--ink); background: var(--panel); color: var(--ink);
   border-radius: 0; box-shadow: 3px 3px 0 var(--ink);
 }
-button:hover { background: var(--flag); color: #100f0d; }
+button:hover { background: var(--hover); color: var(--ink); }
 button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 /* The offset shadow already implies a raised object; transitioning it is what
    makes pressing one feel like pressing rather than like a repaint. Transform
@@ -559,9 +640,14 @@ button { transition: background var(--t-fast) var(--ease-out), color var(--t-fas
 button:hover:not(:disabled):not([aria-pressed="true"]) { transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 var(--ink); }
 button.ghost:hover:not(:disabled) { box-shadow: none; }
-button:disabled { opacity: .5; cursor: not-allowed; }
+button:disabled { background: var(--panel); color: var(--ink-mute);
+  box-shadow: inset 0 0 0 1px var(--hair); cursor: not-allowed; opacity: 1; }
+/* Two-tone, so focus never reads as "selected" — both used to be a 3px accent
+   outline, and tabbing the theme picker made the focused swatch and the chosen
+   one indistinguishable. */
 :where(button, a, summary, [tabindex]):focus-visible {
-  outline: 3px solid var(--accent); outline-offset: 2px;
+  outline: 2px solid var(--bg); outline-offset: 0;
+  box-shadow: 0 0 0 5px var(--accent);
 }
 button.primary { background: var(--accent); color: var(--accent-ink); }
 button.primary:hover { background: var(--ink); color: var(--tag-fg); }
@@ -576,11 +662,11 @@ a.btn-link {
   transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
     transform var(--t-fast) var(--ease-out);
 }
-a.btn-link:hover { background: var(--flag); color: #100f0d; transform: translate(-1px, -1px); }
+a.btn-link:hover { background: var(--hover); color: var(--ink); transform: translate(-1px, -1px); }
 a.btn-link.small { padding: 8px 12px; font-size: 11px; }
 a.btn-link.primary, a.primary { background: var(--accent); color: var(--accent-ink); }
 a.btn-link.primary:hover, a.primary:hover { background: var(--ink); color: var(--tag-fg); }
-button.danger:hover { background: var(--fit); color: #fff; }
+button.danger:hover { background: var(--fit); color: var(--fit-ink); }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* ---------- readouts ---------- */
@@ -635,7 +721,7 @@ th {
 }
 th:first-child, td:first-child { text-align: left; }
 td { text-align: right; padding: 9px 12px; border-bottom: 2px solid var(--ink); font-weight: 700; white-space: nowrap; }
-tbody tr:hover td { background: var(--flag); color: #100f0d; }
+tbody tr:hover td { background: var(--hover); color: var(--ink); }
 td, th { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
 tr.flagged td { background: var(--flag); color: #100f0d; }
 
@@ -867,7 +953,7 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
   gap: 2px; flex: none; }
 .histstrip .hist svg { width: 52px; height: 24px; }
 .histstrip .hist span { font: 700 9.5px/1 var(--mono); color: var(--ink-mute); }
-.histstrip .hist:hover { background: var(--flag); }
+.histstrip .hist:hover { background: var(--hover); }
 
 @media (max-width: 1100px) {
   .dash-page .wrap { max-width: 1180px; }

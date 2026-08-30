@@ -663,10 +663,18 @@ is visible without reading anything. It is the same fraction of the same scale
 as the dial, from the same call — a screen showing a dial at two thirds beside a
 glass at half is a screen with two opinions.
 
-Drawn the obvious way round it read as draining: tint the poured part and the
-bright region is the empty one, shrinking as coffee arrives. So what is drawn is
-the space *above* the level, washed out, and the coffee is the tile's own colour
-left alone.
+Drawn the obvious way round it read as draining: tint the poured part of a
+*bright* tile and the bright region is the empty one, shrinking as coffee
+arrives. The first fix was to draw the space above the level instead, washed
+out — which worked visually and broke something worse. Washing slid the ground
+the number sits on from the accent toward the background, so the one number the
+app exists for converged on its own backdrop in all five themes: 1.73:1 at
+worst, and worst early in a shot when you are watching hardest.
+
+The mistake was the bright tile. It is neutral now and the coffee is the
+coloured thing, rising from the bottom. The number keeps one ground and stays
+legible, the level still rises, and the screen stops carrying a flat slab of
+saturated colour out of all proportion to what it encodes.
 
 ### The rest of brewkit, without dropping the link
 
@@ -1384,6 +1392,46 @@ fitted line, one for anything flagged — so no colour has to mean two things at
 Every theme is defined in `site/assets/css/app.css` as custom properties; the chart
 module reads those properties and knows nothing about the palette, which is why
 restyling the site does not touch the maths.
+
+### What a design review found in the palette
+
+Four reviewers went over every page in all five themes at laptop, iPad and phone
+widths. The colour findings clustered onto two structural faults rather than a
+list of bad choices.
+
+**Three tokens were each doing two or three jobs**, against this file's own
+stated rule that each has one. `--accent` painted chrome, data and state at
+once; `--flag` meant both "hover" and "this is wrong", so a hovered table row
+and a flagged outlier were the same pixels; `--fit` was the fitted line, the
+danger fill and "worse than median". Splitting out `--hover` (a lift, not a
+hue), `--fit-ink` and `--control` cost a few lines per theme and closed four
+findings together.
+
+**Components that hand-rolled `border: var(--bw) solid var(--ink)` instead of
+wearing `.bx` silently opted out of the two themes that abolish borders.** That
+was `.note`, `.tool-card` and `a.btn-link` — white-outlined rectangles in a
+theme whose own comment says nothing is bordered.
+
+Three measured failures are worth recording because every existing test was
+happy with all of them:
+
+- **Selection was invisible at 1.00:1** in Machined and Glass. Not a colour
+  choice — a specificity loss. A themed `:is(.bx, …)` rule outranks a page's own
+  `.thing[aria-current="true"]`, so every "this one is chosen" style was being
+  replaced by the panel gradient. The ones that survived did so by tying and
+  winning on source order, which is luck. Selection is now stated once per
+  theme, after the component overrides.
+- **Controls were invisible against their panels**, because Machined gave
+  panels and buttons the same gradient: whether a button could be seen depended
+  on where it happened to sit vertically inside its parent.
+- **Placeholder text was the browser's `#757575` in every theme**, below AA
+  against all five grounds, and a dead grey inside a phosphor screen. There was
+  no `::placeholder` rule and no `color-scheme`, so the UA chose — which was
+  also painting white checkboxes into four dark themes.
+
+There is now a palette contract in the suite that asks these questions of every
+theme directly, because the existing contrast test looked at chrome pairs and
+all of this was in the tokens underneath.
 
 **Five palettes**, and the last two are not palettes.
 
