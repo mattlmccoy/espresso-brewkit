@@ -213,8 +213,10 @@
   #cell-now .steps button { min-width:0; padding:6px 4px; }
   #cell-now .steps .n { font-size:9.5px; }
   #cell-now .steps .l { font-size:10.5px; margin-top:3px; }
+  /* display:block so the ellipsis has a box to work in — on an inline span
+     text-overflow has nothing to overflow and the rule was inert. */
   #cell-now .steps .sv { font-size:9.5px; margin-top:3px; white-space:nowrap;
-    overflow:hidden; text-overflow:ellipsis; }
+    display:block; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
   #setup-fields { margin-top:8px; }
   #setup-fields .field { margin-bottom:0; }
   #setup-fields select { font-size:12.5px; }
@@ -501,7 +503,7 @@
     known mass on, type what the scale's own display reads, and capture. Three at different masses
     is plenty — include zero.</p>
     <div class="row" style="max-width:560px;align-items:end">
-      <div class="field" style="margin:0"><label for="ref">Scale currently reads (g)</label>
+      <div class="field" style="margin:0"><label for="ref">Scale currently reads, grams</label>
         <input id="ref" type="number" step="0.1" value="0"></div>
       <div class="btn-row"><button id="capture" type="button">Capture</button>
         <button class="ghost" id="export-caps" type="button">Export</button>
@@ -778,11 +780,13 @@
         <div class="cell-scroll">
           <p class="msg" id="g-retention"></p>
           <div class="row tight3">
-            <div class="field" style="margin:0"><label for="d-manual">Dose</label>
+            <!-- Three number inputs with no unit anywhere near them, in an app
+                 that says "grams" on every other one. -->
+            <div class="field" style="margin:0"><label for="d-manual">Dose, grams</label>
               <input id="d-manual" type="number" step="0.1"></div>
-            <div class="field" style="margin:0"><label for="g-manual">Grounds</label>
+            <div class="field" style="margin:0"><label for="g-manual">Grounds, grams</label>
               <input id="g-manual" type="number" step="0.1"></div>
-            <div class="field" style="margin:0"><label for="r-yield">Yield</label>
+            <div class="field" style="margin:0"><label for="r-yield">Yield, grams</label>
               <input id="r-yield" type="number" step="0.1"></div>
           </div>
           <div class="field"><label for="p-machine">Machine</label>
@@ -812,7 +816,7 @@
               <div class="field" style="margin:0"><label for="p-pressure">Bar</label>
                 <input id="p-pressure" type="number" step="0.1"></div>
             </div>
-            <div class="field" style="max-width:150px"><label for="p-preinf">Pre-infusion (s)</label>
+            <div class="field" style="max-width:150px"><label for="p-preinf">Pre-infusion, seconds</label>
               <input id="p-preinf" type="number" step="0.5"></div>
             <p class="note" data-notice="machine-defaults">Picking a machine fills these with what
             it usually runs at. Anything typed here wins.</p>
@@ -2594,7 +2598,14 @@ function paintSession() {
     void n.offsetWidth;
     if (text !== '—') n.classList.add('new');
   };
-  sv('sv-setup', chosen ? (chosen.length > 9 ? `${chosen.slice(0, 8)}…` : chosen) : '—');
+  // The whole name. `.sv` already carries text-overflow:ellipsis, so the cell
+  // truncates to the width it actually has, in the font the theme actually
+  // uses. Cutting to eight characters first did the same job worse and sooner:
+  // "Ethiopia Guji Natural" became "Ethiopia…" in a cell with room for more,
+  // and every coffee whose first eight characters matched became the same
+  // string. The title carries the full name for a hover either way.
+  sv('sv-setup', chosen || '—');
+  if ($('sv-setup')) $('sv-setup').title = chosen || '';
   sv('sv-dose', show(s.dose, s.auto.dose));
   sv('sv-grind', show(s.grounds, s.auto.grounds));
   sv('sv-milk', show(s.milk, s.auto.milk));

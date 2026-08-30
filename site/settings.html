@@ -207,6 +207,7 @@ import { boot, fmt, el, THEMES, currentTheme, applyTheme } from './assets/js/ui.
 import { restoreControl } from './assets/js/core/notice.js';
 import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
+import { withUnit } from './assets/js/core/schema.js';
 import * as kit from './assets/js/core/kit.js';
 import { DEFAULTS as TAP_DEFAULTS } from './assets/js/core/tap.js';
 
@@ -277,7 +278,7 @@ function field(key, { step = 'any', placeholder = '' } = {}) {
     oninput: () => { prefs.set({ [key]: input.value }); paintPrefs(); },
   });
   const wrap = el('div', { class: 'field pref', 'data-key': key },
-    el('label', { for: `p-${key}` }, unit ? `${label} (${unit})` : label),
+    el('label', { for: `p-${key}` }, withUnit(label, unit)),
     input,
     el('p', { class: 'hint' }, hint));
   return wrap;
