@@ -2440,11 +2440,15 @@ try {
     const svg = document.querySelector('#gauge svg').getBoundingClientRect();
     // Every element on this screen showing the weight, and every one naming
     // the drink. Two of either is the bug this layout exists to fix.
+    // offsetParent alone is not "shown": it stays set through visibility:hidden.
+    const shown = (el) => el.checkVisibility
+      ? el.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })
+      : el.offsetParent !== null;
     const w = document.querySelector('.big .n').textContent.trim();
     const heroes = [...document.querySelectorAll('.big .n, .g-n')]
-      .filter((el) => el.offsetParent !== null && el.textContent.trim() === w).length;
+      .filter((el) => shown(el) && el.textContent.trim() === w).length;
     const names = [...document.querySelectorAll('.now-style, .g-sub')]
-      .filter((el) => el.offsetParent !== null && /ristretto/i.test(el.textContent)).length;
+      .filter((el) => shown(el) && /ristretto/i.test(el.textContent)).length;
     return {
       cols: getComputedStyle(document.getElementById('v-strip'))
         .gridTemplateColumns.split(' ').length,
@@ -2455,6 +2459,10 @@ try {
       // crosses a label, which is what sizing it in vw did.
       fitsInRing: n.width < (svg.height / 200) * (86 - 13) * 2 * 0.92,
       heroes, names,
+      // The laptop's dial carries a fourth line — how much further to the next
+      // drink, or the ratio once past the last one. It existed in one
+      // implementation and was shown on one device.
+      gap: (document.querySelector('#gauge .g-gap')?.textContent ?? '').trim(),
     };
   });
   // ---- the rest of brewkit, without dropping the link ----
@@ -2521,6 +2529,8 @@ try {
     tablet.fitsInRing, 'inside the labelled ring');
   t('viewer: an iPad still fills the whole seven-cell row',
     tablet.cols === 7, `strip in ${tablet.cols} columns`);
+  t('viewer: and the dial says how much further, the way the laptop\u2019s does',
+    /to (ristretto|espresso|lungo)|^1:/.test(tablet.gap), tablet.gap || '(nothing)');
   }
 
   // ---- the three shots inside every shot ----
@@ -3824,6 +3834,84 @@ try {
   }
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
+
+  // A placeholder is not a measurement. "Lands at" falls back to an em dash
+  // whenever the flow is too low to project from, and flashing that lit an
+  // accent block behind one glyph — a solid rectangle where a number should be.
+  {
+    const fl = await ctx.newPage();
+    await fl.goto(B + '/live.html?mock=lefu&noshot=1');
+    await fl.waitForFunction(() => window.__sess, null, { timeout: 5000 });
+    const flashed = await fl.evaluate(() => {
+      const seen = [];
+      const node = document.getElementById('c-lands');
+      const obs = new MutationObserver(() => {
+        if (node.classList.contains('tick-flash')) seen.push(node.textContent);
+      });
+      obs.observe(node, { attributes: true, attributeFilter: ['class'] });
+      // A real number, then the dash it falls back to, then another number.
+      window.__setTextProbe = (v) => window.__setText('c-lands', v, { flash: true });
+      return new Promise((res) => {
+        window.__setTextProbe('20.0');
+        window.__setTextProbe('\u2014');
+        window.__setTextProbe('21.0');
+        setTimeout(() => { obs.disconnect(); res(seen); }, 120);
+      });
+    });
+    t('live: a dash is not flashed as though a number had changed',
+      !flashed.includes('\u2014') && flashed.includes('21.0'),
+      `flashed on: ${flashed.map((x) => JSON.stringify(x)).join(', ') || 'nothing'}`);
+    await fl.close();
+  }
+
+  // ---- a form is read, so it gets a measure ----
+  //
+  // Measured on Kit: eleven fields stretched to a 1070 px panel, so the box for
+  // "Ethiopia Guji" was a thousand pixels wide and so was the one for a date.
+  // Nothing was grouped, so they read as one undifferentiated list and the eye
+  // had to cross the whole panel to find the next label.
+  {
+    const kit = await ctx.newPage();
+    await kit.setViewportSize({ width: 1400, height: 1000 });
+    await kit.goto(B + '/kit.html');
+    await kit.evaluate(() => {
+      const b = document.querySelector('[data-add="bags"]');
+      if (b) b.open = true;
+    });
+    await kit.waitForTimeout(300);
+    const form = await kit.evaluate(() => {
+      const w = (id) => Math.round(document.getElementById(id).getBoundingClientRect().width);
+      const grid = document.querySelector('.form-grid');
+      const panel = grid.closest('.pane') ?? document.body;
+      return {
+        measure: Math.round(grid.getBoundingClientRect().width),
+        panel: Math.round(panel.getBoundingClientRect().width),
+        name: w('b-name'), date: w('b-roast'), weight: w('b-weight'),
+        bands: [...document.querySelectorAll('.form-grid .band')].map((b) => b.textContent.trim()),
+      };
+    });
+    t('kit: the form is capped at a measure rather than stretched to the panel',
+      form.measure <= 780 && form.panel - form.measure > 200,
+      `${form.measure}px form in a ${form.panel}px panel`);
+    t('kit: and each field is the width of what goes in it',
+      form.name > form.date && form.date > form.weight,
+      `name ${form.name} > date ${form.date} > grams ${form.weight}`);
+    t('kit: eleven fields read as the three things they actually are',
+      form.bands.length === 3, form.bands.join(' / '));
+
+    // Below the measure there is no room to be clever.
+    await kit.setViewportSize({ width: 390, height: 844 });
+    await kit.waitForTimeout(200);
+    const narrow = await kit.evaluate(() => {
+      const w = (id) => Math.round(document.getElementById(id).getBoundingClientRect().width);
+      return { name: w('b-name'), date: w('b-roast'),
+               over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    t('kit: on a phone every field takes the whole line, and nothing overflows',
+      narrow.name === narrow.date && narrow.over <= 0,
+      `both ${narrow.name}px, page overflow ${narrow.over}px`);
+    await kit.close();
+  }
 
   // ---- Live changes shape when the shot starts ----
   //
