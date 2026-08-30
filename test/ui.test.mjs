@@ -294,7 +294,7 @@ try {
              at: document.documentElement.getAttribute('data-theme') };
   });
   t('theme: six of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,machined,glass,bloom'
+    cycle.order === 'light,dark,terminal,glass'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
       const order = cycle.themes;
@@ -313,15 +313,15 @@ try {
     term.sans === term.disp && /Space Mono|monospace/i.test(term.font),
     `${term.font.slice(0, 40)} · ink ${term.ink}`);
 
-  // Machined is a lit instrument, not a page with a different palette. The
-  // first attempt at it was a recolour of the same hard-edged panels, which is
-  // exactly what these assertions have to be able to tell apart: nothing is
+  // Glass is a surface, not a page with a different palette. The first attempt
+  // at a borderless theme was a recolour of the same hard-edged panels, which
+  // is exactly what this assertion has to be able to tell apart: nothing is
   // drawn with an outline, everything is lit from a single source.
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
+  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass'));
   // Surfaces transition their shadow, and a computed style read mid-transition
   // is a half-interpolated value that says nothing about either theme.
   await page.waitForTimeout(250);
-  const mach = await page.evaluate(() => {
+  const soft = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
     const panel = getComputedStyle(document.querySelector('.bx'));
@@ -335,20 +335,15 @@ try {
              greys: [chroma(v('--bg')), chroma(v('--ink')), chroma(v('--panel'))],
              warm: chroma(v('--accent')) };
   });
-  t('theme: machined keeps the chrome near-grey and spends colour on the shot',
-    // A slight cool cast is the instrument's own; what must not happen is a
-    // second hue competing with the one the pour is drawn in.
-    Math.max(...mach.greys) <= 12 && mach.warm >= 60,
-    `chrome chroma ${mach.greys.join('/')}, accent ${mach.accent} at ${mach.warm}`);
   t('theme: nothing is outlined and every surface is lit from one source',
-    mach.border === 0 && mach.radius >= 8
-    && /inset/.test(mach.shadow) && /rgba\(255, 255, 255/.test(mach.shadow)
+    soft.border === 0 && soft.radius >= 8
+    && /inset/.test(soft.shadow) && /rgba\(255, 255, 255/.test(soft.shadow)
     // The brutalist offset slab — an opaque shadow at a diagonal offset with
     // no blur — is the thing this theme is not.
-    && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(mach.shadow),
-    `${mach.border}px border, ${mach.radius}px corners, shadow ${mach.shadow}`);
+    && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(soft.shadow),
+    `${soft.border}px border, ${soft.radius}px corners, shadow ${soft.shadow}`);
 
-  // One shape, every theme. It used to hand machined a ring and everyone else a
+  // One shape, every theme. It used to hand one theme a ring and everyone else a
   // half circle — and only the ring branch drew band labels at all, so in four
   // of the five themes the dial was three unexplained shades of accent. A theme
   // changes the material; it does not change the instrument.
@@ -357,12 +352,12 @@ try {
     const { shotDial } = await import('./assets/js/core/dial.js');
     const box = document.createElement('div');
     document.body.append(box);
-    const g = G.mountGauge(box, { geo: G.geoFor('machined') });
+    const g = G.mountGauge(box, { geo: G.geoFor('glass') });
     g.paint(shotDial('espresso', 18, { net: 24, target: 36 }));
     const before = box.querySelector('.g-n').textContent;
     g.setGeo(G.geoFor('glass'));
     const out = {
-      sameShape: G.geoFor('machined') === G.geoFor('light')
+      sameShape: G.geoFor('glass') === G.geoFor('light')
         && G.geoFor('glass') === G.geoFor('dark'),
       span: +(G.geoFor('light').span / Math.PI).toFixed(2),
       // Labelled in every theme, and never abbreviated: the scale is anchored
@@ -4002,7 +3997,7 @@ try {
     await th.goto(B + '/live.html?mock=lefu&noshot=1');
     await th.waitForFunction(() => window.__sess, null, { timeout: 5000 });
     const edges = {};
-    for (const name of ['light', 'dark', 'terminal', 'bloom', 'machined', 'glass']) {
+    for (const name of ['light', 'dark', 'terminal', 'glass']) {
       edges[name] = await th.evaluate((t) => {
         document.documentElement.dataset.theme = t;
         const cs = getComputedStyle(document.documentElement);
@@ -4014,8 +4009,8 @@ try {
                  bar: bar ? parseFloat(getComputedStyle(bar).borderTopLeftRadius) || 0 : 0 };
       }, name);
     }
-    const hard = ['light', 'dark', 'terminal', 'bloom'];
-    const soft = ['machined', 'glass'];
+    const hard = ['light', 'dark', 'terminal'];
+    const soft = ['glass'];
     t('themes: the bordered themes are left exactly as they were',
       hard.every((n) => edges[n].radius === 0 && edges[n].seam === 0 && edges[n].strip === 0),
       hard.map((n) => `${n} r${edges[n].radius}/seam${edges[n].seam}`).join(' · '));
@@ -5629,16 +5624,20 @@ try {
   // the first version read them off a probe div, and every palette is declared
   // as :root[data-theme=...] — so the div matched none of them and all five
   // swatches showed the theme already on screen, plausibly.
-  const swatches = await page.evaluate(() => {
+  const swatches = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
     const rows = [...document.querySelectorAll('#themes .sw')].map((b) => ({
       name: b.querySelector('.sw-name').textContent,
       colours: [...b.querySelectorAll('.sw-strip i')].map((i) => i.style.background).join('|'),
     }));
-    return { rows, distinct: new Set(rows.map((r) => r.colours)).size };
+    // Counted from the list itself rather than written out here, so adding or
+    // dropping a theme does not leave this asserting the old number.
+    return { rows, expected: THEMES.length, distinct: new Set(rows.map((r) => r.colours)).size };
   });
   t('settings: every theme is previewed in its own colours, not the current one',
-    swatches.rows.length === 6 && swatches.distinct === 6,
-    `${swatches.rows.length} themes, ${swatches.distinct} distinct swatch sets`);
+    swatches.rows.length === swatches.expected && swatches.distinct === swatches.expected,
+    `${swatches.rows.length} of ${swatches.expected} themes, `
+    + `${swatches.distinct} distinct swatch sets`);
 
   const prefsRound = await page.evaluate(async () => {
     const P = await import('./assets/js/core/prefs.js');
@@ -5818,7 +5817,7 @@ try {
   // Only the two borderless themes: light, dark and terminal draw a real border
   // on every control, so a control there is visible without a fill step and
   // demanding one would be demanding the wrong thing.
-  const LIT = ['machined', 'glass'];
+  const LIT = ['glass'];
   t('palette: a control is visible against its panel before it is focused',
     LIT.every((th) => palette[th].control >= 1.15),
     LIT.map((th) => `${th} ${palette[th].control}:1`).join(' · '));
@@ -5826,7 +5825,7 @@ try {
     themes.every((th) => palette[th].mute >= 4.5),
     `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
   t('palette: the four dark themes tell the browser they are dark',
-    ['dark', 'terminal', 'machined', 'glass'].every((th) => palette[th].scheme === 'dark')
+    ['dark', 'terminal', 'glass'].every((th) => palette[th].scheme === 'dark')
     && palette.light.scheme === 'light',
     themes.map((th) => `${th}:${palette[th].scheme}`).join(' '));
 
@@ -5858,9 +5857,9 @@ try {
 
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass', 'bloom']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'glass']) {
     const system = scheme === 'light' || scheme === 'dark';
-    const light = scheme === 'light' || scheme === 'bloom';
+    const light = scheme === 'light';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
       colorScheme: light ? 'light' : 'dark' });
     const p2 = await c2.newPage();
