@@ -71,7 +71,7 @@
 
   /* ---- how an edge is made ----
      Two visual families live in these themes, and they define an edge in
-     opposite ways. Light, dark, terminal and bloom draw a border and an offset
+     opposite ways. Light, dark and terminal draw a border and an offset
      shadow: the border IS the edge, so stacked panels can sit flush and still
      read as separate things. Machined and glass have no borders at all — there
      the only things separating two surfaces are the gap between them and the
@@ -194,115 +194,26 @@
      - it lets the shot be the only source of colour on the screen.
 
    Explicit only. Nothing about a system preference asks for this. */
-:root[data-theme="machined"] {
-  --radius: 13px; --radius-sm: 9px; --seam: 7px;
-  color-scheme: dark;
-  --bg:#08090b; --panel:#111318; --panel-2:#171a21;
-  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#8a93a3; --hair:#333a47;
-  /* Softened from #e9a44b: a neon amber on near-black is the one thing that
-     most made this read as a dashboard warning light rather than as coffee. */
-  --accent:#d6a273; --accent-ink:#08090b; --fit:#8fe4f0; --flag:#e2c39c;
-  --fit-ink:#08090b;
-  /* Panels and controls had the same fill, so whether a button was visible
-     depended on where it sat in its panel's gradient. Measured 1.00:1 on
-     "Start over". */
-  --control:#232733;
-  --tag-fg:#08090b;
-  --band-a:.12;
-  --warn:#e9a44b; --warn-bg:#241a0e;
-  /* One typeface. A display face is exactly the flourish an instrument does
-     not have. */
-  --disp: var(--sans);
-  --bw: 1px;
-  --sh: 0px;
-  /* The light itself, so every surface refers to one source rather than each
-     inventing its own. */
-  --lit: rgb(255 255 255 / 7%);
-  --glow: color-mix(in srgb, var(--accent) 55%, transparent);
-}
 
 /* Nothing is bordered; everything is lit. The inset hairline is the top edge
    catching the light, the outer shadow is the surface sitting above the one
    behind it. */
-:root[data-theme="machined"] :is(.bx, .panel, .note, .tool-card) {
-  border:0;
-  border-radius:14px;
-  background:linear-gradient(180deg, var(--panel-2) 0, var(--panel) 120px);
-  box-shadow:inset 0 1px 0 var(--lit),
-             inset 0 0 0 1px rgb(255 255 255 / 6%),
-             0 10px 30px rgb(0 0 0 / 45%);
-}
 /* The page itself has a light source: a soft pool behind the middle of the
    screen, so panels sit in a room rather than on a flat field. */
-:root[data-theme="machined"] body {
-  background:
-    radial-gradient(120% 70% at 50% -10%, #12151c 0%, transparent 60%),
-    var(--bg);
-}
-:root[data-theme="machined"] :is(button, a.btn-link, input, select, textarea) {
-  border:0; border-radius:10px;
-  /* Its own step off the panel. Sharing the panel's gradient meant a control
-     high in a tall panel was invisible and the same control low down was not. */
-  background:linear-gradient(180deg,
-    color-mix(in srgb, var(--control) 88%, white 6%), var(--control));
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 12%);
-  color:var(--ink);
-}
-:root[data-theme="machined"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
-  transform:none; background:var(--hover); color:var(--ink);
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 18%);
-}
 /* A control on a machine travels when you press it. It does not slide out from
    under a shadow that is not there. */
-:root[data-theme="machined"] button:active { transform:scale(.975); box-shadow:none; }
-:root[data-theme="machined"] button.primary {
-  background:linear-gradient(180deg,
-    color-mix(in srgb, var(--accent) 92%, white), var(--accent));
-  color:var(--accent-ink);
-  box-shadow:inset 0 1px 0 rgb(255 255 255 / 35%), 0 4px 14px var(--glow);
-}
-:root[data-theme="machined"] button.primary:hover:not(:disabled) {
-  background:linear-gradient(180deg, white, var(--accent));
-  color:var(--accent-ink);
-}
 /* The big readout keeps its accent, and gains the light. Without this the
    panel rule above wins on specificity and leaves near-black type on a
    near-black tile — the number the whole page exists for, unreadable. */
-:root[data-theme="machined"] .st.hero {
-  background:linear-gradient(180deg,
-    color-mix(in srgb, var(--accent) 92%, white), var(--accent));
-  color:var(--accent-ink);
-  box-shadow:inset 0 1px 0 rgb(255 255 255 / 35%), 0 8px 26px var(--glow);
-}
-:root[data-theme="machined"] .tag {
-  border-radius:999px; background:var(--panel-2); color:var(--ink-dim);
-  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 8%);
-}
 /* The wordmark is a slab of pure --ink everywhere else, which on a lit screen
    is a rectangle of white light and the brightest thing on the page. Here it is
    type, not a block. */
-:root[data-theme="machined"] .brand {
-  background:none; color:var(--ink); padding:7px 0;
-  letter-spacing:.02em; }
-:root[data-theme="machined"] .nav a {
-  border:0; border-radius:999px; background:var(--panel);
-  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 7%); }
-:root[data-theme="machined"] .nav a[aria-current="page"] {
-  background:var(--accent); color:var(--accent-ink);
-  box-shadow:0 3px 12px var(--glow); }
-:root[data-theme="machined"] .badge { border-radius:999px; border:0;
-  box-shadow:inset 0 0 0 1px rgb(255 255 255 / 10%); }
 
 /* ---- the dial ----
    The theme changes the material and nothing else: same shape, same layers,
    same labels. It used to be the only theme that drew a ring, and the only one
    that labelled its bands at all, so a dial learnt here was unreadable
    everywhere else. */
-:root[data-theme="machined"] .gauge { border:0; background:none;
-  box-shadow:none; padding:0; }
-:root[data-theme="machined"] .g-zone.here {
-  filter:drop-shadow(0 0 9px var(--glow)); }
-:root[data-theme="machined"] .g-now { stroke:var(--ink); opacity:.72; }
 
 /* Glass: the same layout, rendered with depth instead of outlines.
    ------------------------------------------------------------------
@@ -313,8 +224,6 @@
    how a real pane of glass announces itself.
 
    It keeps every position the brutalist layout puts things in. That is the
-   point of having it as well as machined: one theme changes where things are,
-   this one changes only what they are made of.
 
    Explicit only. */
 :root[data-theme="glass"] {
@@ -418,13 +327,6 @@
    did so by tying on specificity and winning on source order, which is luck
    rather than design. Stating it here, after the component overrides, makes
    selection a property of the theme rather than a race. */
-:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="true"],
-:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="step"],
-:root[data-theme="machined"] :is(button, a.btn-link)[aria-pressed="true"] {
-  background: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px var(--glow);
-}
 
 /* SELECTION, said once per theme.
    A themed `:is(.bx, …)` or `:is(button, …)` rule outranks a page's own
@@ -463,31 +365,6 @@
    deep plum and a warm honey rather than two pastels.
 
    Explicit only. */
-:root[data-theme="bloom"] {
-  color-scheme: light;
-  --bg:#faf5f2; --panel:#fffcfa; --panel-2:#f4eae6;
-  --ink:#3d3037; --ink-dim:#6a565f; --ink-mute:#7a6470; --hair:#d2b9b2;
-  --accent:#9c4f66; --accent-ink:#ffffff;
-  --fit:#c48a4a; --fit-ink:#2a1a08;
-  --flag:#e7cdae; --tag-fg:#ffffff;
-  --warn:#8a4a20; --warn-bg:#fdf0e2;
-  --control:#f0e3dd;
-  --hover:color-mix(in srgb, var(--accent) 9%, var(--panel));
-  --band-a:.16;
-  /* Softer edges, same edges. A hairline rather than a marker outline, and a
-     shadow that falls rather than one that offsets like stacked paper. */
-  --bw: 1.5px;
-  --sh: 0px;
-}
-:root[data-theme="bloom"] :is(.bx, .panel, .note, .tool-card) {
-  border-color:var(--hair); border-radius:10px;
-  box-shadow:0 1px 2px rgb(61 48 55 / 4%), 0 6px 18px rgb(61 48 55 / 5%);
-}
-:root[data-theme="bloom"] :is(button, a.btn-link, input, select, textarea) {
-  border-color:var(--hair); border-radius:8px;
-}
-:root[data-theme="bloom"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
-  background:var(--hover); color:var(--ink); }
 
 /* ---------- the rest of the app, over the top ----------
    Mounted by core/overlay.js. Both Live and the viewer hold a connection that a

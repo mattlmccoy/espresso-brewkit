@@ -13,9 +13,8 @@ const THEME_KEY = 'brewkit.theme';
  * green phosphor, a lit instrument, or frosted glass — and the last two are
  * not palettes at all but different ways of rendering the same page.
  */
-export const THEMES = ['light', 'dark', 'terminal', 'machined', 'glass', 'bloom'];
-const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal',
-                machined: 'Machined', glass: 'Glass', bloom: 'Bloom' };
+export const THEMES = ['light', 'dark', 'terminal', 'glass'];
+const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal', glass: 'Glass' };
 
 /** What is on screen right now, whether or not it was chosen. */
 export function currentTheme() {
