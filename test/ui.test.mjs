@@ -3825,6 +3825,77 @@ try {
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
 
+  // ---- Live changes shape when the shot starts ----
+  //
+  // Measured on the old layout, at 1280x800, which is an ordinary laptop: the
+  // left rail held 865 px of content in the 369 px it gets. 496 px of it — 57%
+  // — sat below the fade, including the flow bar, the ladder and the button
+  // that stops the shot, which was at y=1040 in a column 740 px tall. The
+  // weight itself was cut through the middle. Meanwhile the setup column ran
+  // out of content 450 px above the fold.
+  //
+  // The cause was not spacing. The rail was carrying a second copy of the
+  // middle panel — the weight the dial already shows, and a readout
+  // `.pour-nums` already shows — and two copies of one panel do not fit in a
+  // third of the width.
+  {
+    const lap = await ctx.newPage();
+    await lap.setViewportSize({ width: 1280, height: 800 });
+    await lap.goto(B + '/live.html?mock=lefu&noshot=1');
+    await lap.waitForFunction(() => window.__mock && window.__sess, null, { timeout: 5000 });
+    await lap.evaluate(() => {
+      window.__sess.setMethod('espresso');
+      const d = document.getElementById('p-dose');
+      d.value = '18';
+      d.dispatchEvent(new Event('input', { bubbles: true }));
+      window.__sess.goto('brew');
+      window.__mock.grams = 0;
+      window.__brew.startNow(performance.now() / 1000, 0);
+      let g = 0;
+      window.__pour = setInterval(() => { g += 0.34; window.__mock.grams = +g.toFixed(2); }, 100);
+    });
+    await lap.waitForTimeout(3000);
+    const shape = await lap.evaluate(() => {
+      const q = (sel) => document.querySelector(sel);
+      const body = q('#cell-now .cell-body');
+      const stop = q('#stop').getBoundingClientRect();
+      const svg = q('#curve svg');
+      const holder = q('#curve');
+      const seen = (el) => el && el.offsetParent !== null;
+      return {
+        railOverflow: body.scrollHeight - body.clientHeight,
+        stopVisible: stop.bottom <= innerHeight && stop.height > 0 && seen(q('#stop')),
+        ladderVisible: seen(q('#ladder')),
+        sideGone: !seen(q('#cell-side')),
+        summary: (q('#pour-sum')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        // One weight on the page, not one per panel.
+        weights: [...document.querySelectorAll('#o-w, #brew-gauge .g-n')]
+          .filter(seen).length,
+        // The chart floors its viewBox at 200 and letterboxes inside anything
+        // shorter — which collapses its width, not its height.
+        chartFills: svg
+          ? Math.abs(svg.getBoundingClientRect().width - holder.clientWidth) < 4
+          : false,
+        chartH: holder.clientHeight,
+      };
+    });
+    await lap.evaluate(() => clearInterval(window.__pour));
+
+    t('live: the rail stops overflowing once the duplicates are gone',
+      shape.railOverflow === 0, `${shape.railOverflow}px of hidden content`);
+    t('live: the button that stops the shot is on the screen',
+      shape.stopVisible, 'stop is visible and in the viewport');
+    t('live: and the ladder is not cut in half either', shape.ladderVisible, 'ladder shown');
+    t('live: the weight is said once, by the dial',
+      shape.weights === 1, `${shape.weights} visible weight readout(s)`);
+    t('live: the setup column folds to a line while coffee is coming out',
+      shape.sideGone && /Dose/.test(shape.summary), shape.summary.slice(0, 70));
+    t('live: and the curve fills the width it was given',
+      shape.chartFills && shape.chartH >= 200,
+      `chart ${shape.chartH}px tall, fills width ${shape.chartFills}`);
+    await lap.close();
+  }
+
   // ---- a link that drops puts a new code up by itself ----
   //
   // Reported: the phone falls off and both screens just sit there. The laptop

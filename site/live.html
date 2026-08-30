@@ -335,6 +335,65 @@
   /* The left column shows what this step needs and nothing else. Six readouts
      of which four are dashes is four rows between you and the number. */
   .dash-page:not(.at-setup) .setup-only { display:none; }
+
+  /* ------------------------------------------------------ POURING
+     The page changes shape when the shot starts.
+
+     Measured before touching it: the left rail held 865 px of content in the
+     369 px it gets at 1280x800 — 57% of it below the fade, including the flow
+     bar, the ladder and the button that stops the shot. Meanwhile the right
+     column ran out of content 450 px above the fold and the middle panel gave
+     a 374x280 dial 656x648 of room.
+
+     None of that is spacing. The rail was carrying a second copy of the middle
+     panel: the weight, which the dial already shows in its centre, and a
+     Time / Flow / Target / Lands at / To target readout that `.pour-nums`
+     already shows. Two copies of one panel do not fit in a third of the width,
+     so while a shot runs the duplicates go and the rail keeps only what is its
+     own — where the pour is, and how to stop it. */
+  body.pouring #cell-now .mini,
+  body.pouring #cell-now .st.hero,
+  body.pouring #cell-now #stepper,
+  body.pouring #cell-now #begin-box,
+  body.pouring #cell-now #step-hint,
+  body.pouring #cell-now .tap-hint { display:none; }
+  /* #name-row deliberately stays: it is not setup furniture but a one-time
+     prompt that appears the moment a decoder verifies, and a scale you cannot
+     name is a scale you have to calibrate again next time. It is hidden by
+     default and shows itself only when there is something to name. */
+
+  /* Stop leaves the scrolling part. It was at y=1040 in a column 740 px tall:
+     present in the DOM, unreachable in the kitchen. A footer takes its height
+     out of the scroller rather than covering it, which is the same reason the
+     chrome row is already one. */
+  body.pouring #cell-now #stop { flex:none; order:2; margin:10px 0 0;
+    width:100%; font-size:15px; padding:12px 14px; }
+  body.pouring #cell-now .chrome-row { order:3; }
+  body.pouring #cell-now { display:flex; flex-direction:column; }
+  body.pouring #cell-now .cell-body { order:1; }
+
+  /* The setup form is not being read while coffee is coming out, and it was
+     taking a fifth of the screen to not be read. It folds to its own summary
+     line and gives the width to the instrument. */
+  body.pouring .stage { grid-template-columns:minmax(268px, 320px) minmax(0, 1fr); }
+  body.pouring #cell-side { display:none; }
+  .pour-sum { display:none; }
+  body.pouring .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
+    align-items:baseline; margin:0 0 8px; padding:8px 12px;
+    border:var(--bw) solid var(--hair); background:var(--panel); }
+  .pour-sum b { font:700 13px/1 var(--sans); }
+  .pour-sum span { font:600 11px/1 var(--mono); letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-mute); }
+
+  /* The chart draws itself at a floor of 200 px tall and letterboxes inside
+     anything shorter — which is not a small chart, it is a chart whose *width*
+     collapses to keep the aspect: 878 px of panel showing a 514 px plot. So the
+     panel guarantees the floor, and the dial gives up the height instead. It
+     has a fixed shape and reads fine smaller; the curve does not. */
+  body.pouring .fillchart { flex:1 1 auto; min-height:200px; }
+  body.pouring .pour-top { flex:0 1 auto; min-height:0; }
+  body.pouring .pour-top #brew-gauge .gauge svg,
+  body.pouring #brew-gauge svg { max-height:min(280px, 34vh); }
   .dash-page:not(.at-brew) .mini .brew-only { display:none; }
   .dash-page:not(.at-brew) #cell-now > .brew-only { display:none; }
   /* The chrome rows earn their height back. Four short labels fit on one line
@@ -546,7 +605,7 @@
              across the kitchen without any arithmetic. -->
         <!-- The one control with a deadline. Everything else folds away; this
              sits beside the number while something is pouring. -->
-        <button class="primary brew-only" id="stop" type="button"
+        <button class="primary brew-only" id="stop" type="button" data-stop-home="body"
                 style="width:100%;margin-top:9px">Stop the shot</button>
         <div class="qrow" id="flowrow" style="margin-top:9px">
           <span class="qbar"><span class="band"></span><span class="now"></span></span>
@@ -648,6 +707,9 @@
                this is the biggest panel on the screen and it was carrying one
                of the two. -->
           <div class="slide" id="slide-pour">
+            <!-- What the setup column said, in one line, because it is not
+                 being read while coffee is coming out. -->
+            <div class="pour-sum" id="pour-sum"></div>
             <div class="pour-top">
               <div id="brew-gauge" hidden></div>
               <div class="pour-nums">
@@ -655,6 +717,8 @@
                   <span class="pn-v"><b id="c-t">0.0</b>s</span></div>
                 <div class="pn"><span class="pn-k">Flow</span>
                   <span class="pn-v"><b id="c-f">0.00</b>g/s</span></div>
+                <div class="pn"><span class="pn-k">Target</span>
+                  <span class="pn-v"><b id="c-target">—</b>g</span></div>
                 <div class="pn"><span class="pn-k">Ratio</span>
                   <span class="pn-v">1:<b id="c-ratio">—</b></span></div>
                 <div class="pn"><span class="pn-k">Lands at</span>
@@ -1715,6 +1779,31 @@ document.addEventListener('brewkit:theme', () => brewGauge.setGeo(geoFor(current
  * long it has run, how fast, what ratio it is at now, where it lands if you
  * cut when the drip stops, and how long until the target.
  */
+/**
+ * The setup column, folded to one line.
+ *
+ * Everything here was already on screen while the shot ran, in a form nobody
+ * reads mid-pour that was taking a fifth of the width to not be read.
+ */
+function paintPourSum() {
+  const bag = kit.bag($('p-bag').value);
+  const dose = targetDose();
+  const aim = currentAim();
+  const bits = [];
+  if (bag) bits.push(['Coffee', [bag.bean_name, bag.roaster].filter(Boolean).join(' \u00b7 ')]);
+  if (Number.isFinite(dose) && dose > 0) bits.push(['Dose', `${dose.toFixed(1)} g`]);
+  bits.push(['Method', methodOf(sess.method).label]);
+  if (aim?.label) bits.push(['Aiming', aim.label]);
+  const host = $('pour-sum');
+  host.replaceChildren(...bits.flatMap(([k, v]) => {
+    const key = document.createElement('span');
+    key.textContent = k;
+    const val = document.createElement('b');
+    val.textContent = v;
+    return [key, val];
+  }));
+}
+
 function paintPourTop(s, { lands, eta }) {
   const dose = targetDose();
   const d = brew.state === BREW.EXTRACTING || brew.state === BREW.DRIPPING
@@ -1723,6 +1812,10 @@ function paintPourTop(s, { lands, eta }) {
   brewGauge.paint(d, { flow: s.flow, flowMax: 4 });
   setText('c-t', fmt(s.elapsed, 1));
   setText('c-f', fmt(s.flow, 2));
+  // The rail used to carry its own copy of this row. It does not while a shot
+  // is running, so the target has to be here or it is nowhere.
+  setText('c-target', fmt(targetYield(), 1));
+  paintPourSum();
   setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
     ? (s.net / dose).toFixed(2) : '—');
   setText('c-lands', fmt(lands, 1), { flash: true });
@@ -2271,6 +2364,13 @@ function paintCatch(s) {
   // and 240 g with no comment reads as a broken scale rather than as an arm.
   document.body.classList.toggle('at-setup', s.step === 'setup');
   document.body.classList.toggle('at-brew', s.step === 'brew' || s.step === 'rate');
+  // POURING IS ITS OWN SHAPE.
+  // Setting up and watching want opposite things: the first wants comfortable
+  // fields and reading room, the second wants a few numbers the size of a clock
+  // and one button you can hit without looking. One layout serving both is why
+  // the left column carried ten controls in 296 px — 865 px of content in 369 —
+  // and sliced the weight in half at 1280x800 with the stop button off screen.
+  document.body.classList.toggle('pouring', s.step === 'brew');
   document.querySelector('.st.hero')?.classList.toggle('held', !!s.disturbed);
   $('state').classList.toggle('held', !!s.disturbed);
   // The highlight marks what the flow is actually waiting on, which moves: an
