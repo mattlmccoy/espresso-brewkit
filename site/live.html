@@ -404,9 +404,16 @@
      panel guarantees the floor, and the dial gives up the height instead. It
      has a fixed shape and reads fine smaller; the curve does not. */
   body.pouring .fillchart { flex:1 1 auto; min-height:200px; }
-  body.pouring .pour-top { flex:0 1 auto; min-height:0; }
-  body.pouring .pour-top #brew-gauge .gauge svg,
-  body.pouring #brew-gauge svg { max-height:min(280px, 34vh); }
+  /* The row may shrink to give the curve its floor, but not below the point
+     where the dial stops being readable. */
+  body.pouring .pour-top { flex:0 1 auto; min-height:220px; }
+  /* Capped to the BOX, not to a number.
+     It was max-height:min(280px, 34vh) — a fixed size in a row that had just
+     been made shrinkable. So the container came out 182 px, the dial stayed
+     280, and a centred 280 in a 182 spills 49 px up onto the summary line and
+     50 px down onto the chart. A percentage cannot outgrow its parent. */
+  body.pouring #brew-gauge { min-height:0; }
+  body.pouring #brew-gauge svg { max-height:100%; height:auto; }
   .dash-page:not(.at-brew) .mini .brew-only { display:none; }
   .dash-page:not(.at-brew) #cell-now > .brew-only { display:none; }
   /* The chrome rows earn their height back. Four short labels fit on one line
@@ -466,7 +473,7 @@
     <div id="saved-devices" style="margin-bottom:16px"></div>
     <div class="btn-row">
       <button class="primary" id="connect" type="button">Choose a scale</button>
-      <button class="ghost" id="no-scale" type="button">Continue without a scale</button>
+      <button class="ghost" id="no-scale" type="button" hidden>Type the weights instead</button>
       <button class="ghost" id="forget-all" type="button" style="display:none">Forget saved scales</button>
       <span class="msg" id="conn-msg" style="margin:0"></span>
     </div>
@@ -1086,11 +1093,17 @@ function setPhase(phase) {
 const reason = mock ? null : unsupportedReason();
 if (reason) { $('unsupported').style.display = ''; $('unsupported').textContent = reason; }
 $('connect').disabled = !canLink();
+// The manual path is an answer to one question — "this browser cannot talk to a
+// scale, now what" — and it was on screen for everyone, including the people
+// who had just connected one. It appears when Connect cannot work, which is
+// the only moment it is the way forward rather than the worse of two options.
+$('no-scale').hidden = canLink();
 
 if (!mock && isSupported() && navigator.bluetooth.getAvailability) {
   navigator.bluetooth.getAvailability().then((ok) => {
     if (ok) return;
     $('unsupported').style.display = '';
+    $('no-scale').hidden = false;
     $('unsupported').textContent = 'No Bluetooth adapter is available to this browser. Check the '
       + 'adapter is on, and on macOS that your browser has Bluetooth permission under System '
       + 'Settings → Privacy & Security → Bluetooth.';
@@ -1111,9 +1124,11 @@ function renderSaved() {
   holder.replaceChildren();
   const list = Object.entries(devices);
   if (!list.length) return;
-  holder.appendChild(el('div', { class: 'tag' },
-    list.length === 1 ? 'Your scale' : `Your scales`));
-  holder.appendChild(el('div', { class: 'btn-row', style: 'margin-top:12px' },
+  // No second heading here. The panel's own tag already says "Connect", and a
+  // "Your scale" tag stacked under it read as one broken sentence — two black
+  // blocks on two lines saying CONNECT / YOUR SCALE. The buttons name the scale
+  // themselves, so the heading was carrying nothing.
+  holder.appendChild(el('div', { class: 'btn-row' },
     ...list.map(([key, d]) => el('button', {
       class: 'primary', type: 'button', 'data-reopen': key,
       disabled: canLink() ? null : '',
