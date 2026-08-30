@@ -2286,8 +2286,10 @@ try {
       gauge: !document.getElementById('gauge').hidden,
       empty: document.getElementById('vol-fill').style.height,
       style: document.getElementById('now-style').textContent,
-      sub: document.getElementById('g-sub').textContent,
-      here: [...document.getElementById('g-zones').children]
+      // The dial is mounted by core/gauge.js and uses classes, not ids, so a
+      // page can carry more than one of them.
+      sub: document.querySelector('#gauge .g-sub').textContent,
+      here: [...document.querySelector('#gauge .g-zones').children]
         .filter((z) => z.classList.contains('here')).map((z) => z.dataset.id).join(),
       marks: [...document.getElementById('vol-marks').children].map((m) => m.style.bottom),
       theme: document.documentElement.getAttribute('data-theme'),
@@ -2588,6 +2590,39 @@ try {
     ramping.ticks.join() === '44.6%,59.5%,89.3%', ramping.ticks.join(' '));
   t('ladder: and it folds away the tile that was showing the same number',
     ramping.tile === true, `tile hidden: ${ramping.tile}`);
+
+  // ---- the middle panel carries both readings ----
+  // During a shot the biggest panel on the page was a chart and nothing else.
+  // A curve answers "how is it running"; it cannot answer "which drink is this
+  // and how much longer", which is the question you have with a cup in hand.
+  const mid = await page.evaluate(() => {
+    const g = document.getElementById('brew-gauge');
+    const txt = (id) => document.getElementById(id).textContent;
+    const chart = document.getElementById('curve').getBoundingClientRect();
+    const box = g.getBoundingClientRect();
+    return {
+      dial: !g.hidden,
+      zones: [...g.querySelectorAll('.g-zone')].map((z) => z.dataset.id).join(),
+      here: [...g.querySelectorAll('.g-zone.here')].map((z) => z.dataset.id).join(),
+      sub: g.querySelector('.g-sub').textContent,
+      t: txt('c-t'), f: txt('c-f'), ratio: txt('c-ratio'), lands: txt('c-lands'),
+      cut: document.getElementById('pn-cut').hidden ? null : txt('c-cut'),
+      // Both, at once — not one replacing the other.
+      chartToo: chart.height > 80,
+      // And the dial must not be drawn over the chart beneath it.
+      overlap: box.bottom > chart.top + 1,
+    };
+  });
+  t('brew page: the dial is up beside the chart, not instead of it',
+    mid.dial === true && mid.chartToo === true && mid.overlap === false,
+    `dial ${mid.dial}, chart ${mid.chartToo}px tall, overlap ${mid.overlap}`);
+  t('brew page: the drinks are on it, and it knows which one is in the cup',
+    mid.zones === 'ristretto,espresso,lungo' && mid.here === 'ristretto'
+    && /Ristretto/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
+  t('brew page: and the numbers you act on sit beside it',
+    Number(mid.t) > 0 && Number(mid.f) > 0 && Number(mid.ratio) > 0
+    && Number(mid.lands) > Number(mid.ratio) && mid.cut !== null,
+    `${mid.t} s · ${mid.f} g/s · 1:${mid.ratio} · lands ${mid.lands} g · cut in ${mid.cut} s`);
 
   // A pour over has ratios but not these names, so it keeps the plain tile.
   await page.evaluate(() => {
