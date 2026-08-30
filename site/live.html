@@ -2561,6 +2561,8 @@ function broadcast(snap) {
     elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
     lag: kit.stopLag($('p-machine').value).seconds,
     theme: currentTheme(),
+    // What this page is using for its own dial, so the phone draws the same one.
+    dose: targetDose(),
   }));
 }
 

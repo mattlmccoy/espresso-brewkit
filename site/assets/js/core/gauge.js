@@ -169,7 +169,10 @@ export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
         const label = el('text', `g-label${m.isTarget ? ' is-target' : ''}`);
         label.setAttribute('x', lx.toFixed(1));
         label.setAttribute('y', (ly + 3).toFixed(1));
-        label.textContent = m.label.slice(0, 4).toUpperCase();
+        // The whole word. Chopping it to four characters gave RIST, ESPR and
+        // LUNG, which are not words and read as a rendering fault rather than
+        // as a label — and the space outside the rim was never the constraint.
+        label.textContent = m.label.toUpperCase();
         return [line, label];
       }));
     }

@@ -379,7 +379,9 @@
   transition:stroke-dashoffset var(--t-fast) var(--ease-out); }
 .g-head { fill:var(--ink); stroke:none;
   transition:cx var(--t-fast) var(--ease-out), cy var(--t-fast) var(--ease-out); }
-.g-label { font:700 7px/1 var(--mono); letter-spacing:.1em; fill:var(--ink-mute);
+/* Small enough that the whole word fits outside the rim without the two ends
+   of the scale colliding with the box. */
+.g-label { font:700 6px/1 var(--mono); letter-spacing:.04em; fill:var(--ink-mute);
   text-anchor:middle; stroke:none; }
 .g-label.is-target { fill:var(--ink-dim); }
 .g-zone { stroke-width:15; }

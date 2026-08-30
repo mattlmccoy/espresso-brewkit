@@ -614,8 +614,13 @@ arm's length wants one thing made big. That is right for a phone and wrong for
 an iPad, which has room for the number, the dial and the curve at once and was
 showing a third of what it could.
 
-So above 700 px the number and the dial sit side by side, the strip grows a
-fourth cell, and the curve gets real height. Landscape on a phone gets the same
+So above 700 px the number and the dial sit side by side, the strip carries the
+whole readout on one row — time, flow, target, dose, the ratio it is at right
+now, where it lands if you cut when the drip stops, and how long until the
+target — and the curve gets real height. A phone has the height for those seven
+but not the width, so they go two abreast rather than being left off. The four
+that mean nothing before a shot fold away rather than showing dashes over an
+empty cup. Landscape on a phone gets the same
 treatment in miniature. Below that it is the single column it always was, with
 the dial added underneath the number.
 
@@ -655,6 +660,23 @@ overlay could hide.
 
 Escape or the back button returns to the shot, and the frame keeps its page, so
 going back and forth is instant rather than a reload each way.
+
+### The dose the laptop is using, not only the one it weighed
+
+A reported bug worth writing down, because the shape of it recurs. The laptop
+looked right and the iPad showed nothing extra: no dial, no volume, no ladder,
+no name for the drink.
+
+One null did all of that. `sess.dose` is only set once the dose step captures,
+and plenty of real shots never let it — you go straight to brew, or you dose on
+the grinder's own scale. The laptop hid that from itself by falling back to the
+number in the target field whenever it needed a dose. The frame sent the raw
+`sess.dose`, so the phone got `null`, and every one of those four things is
+dose-derived. They did not fail; they correctly declined to draw.
+
+The frame now carries the dose the laptop is actually using, with a `doseSet`
+flag saying whether it was weighed or assumed — a ladder built on an assumed
+dose is a plan rather than a measurement, and the strip labels it as one.
 
 ### Following the laptop, until you disagree
 

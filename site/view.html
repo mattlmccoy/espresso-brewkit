@@ -124,11 +124,24 @@
       justify-content:center; }
     .gauge svg { max-height:none; }
     .g-n { font-size:38px; }
+    /* Seven cells, not four. An iPad has the width for the whole readout on one
+       row while it pours, and filling it is the entire reason the breakpoint
+       exists. */
+    body.brewing .strip { grid-template-columns:repeat(7, 1fr); }
     .strip { grid-template-columns:repeat(4, 1fr); }
+    .strip .k { font-size:9.5px; }
     .big .n { font-size:clamp(70px, 12vw, 160px); }
     .plot { flex:2 1 0; min-height:200px; }
     .ladder-g { font-size:22px; }
   }
+  /* A phone has the height for them but not the width, so they go two abreast
+     instead of being left off. */
+  @media (max-width: 699px) {
+    body.brewing .strip { grid-template-columns:repeat(2, 1fr); }
+  }
+  /* Four of the seven mean nothing until something is pouring, and a row of
+     dashes over an empty cup is furniture between you and the number. */
+  body:not(.brewing) .strip .brew-only { display:none; }
   /* Landscape on a phone is the same problem in miniature. */
   @media (max-height: 520px) and (orientation: landscape) {
     body.brewing .stage { flex-direction:row; }
@@ -328,10 +341,22 @@
       <div id="gauge" hidden></div>
     </div>
 
+    <!-- The same numbers the laptop's middle panel carries, because this is the
+         screen actually being looked at while the shot runs. The last three are
+         only meaningful once something is pouring and fold away before that,
+         rather than showing four dashes at a cup that is still empty. -->
     <div class="strip" id="v-strip">
       <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
       <div class="c"><div class="k">Flow</div><div class="v" id="q">0.00<small>g/s</small></div></div>
       <div class="c"><div class="k">Target</div><div class="v" id="target">—</div></div>
+      <div class="c" id="c-dose"><div class="k" id="dose-k">Dose</div>
+        <div class="v" id="dose">—</div></div>
+      <div class="c brew-only" id="c-ratio"><div class="k">Ratio</div>
+        <div class="v" id="ratio">—</div></div>
+      <div class="c brew-only" id="c-lands"><div class="k">Lands at</div>
+        <div class="v" id="lands">—</div></div>
+      <div class="c brew-only" id="c-cut"><div class="k">Cut in</div>
+        <div class="v" id="cut">—</div></div>
     </div>
     <!-- The reason this device exists is that it is the one across the room
          you can actually see. Flow as a bar is the difference between reading
@@ -413,6 +438,40 @@ function viewFor(f) {
   return 'weigh';
 }
 
+/**
+ * The four readings that only exist mid-pour, plus the dose they all rest on.
+ *
+ * `lands` and `cut` are the same arithmetic the laptop does — distance over
+ * flow, corrected for the drip the puck is still delivering after you cut —
+ * done here rather than sent, because the phone already has every input and a
+ * number computed twice from one set of inputs cannot disagree with itself.
+ */
+function paintStrip(f, brewing) {
+  const dose = Number(f.dose);
+  const known = Number.isFinite(dose) && dose > 0;
+  // Say when the dose was assumed rather than weighed: a ratio off an assumed
+  // dose is a plan, and it should not look like a measurement.
+  $('dose-k').textContent = known && f.doseSet === false ? 'Dose (set)' : 'Dose';
+  $('dose').innerHTML = known ? `${dose.toFixed(1)}<small>g</small>` : '—';
+
+  const w = Number(f.w);
+  $('ratio').innerHTML = known && Number.isFinite(w) && w > 0
+    ? `1:<b>${(w / dose).toFixed(2)}</b>` : '—';
+
+  const flow = Number(f.q);
+  const lag = Number.isFinite(f.lag) ? f.lag : 1;
+  const pouring = brewing && Number.isFinite(flow) && flow > 0.05;
+  const lands = pouring && Number.isFinite(w) ? w + flow * lag : NaN;
+  $('lands').innerHTML = Number.isFinite(lands)
+    ? `${lands.toFixed(1)}<small>g</small>` : '—';
+
+  const tgt = Number(f.target);
+  const eta = pouring && Number.isFinite(tgt) && Number.isFinite(w)
+    ? (tgt - flow * lag - w) / flow : NaN;
+  $('cut').innerHTML = Number.isFinite(eta) && eta > -30
+    ? `${Math.max(0, eta).toFixed(1)}<small>s</small>` : '—';
+}
+
 function paint(f) {
   last = f;
   const view = viewFor(f);
@@ -430,6 +489,7 @@ function paint(f) {
   paintFlow($('flowrow'), f.q, f.method);
   $('target').innerHTML = Number.isFinite(f.target)
     ? `${f.target.toFixed(1)}<small>g</small>` : '—';
+  paintStrip(f, brewing);
   $('coffee').textContent = f.coffee || 'No coffee chosen';
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';

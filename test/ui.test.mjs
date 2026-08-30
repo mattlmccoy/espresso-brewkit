@@ -2485,7 +2485,7 @@ try {
   }, themeWas);
   await watch.close();
   t('viewer: an iPad puts the number and the dial side by side',
-    tablet.dir === 'row' && tablet.cols === 4,
+    tablet.dir === 'row' && tablet.cols === 7,
     `stage ${tablet.dir}, strip in ${tablet.cols} columns`);
   }
 
@@ -3573,6 +3573,48 @@ try {
   t('link: with a bounded tail of the curve, so a late joiner is not blank',
     codes.frame.curve.length === 240 && codes.frame.curve[0].length === 2,
     `${codes.frame.curve.length} points of 400`);
+
+  // ---- the dose the laptop is using, not only the one it weighed ----
+  // Reported: the laptop looks right and the iPad shows nothing extra. The
+  // cause was one null. `sess.dose` stays null on any shot where the dose step
+  // never captured — straight to brew, or dosed on the grinder's own scale —
+  // and the laptop hid that from itself by falling back to the typed target.
+  // The frame sent the raw null, and since the dial, the volume, the ladder and
+  // the name of the drink are every one of them dose-derived, all four vanished
+  // on the device that exists to show them.
+  const doses = await page.evaluate(async () => {
+    const { frameOf } = await import('./assets/js/core/link.js');
+    const { shotDial } = await import('./assets/js/core/dial.js');
+    const base = { snap: { net: 24, flow: 2, state: 'extracting' }, target: 36,
+                   tol: 1.5, elapsed: 14, curve: [], lag: 1 };
+    // What a session looks like when nothing was weighed.
+    const unweighed = frameOf({ ...base, sess: { method: 'espresso', dose: null },
+                                dose: 18 });
+    const weighed = frameOf({ ...base, sess: { method: 'espresso', dose: 18.4 },
+                              dose: 18 });
+    // And with no dose from anywhere, it still must not invent one.
+    const neither = frameOf({ ...base, sess: { method: 'espresso', dose: null } });
+    return {
+      unweighed: unweighed.dose, unweighedSet: unweighed.doseSet,
+      weighed: weighed.dose, weighedSet: weighed.doseSet,
+      neither: neither.dose,
+      // The thing that was actually broken, end to end.
+      dialFromUnweighed: !!shotDial(unweighed.method, unweighed.dose,
+        { net: unweighed.w, target: unweighed.target }),
+      dialFromNeither: shotDial(neither.method, neither.dose,
+        { net: neither.w, target: neither.target }),
+    };
+  });
+  t('link: a shot that never weighed its dose still sends the one being used',
+    doses.unweighed === 18 && doses.unweighedSet === false
+    && doses.dialFromUnweighed === true,
+    `dose ${doses.unweighed}, weighed ${doses.unweighedSet}, dial ${doses.dialFromUnweighed}`);
+  t('link: a weighed dose wins over the one that was typed',
+    doses.weighed === 18.4 && doses.weighedSet === true,
+    `${doses.weighed} g, weighed ${doses.weighedSet}`);
+  t('link: and with no dose anywhere it says so rather than inventing one',
+    doses.neither === null && doses.dialFromNeither === null,
+    `dose ${doses.neither}, dial ${doses.dialFromNeither}`);
 
   // The real handshake, between two real pages.
   const phone = await ctx.newPage();
