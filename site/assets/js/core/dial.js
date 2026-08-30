@@ -16,29 +16,38 @@
 // from the same numbers, and a module that returned elements would have to pick
 // one of them.
 
-import { stylesFor, landmarks, ladderScale, styleOf } from './styles.js';
+import { stylesFor, landmarks, styleOf } from './styles.js';
 
 /**
- * A half circle, opening upward, in a 200x116 box.
+ * Two thirds of a circle, opening at the bottom, in a 220x200 box.
  *
- * The numbers are the laptop's, kept so the two dials are the same shape at
- * different sizes rather than two dials that happen to both be round.
+ * It was a half circle, and a design review was blunt about the result: it read
+ * as a bad speedometer. Part of that was the sweep. A half circle has nowhere
+ * to put a label except outside the arc or under it, and it leaves the middle —
+ * the only place the reading belongs — as a hole.
  *
- * `a0` is where fraction 0 sits and `span` how far the scale sweeps, both in
- * radians. They are here so the same arithmetic can draw a instrument ring as
- * well as a half circle: a theme that reorganises the page around one big dial
- * needs a different sweep, and it should not need a different dial.
+ * 240° opening at the bottom gives the bands room to be named on themselves and
+ * puts the number inside the instrument. One shape for every theme, so a dial
+ * learnt on one is readable on the next; what a theme changes is the material.
+ *
+ * `a0` is where fraction 0 sits and `span` how far the scale sweeps, in radians.
  */
-export const GEO = { cx: 100, cy: 108, r: 86, a0: 0, span: Math.PI };
+export const GEO = { cx: 110, cy: 112, r: 86, a0: -Math.PI / 6, span: Math.PI * 4 / 3 };
+
+/** Kept as an alias: every theme now uses one shape. */
+export const RING = GEO;
 
 /**
- * Most of a circle, with a gap at the bottom, in a 200x200 box.
+ * The dial's domain, as ratios of the dose.
  *
- * Three quarters of a turn starting at the lower left, which is the shape a
- * gauge on an appliance takes: the opening at the bottom is where the scale
- * starts and ends, so the reading has somewhere to sit in the middle.
+ * It used to run from zero to a little past the lungo mark, which wasted the
+ * first 30% of the sweep on ratios below 1:1 — unnamed, unbanded, and nothing
+ * ever in them — and cut the lungo band off at 1:3.36 of a drink defined to
+ * 1:4. Anchoring it to the drinks instead fixes the band positions at every
+ * dose: ristretto always ends at 0.233, espresso at 0.5. Labels can be laid out
+ * once and can never collide, which is why they never need abbreviating.
  */
-export const RING = { cx: 100, cy: 100, r: 72, a0: -Math.PI / 4, span: Math.PI * 1.5 };
+export const DOMAIN = [1.0, 4.0];
 
 const spanOf = (geo) => (Number.isFinite(geo?.span) ? geo.span : Math.PI);
 
@@ -90,41 +99,57 @@ export function shotDial(method, dose, { net = 0, target = null } = {}) {
   if (!styles || !Number.isFinite(d) || d <= 0) return null;
 
   const marks = landmarks(method, d, { target });
-  const top = ladderScale(marks);
-  if (!(top > 0)) return null;
+  const [lo, hi] = DOMAIN;
+  const bottom = d * lo;
+  const top = d * hi;
+  if (!(top > bottom)) return null;
+
+  // Where a weight sits on the dial. The scale starts at 1:1, so anything under
+  // it pins to the start rather than occupying a third of the sweep saying
+  // nothing.
+  const place = (g) => Math.max(0, Math.min(1, (g - bottom) / (top - bottom)));
 
   const w = Number.isFinite(net) ? Math.max(0, net) : 0;
-  const frac = Math.max(0, Math.min(1, w / top));
+  const frac = place(w);
   const zones = styles.map((s) => {
     const from = d * s.band[0];
-    const to = Math.min(top, d * s.band[1]);
+    const to = d * s.band[1];
     return {
       id: s.id,
       label: s.label,
       from: +from.toFixed(1),
-      to: +to.toFixed(1),
-      fromFrac: Math.max(0, Math.min(1, from / top)),
-      toFrac: Math.max(0, Math.min(1, to / top)),
+      to: +Math.min(to, top).toFixed(1),
+      fromFrac: place(from),
+      toFrac: place(to),
       // Which zone the cup is in is asked of the ratio, not of the drawn arc.
-      // `to` is clipped to the end of the dial, so testing against it would
-      // call a shot that ran past the dial "below the first band" — which is
-      // the opposite of what it is.
-      here: w >= from && w < d * s.band[1],
-      passed: w >= d * s.band[1],
+      // Testing against the clipped end would call a shot that ran past the
+      // dial "below the first band", which is the opposite of what it is.
+      here: w >= from && w < to,
+      passed: w >= to,
     };
   });
 
   return {
     top: +top.toFixed(1),
+    bottom: +bottom.toFixed(1),
     net: +w.toFixed(2),
     frac,
     zones,
-    marks: marks.map((m) => ({ ...m, frac: Math.max(0, Math.min(1, m.grams / top)) })),
+    marks: marks.map((m) => ({ ...m, frac: place(m.grams) })),
     // What it is right now, from the same classifier the log uses, so the dial
     // and the saved shot can never disagree about what was pulled. Null below
     // the first band and above the last, where nothing is conventionally named.
     style: styleOf(method, d, w),
     over: w > top,
+    // How far to the end of the band you are in — the third question the dial
+    // is meant to answer, and the one it never showed.
+    toNext: (() => {
+      const here = zones.find((z) => z.here);
+      if (!here) return null;
+      const next = styles[styles.findIndex((x) => x.id === here.id) + 1];
+      return { grams: +(d * (here.to / d) - w).toFixed(1),
+               into: next ? next.label : null };
+    })(),
   };
 }
 
@@ -139,11 +164,20 @@ export function shotDial(method, dose, { net = 0, target = null } = {}) {
 export function shotVolume(method, dose, { net = 0, target = null } = {}) {
   const d = shotDial(method, dose, { net, target });
   if (!d) return null;
+  // A cup fills from empty, not from 1:1.
+  //
+  // The dial starts at 1:1 because ratios below it are not a drink and wasted a
+  // third of its sweep. A cup has no such excuse: it starts at zero, and
+  // borrowing the dial's domain made a cup 24 g into a 36 g shot look 11% full
+  // rather than two thirds. Same numbers, different question, so a different
+  // scale — and the marks have to move with it or they stop meaning heights.
+  const top = d.top;
+  const place = (g) => Math.max(0, Math.min(1, g / top));
   return {
-    top: d.top,
-    frac: d.frac,
+    top,
+    frac: place(d.net),
     style: d.style,
     // Bottom-up, because that is the way a cup fills.
-    marks: d.marks.map((m) => ({ ...m, height: m.frac })),
+    marks: d.marks.map((m) => ({ ...m, height: place(m.grams), frac: place(m.grams) })),
   };
 }

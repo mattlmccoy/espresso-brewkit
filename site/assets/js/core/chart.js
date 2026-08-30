@@ -386,6 +386,14 @@ export function surface3d(container, { points, model, labels, size = 560 }) {
  * Pulling to match a curve you already liked is a far more direct instruction
  * than "aim for 28 seconds".
  */
+/** Round a scale top up to something a person would have chosen. */
+function niceTop(v) {
+  if (!(v > 0)) return 1;
+  const mag = 10 ** Math.floor(Math.log10(v));
+  const n = v / mag;
+  return (n <= 1 ? 1 : n <= 1.5 ? 1.5 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+}
+
 export function livePlot(container, {
   weight = [], flow = [], ghost = [], ghostFlow = [], target = NaN,
   firstDrip = NaN, width = 720, height = 380,
@@ -394,7 +402,9 @@ export function livePlot(container, {
   container.replaceChildren();
   const svg = el('svg', {
     viewBox: `0 0 ${width} ${height}`, class: 'chart live', role: 'img',
-    preserveAspectRatio: 'none',
+    // Not `none`: stretching the box to the container scaled 11px ticks to
+    // about 4px on a phone and turned the end marker into an ellipse.
+    preserveAspectRatio: 'xMidYMid meet',
   }, container);
   const iw = width - m.l - m.r, ih = height - m.t - m.b;
 
@@ -404,7 +414,12 @@ export function livePlot(container, {
     Number.isFinite(target) ? target * 1.12 : 0,
     10, ...[...weight, ...ghost].map((p) => p[1]),
   );
-  const fMax = Math.max(1.2, ...[...flow, ...ghostFlow].map((p) => p[1]));
+  const hasFlow = flow.length > 0 || ghostFlow.length > 0;
+  // Headroom. Without it the peak sample lands exactly on the top of the plot,
+  // where the line runs along the frame and reads as a border rather than as a
+  // series — which is what a 2.00 g/s pour did against a 1.2 floor.
+  const fPeak = Math.max(1.2, ...[...flow, ...ghostFlow].map((p) => p[1]));
+  const fMax = niceTop(fPeak * 1.15);
 
   const sx = (t) => m.l + (t / tMax) * iw;
   const sy = (w) => m.t + ih - (w / wMax) * ih;
@@ -420,9 +435,14 @@ export function livePlot(container, {
     el('text', { x: m.l - 7, y: sy(w) + 4, class: 'tick', 'text-anchor': 'end' }, svg)
       .textContent = fmtTick(w);
   }
-  for (const f of ticks(0, fMax, 4)) {
-    el('text', { x: m.l + iw + 7, y: sf(f) + 4, class: 'tick tick-alt', 'text-anchor': 'start' }, svg)
-      .textContent = fmtTick(f);
+  // Only when there is a flow series to scale. The viewer passes weight and a
+  // target and no flow at all, and this drew it a full g/s axis — six numbers
+  // in the flow colour, for a line that is not on the chart.
+  if (hasFlow) {
+    for (const f of ticks(0, fMax, 4)) {
+      el('text', { x: m.l + iw + 7, y: sf(f) + 4, class: 'tick tick-alt', 'text-anchor': 'start' }, svg)
+        .textContent = fmtTick(f);
+    }
   }
 
   const path = (pts, scale, cls) => {
@@ -453,7 +473,17 @@ export function livePlot(container, {
   const last = weight.at(-1);
   if (last) el('circle', { cx: sx(last[0]), cy: sy(last[1]), r: 4.5, class: 'pt' }, svg);
 
-  el('text', { x: m.l, y: m.t - 3, class: 'axis-label' }, svg).textContent = 'g';
-  el('text', { x: m.l + iw + 7, y: m.t - 3, class: 'axis-label alt' }, svg).textContent = 'g/s';
+  // `unit` opts out of the uppercase the axis label carries, which turned these
+  // into G and G / S — gauss, and a letter-spaced acronym.
+  el('text', { x: m.l, y: m.t - 3, class: 'axis-label unit' }, svg).textContent = 'yield (g)';
+  if (hasFlow) {
+    // Anchored to the right edge: left-anchored it ran off the end of the plot
+    // and rendered as "flow (g/", because the right margin is 46px and the
+    // label is wider than that.
+    el('text', { x: width - 4, y: m.t - 3, class: 'axis-label alt unit',
+      'text-anchor': 'end' }, svg).textContent = 'flow (g/s)';
+  }
+  el('text', { x: m.l + iw / 2, y: height - 6, class: 'axis-label unit', 'text-anchor': 'middle' },
+    svg).textContent = 'seconds';
   return svg;
 }

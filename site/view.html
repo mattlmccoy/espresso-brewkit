@@ -26,7 +26,7 @@
   .stage { flex:3 1 auto; display:flex; flex-direction:column; gap:12px; min-height:0; }
   .big { flex:1 1 auto; position:relative; display:grid; place-items:center; overflow:hidden;
     border:var(--bw) solid var(--ink);
-    background:var(--accent); color:var(--accent-ink); min-height:150px; padding:10px; }
+    background:var(--panel); color:var(--ink); min-height:150px; padding:10px; }
   .big-in { position:relative; z-index:2; }
 
   /* THE CUP FILLING. The bar underneath says how far along the pour is; this
@@ -36,30 +36,40 @@
      visible from across a kitchen without reading anything. */
   .vol { position:absolute; inset:0; z-index:1; pointer-events:none; }
   .vol[hidden] { display:none; }
-  /* WHAT IS NOT IN THE CUP YET, rather than what is. Drawn the other way round
-     — a tint over the poured part — the tile reads as draining: the bright
-     region is the empty one and it shrinks as coffee arrives. So the fill is
-     the tile's own colour left alone, and everything above the level is washed
-     out. The line between them is the surface. */
-  .vol-fill { position:absolute; left:0; right:0; top:0; height:100%;
-    background:color-mix(in srgb, var(--bg) 62%, transparent);
-    border-bottom:2px solid color-mix(in srgb, var(--accent-ink) 70%, transparent);
+  /* WHAT IS IN THE CUP, rising from the bottom.
+     This was drawn the other way round — a whole tile of accent, with the
+     unpoured part washed toward the background — for a good reason: tinting the
+     poured part of a *bright* tile makes the empty region the bright one, and
+     the tile reads as draining. The mistake was the bright tile. Washing it
+     slid the ground the number sits on from the accent toward the background,
+     so the one number the app exists for converged on its own backdrop in all
+     five themes — 1.73:1 at worst, and worst early in a shot when you are
+     watching hardest.
+     So the tile is neutral and the coffee is the coloured thing. The number
+     keeps one ground and stays legible; the level still rises; and the screen
+     stops carrying a flat slab of saturated colour out of all proportion to
+     what it encodes. */
+  .vol-fill { position:absolute; left:0; right:0; bottom:0; height:0;
+    background:linear-gradient(180deg,
+      color-mix(in srgb, var(--accent) 34%, transparent),
+      color-mix(in srgb, var(--accent) 52%, transparent));
+    border-top:2px solid var(--accent);
     transition:height .18s cubic-bezier(.22,.68,.32,1); }
   /* A slow swell at the surface, because a pour is not a step function and a
      level that only ratchets reads as a progress bar rather than a liquid.
-     Small enough that it never argues with the number on top of it. */
-  .vol-fill::after { content:''; position:absolute; left:0; right:0; bottom:-4px; height:7px;
-    background:color-mix(in srgb, var(--accent-ink) 22%, transparent);
+     Small enough that it never argues with the number over it. */
+  .vol-fill::after { content:''; position:absolute; left:0; right:0; top:-4px; height:7px;
+    background:color-mix(in srgb, var(--accent) 30%, transparent);
     animation:swell 2.6s ease-in-out infinite; }
   @keyframes swell { 50% { transform:translateY(2px) scaleY(.55); } }
   .vol-marks { position:absolute; inset:0; }
   .vol-mark { position:absolute; left:0; right:0; height:0;
-    border-top:1px dashed color-mix(in srgb, var(--accent-ink) 40%, transparent); }
+    border-top:1px dashed var(--hair); }
   .vol-mark span { position:absolute; left:8px; top:-13px;
     font:700 9.5px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
-    color:color-mix(in srgb, var(--accent-ink) 68%, transparent); }
-  .vol-mark.passed { border-top-style:solid; }
-  .vol-mark.passed span { color:var(--accent-ink); }
+    color:var(--ink-mute); }
+  .vol-mark.passed { border-top-style:solid; border-top-color:var(--accent); }
+  .vol-mark.passed span { color:var(--ink); }
   /* Named on the tile, so the drink is readable without the dial. */
   .now-style { display:inline-block; font:800 12px/1 var(--sans); letter-spacing:.12em;
     text-transform:uppercase; margin-top:10px; padding:5px 9px;
@@ -124,35 +134,37 @@
       justify-content:center; }
     .gauge svg { max-height:none; }
     .g-n { font-size:38px; }
+    /* Seven cells, not four. An iPad has the width for the whole readout on one
+       row while it pours, and filling it is the entire reason the breakpoint
+       exists. */
+    body.brewing .strip { grid-template-columns:repeat(7, 1fr); }
     .strip { grid-template-columns:repeat(4, 1fr); }
+    .strip .k { font-size:9.5px; }
     .big .n { font-size:clamp(70px, 12vw, 160px); }
     .plot { flex:2 1 0; min-height:200px; }
     .ladder-g { font-size:22px; }
   }
+  /* A phone has the height for them but not the width, so they go two abreast
+     instead of being left off. */
+  @media (max-width: 699px) {
+    body.brewing .strip { grid-template-columns:repeat(2, 1fr); }
+    /* Seven into two leaves one alone on the last row with an empty cell beside
+       it. The odd one out takes the whole width instead. */
+    body.brewing .strip .c:last-child:nth-child(odd) { grid-column:1 / -1; }
+    /* On a short tile the three marks land within 14 px of each other and pile
+       up on the number. The dial and the ladder both name them in full a few
+       inches away; here the lines alone are enough. */
+    .vol-mark span { display:none; }
+  }
+  /* Four of the seven mean nothing until something is pouring, and a row of
+     dashes over an empty cup is furniture between you and the number. */
+  body:not(.brewing) .strip .brew-only { display:none; }
   /* Landscape on a phone is the same problem in miniature. */
   @media (max-height: 520px) and (orientation: landscape) {
     body.brewing .stage { flex-direction:row; }
     .big .n { font-size:clamp(44px, 9vw, 84px); }
     .gauge svg { max-height:132px; }
   }
-  .go-row { display:flex; gap:8px; flex-wrap:wrap; }
-  .go-row button { flex:1 1 auto; padding:9px 10px; box-shadow:none; font-size:12px; }
-  /* Over everything, because while you are reading the log the log is the
-     screen — but the page underneath is still live and still connected. */
-  .browse { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column;
-    background:var(--bg); }
-  /* The page underneath is still there and must stay there. Locking its scroll
-     stops a swipe in the frame dragging the shot around behind it, which on a
-     phone reads as the overlay being broken. */
-  body.browsing { overflow:hidden; }
-  .browse[hidden] { display:none; }
-  .browse-bar { display:flex; align-items:center; gap:10px; padding:8px 10px;
-    padding-top:calc(8px + env(safe-area-inset-top));
-    border-bottom:var(--bw) solid var(--ink); background:var(--panel); }
-  .browse-bar button { padding:7px 11px; box-shadow:none; font-size:12px; }
-  /* The pour, still visible while you are somewhere else. */
-  .browse-live { font:700 13px/1 var(--mono); letter-spacing:.04em; margin-left:auto; }
-  .browse iframe { flex:1 1 auto; width:100%; border:0; background:var(--bg); }
   .log-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
   .log-row[hidden] { display:none; }
   .log-row button { padding:7px 11px; box-shadow:none; font-size:11.5px; }
@@ -236,21 +248,8 @@
        already on this device, so the other pages work here perfectly well; the
        only thing that must not happen is this page unloading. So they open in
        a frame instead, and the connection sits in a page that never navigates. -->
-  <div class="go-row" id="go-row">
-    <button class="ghost" data-go="shots.html" type="button">Shots</button>
-    <button class="ghost" data-go="advisor.html" type="button">Advisor</button>
-    <button class="ghost" data-go="kit.html" type="button">Kit</button>
-    <button class="ghost" data-go="lab.html" type="button">Lab</button>
-  </div>
-
-  <div class="browse" id="browse" hidden>
-    <div class="browse-bar">
-      <button class="primary" id="browse-back" type="button">&larr; The shot</button>
-      <span class="browse-live" id="browse-live">—</span>
-      <span class="badge" id="browse-conn">Still linked</span>
-    </div>
-    <iframe id="browse-frame" title="Brewkit"></iframe>
-  </div>
+  <div id="go-row"></div>
+  <div id="browse"></div>
 
   <!-- The shots behind the pour. This device could always watch and never see
        the log; now it can ask for it over the link that is already open. -->
@@ -328,10 +327,22 @@
       <div id="gauge" hidden></div>
     </div>
 
+    <!-- The same numbers the laptop's middle panel carries, because this is the
+         screen actually being looked at while the shot runs. The last three are
+         only meaningful once something is pouring and fold away before that,
+         rather than showing four dashes at a cup that is still empty. -->
     <div class="strip" id="v-strip">
       <div class="c"><div class="k">Time</div><div class="v" id="t">0.0<small>s</small></div></div>
       <div class="c"><div class="k">Flow</div><div class="v" id="q">0.00<small>g/s</small></div></div>
       <div class="c"><div class="k">Target</div><div class="v" id="target">—</div></div>
+      <div class="c" id="c-dose"><div class="k" id="dose-k">Dose</div>
+        <div class="v" id="dose">—</div></div>
+      <div class="c brew-only" id="c-ratio"><div class="k">Ratio</div>
+        <div class="v" id="ratio">—</div></div>
+      <div class="c brew-only" id="c-lands"><div class="k">Lands at</div>
+        <div class="v" id="lands">—</div></div>
+      <div class="c brew-only" id="c-cut"><div class="k">Cut in</div>
+        <div class="v" id="cut">—</div></div>
     </div>
     <!-- The reason this device exists is that it is the one across the room
          you can actually see. Flow as a bar is the difference between reading
@@ -366,8 +377,9 @@ import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
   from './assets/js/core/styles.js';
-import { shotDial } from './assets/js/core/dial.js';
+import { shotDial, shotVolume } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
+import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
 initTheme();
 
 const $ = (id) => document.getElementById(id);
@@ -387,8 +399,8 @@ function setConn(state) {
   // The same state, said again in the browse bar. Reading the log with the
   // link quietly dead behind you is the one thing this overlay could hide,
   // so the badge that would tell you is carried along with it.
-  $('browse-conn').textContent = state === 'open' ? 'Still linked' : label;
-  $('browse-conn').className = tone;
+  browse.setConn(state === 'open' ? 'Still linked' : label,
+    state === 'open' ? 'ok' : state === 'failed' ? 'warn' : 'flag');
   const live = state === 'open';
   $('pairing').hidden = live;
   $('watching').hidden = !live;
@@ -413,6 +425,40 @@ function viewFor(f) {
   return 'weigh';
 }
 
+/**
+ * The four readings that only exist mid-pour, plus the dose they all rest on.
+ *
+ * `lands` and `cut` are the same arithmetic the laptop does — distance over
+ * flow, corrected for the drip the puck is still delivering after you cut —
+ * done here rather than sent, because the phone already has every input and a
+ * number computed twice from one set of inputs cannot disagree with itself.
+ */
+function paintStrip(f, brewing) {
+  const dose = Number(f.dose);
+  const known = Number.isFinite(dose) && dose > 0;
+  // Say when the dose was assumed rather than weighed: a ratio off an assumed
+  // dose is a plan, and it should not look like a measurement.
+  $('dose-k').textContent = known && f.doseSet === false ? 'Dose (set)' : 'Dose';
+  $('dose').innerHTML = known ? `${dose.toFixed(1)}<small>g</small>` : '—';
+
+  const w = Number(f.w);
+  $('ratio').innerHTML = known && Number.isFinite(w) && w > 0
+    ? `1:<b>${(w / dose).toFixed(2)}</b>` : '—';
+
+  const flow = Number(f.q);
+  const lag = Number.isFinite(f.lag) ? f.lag : 1;
+  const pouring = brewing && Number.isFinite(flow) && flow > 0.05;
+  const lands = pouring && Number.isFinite(w) ? w + flow * lag : NaN;
+  $('lands').innerHTML = Number.isFinite(lands)
+    ? `${lands.toFixed(1)}<small>g</small>` : '—';
+
+  const tgt = Number(f.target);
+  const eta = pouring && Number.isFinite(tgt) && Number.isFinite(w)
+    ? (tgt - flow * lag - w) / flow : NaN;
+  $('cut').innerHTML = Number.isFinite(eta) && eta > -30
+    ? `${Math.max(0, eta).toFixed(1)}<small>s</small>` : '—';
+}
+
 function paint(f) {
   last = f;
   const view = viewFor(f);
@@ -430,6 +476,7 @@ function paint(f) {
   paintFlow($('flowrow'), f.q, f.method);
   $('target').innerHTML = Number.isFinite(f.target)
     ? `${f.target.toFixed(1)}<small>g</small>` : '—';
+  paintStrip(f, brewing);
   $('coffee').textContent = f.coffee || 'No coffee chosen';
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';
@@ -438,10 +485,8 @@ function paint(f) {
   paintGauge(f);
   // Still on screen while you are reading the log, because a shot does not
   // pause for it.
-  if (!$('browse').hidden) {
-    $('browse-live').textContent = brewing
-      ? `${fmt1(f.w)} g · ${fmt1(f.t)} s`
-      : `${fmt1(f.w)} g`;
+  if (browse.isOpen()) {
+    browse.setLive(brewing ? `${fmt1(f.w)} g · ${fmt1(f.t)} s` : `${fmt1(f.w)} g`);
   }
   wearTheme(f.theme);
   drawCurve(f);
@@ -478,32 +523,34 @@ function paintGauge(f) {
   const d = brewing
     ? shotDial(f.method, f.dose, { net: f.w, target: f.target })
     : null;
-  gauge.paint(d, { flow: f.q, flowMax: 4 });
+  gauge.paint(d);
   $('vol').hidden = !d;
   $('now-style').hidden = !d;
   if (!d) { zoneSig = ''; return; }
 
-  // The volume carries the same marks the dial does, as heights, and they only
-  // move when the dose or the target does.
-  const sig = `${d.top}|${d.marks.map((m) => m.grams).join(',')}`;
+  // The cup has its own scale. The dial starts at 1:1 because ratios below it
+  // are not a drink; a cup starts at empty, and sharing the dial's domain made
+  // two thirds of a shot look like a tenth of one.
+  const vol = shotVolume(f.method, f.dose, { net: f.w, target: f.target });
+  const sig = `${vol.top}|${vol.marks.map((m) => m.grams).join(',')}`;
   if (zoneSig !== sig) {
     zoneSig = sig;
-    $('vol-marks').replaceChildren(...d.marks.map((m) => {
+    $('vol-marks').replaceChildren(...vol.marks.map((m) => {
       const row = document.createElement('div');
       row.className = 'vol-mark';
       const tag = document.createElement('span');
       tag.textContent = m.label;
       row.append(tag);
-      row.style.bottom = `${(m.frac * 100).toFixed(1)}%`;
+      row.style.bottom = `${(m.height * 100).toFixed(1)}%`;
       return row;
     }));
   }
 
-  // The element is the space above the coffee, so it shrinks as the cup fills.
-  $('vol-fill').style.height = `${((1 - d.frac) * 100).toFixed(1)}%`;
+  // The element is the coffee, so it grows as the cup fills.
+  $('vol-fill').style.height = `${(vol.frac * 100).toFixed(1)}%`;
   for (const row of $('vol-marks').children) {
     const at = parseFloat(row.style.bottom) / 100;
-    row.classList.toggle('passed', d.frac >= at);
+    row.classList.toggle('passed', vol.frac >= at);
   }
   $('now-style').textContent = d.style ? d.style.label : '';
   $('now-style').hidden = !d.style;
@@ -813,26 +860,9 @@ link.onLogProgress = ({ got, of }) => {
 // reading the same log this device already received. What is different is only
 // that this page stays loaded underneath them, which is the whole point: the
 // peer connection cannot survive a navigation and does not have to.
-
-function openBrowse(page) {
-  const frame = $('browse-frame');
-  if (frame.getAttribute('src') !== `./${page}`) frame.setAttribute('src', `./${page}`);
-  $('browse').hidden = false;
-  document.body.classList.add('browsing');
-  $('browse-back').focus();
-}
-
-function closeBrowse() {
-  $('browse').hidden = true;
-  document.body.classList.remove('browsing');
-  // The frame keeps its page, so coming back is instant rather than a reload.
-}
-
-for (const btn of document.querySelectorAll('[data-go]')) {
-  btn.addEventListener('click', () => openBrowse(btn.dataset.go));
-}
-$('browse-back').addEventListener('click', closeBrowse);
-addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('browse').hidden) closeBrowse(); });
+const browse = mountBrowse($('browse'), { backLabel: 'The shot', home: 'view.html',
+  pages: BROWSE_PAGES });
+browse.buildRow($('go-row'));
 
 $('get-log').addEventListener('click', () => {
   if (!link.requestLog()) { $('log-msg').textContent = 'Not linked to the laptop.'; return; }

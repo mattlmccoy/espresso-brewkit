@@ -327,7 +327,20 @@ export class LiveLink {
  * enough that losing one costs nothing. There are no deltas here by design:
  * every frame is the whole picture, which is what lets the channel be lossy.
  */
-export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, theme }) {
+export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, theme,
+                          dose = undefined }) {
+  // The dose the laptop is *using*, not only the one it has weighed.
+  //
+  // `sess.dose` is null until the dose step captures, and plenty of real shots
+  // never let it: you go straight to brew, or you dose on the grinder's own
+  // scale. The laptop hides that from itself by falling back to the number in
+  // the target field — and then sent the raw null here, so on the phone the
+  // dial, the volume, the ladder and the name of the drink all silently
+  // vanished. Every one of them is dose-derived, so one null took out the
+  // entire reason the phone has a screen, on exactly the shots where the
+  // laptop looked fine.
+  const known = Number.isFinite(sess?.dose) && sess.dose > 0;
+  const effective = known ? sess.dose : (Number.isFinite(dose) && dose > 0 ? dose : null);
   return {
     k: 'f',
     w: Number.isFinite(snap?.net) ? +snap.net.toFixed(2) : null,
@@ -341,7 +354,11 @@ export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, 
     method: sess?.method ?? 'espresso',
     milk: sess?.milk ?? null,
     hint: sess?.hint ?? null,
-    dose: sess?.dose ?? null,
+    dose: effective,
+    // Whether that dose was weighed or assumed. A ladder built on an assumed
+    // dose is a plan rather than a measurement, and the phone should be able
+    // to say which it is showing.
+    doseSet: known,
     grounds: sess?.grounds ?? null,
     // The target for the step you are actually on: the dose while weighing,
     // the yield once it is pouring. Sent with its window so the phone can draw

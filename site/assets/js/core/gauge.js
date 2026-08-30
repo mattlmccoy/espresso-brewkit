@@ -23,19 +23,20 @@ const el = (name, cls) => {
   return node;
 };
 
-/** How many minor ticks go round the rim. Decoration, and a sense of travel. */
-const RIM_TICKS = 60;
-
 /**
  * Which shape a theme wants its dial to be.
  *
- * Shape is the one part of a theme that CSS cannot express: a path's geometry
- * is in the path. So the table lives here, next to the shapes, rather than as
- * a condition repeated on every page that mounts one. Anything not listed gets
- * the half circle, which is the shape that fits in a panel with a chart in it.
+ * All of them the same one, now. It used to hand `machined` a ring and everyone
+ * else a half circle, which meant a dial learnt on one theme could not be read
+ * on another — and only the ring branch drew labels at all, so in four of the
+ * five themes the bands were three unexplained shades. A theme changes the
+ * material; it does not change the instrument.
+ *
+ * Kept as a function because the call sites read better for it and because the
+ * next shape question will land here rather than in five pages.
  */
-export function geoFor(theme) {
-  return theme === 'machined' ? RING : GEO;
+export function geoFor(_theme) {
+  return GEO;
 }
 
 /**
@@ -49,172 +50,165 @@ export function geoFor(theme) {
  * half circle for the ring.
  */
 export function mountGauge(root, { geo: initial = GEO, box = null } = {}) {
-  // Everything the SVG is made of, rebuilt when the shape changes. They are
-  // `let` rather than `const` because a theme swap replaces the instrument
-  // without the page having to know it happened.
-  let geo, ring, svg, zones, now, head, ticks, flowNow, inner;
-  // The last thing painted, so a rebuild comes back showing what was on it. A
-  // dial that goes blank until the next reading is a dial that looks broken
-  // for as long as nothing is pouring.
+  let geo, svg, zones, labels, now, ticks, defs;
   let lastArgs = null;
+  let n_, sub_, gap_, sig = '';
 
   function build(next) {
-  geo = next;
-  ring = geo === RING || geo.span > Math.PI;
-  const viewBox = box ?? (ring ? '0 0 200 200' : '0 0 200 128');
-  const whole = arc(0, 1, geo);
+    geo = next;
+    const viewBox = box ?? '0 0 220 200';
+    // Two rings at different radii, and nothing is drawn over anything. The old
+    // dial put the progress arc on top of the zone bands at the same radius, so
+    // the band you were actually in was destroyed by the arc that told you how
+    // far along you were — the dial answered "how much" by erasing "which
+    // drink".
+    const bandGeo = { ...geo };
+    const nowGeo = { ...geo, r: geo.r * 0.72 };
 
-  svg = el('svg');
-  svg.setAttribute('viewBox', viewBox);
-  svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Where the pour is');
+    svg = el('svg');
+    svg.setAttribute('viewBox', viewBox);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Where the pour is');
 
-  // The rim: minor ticks all the way round, under everything. They say nothing
-  // on their own — they are what makes the travelling arc read as travelling.
-  const rim = el('g', 'g-rim');
-  for (let i = 0; i <= RIM_TICKS; i++) {
-    const f = i / RIM_TICKS;
-    const [x, y] = point(f, geo);
-    const line = el('line', `g-rim-t${i % 10 === 0 ? ' is-major' : ''}`);
-    const inner = i % 10 === 0 ? 0.88 : 0.93;
-    line.setAttribute('x1', x.toFixed(1));
-    line.setAttribute('y1', y.toFixed(1));
-    line.setAttribute('x2', (geo.cx + (x - geo.cx) * inner).toFixed(1));
-    line.setAttribute('y2', (geo.cy + (y - geo.cy) * inner).toFixed(1));
-    rim.append(line);
+    // Paths the labels ride on, one per band, so a name can curve along the
+    // thing it names instead of floating outside the rim at an angle.
+    defs = el('defs');
+    svg.append(defs);
+
+    const track = el('path', 'g-track');
+    track.setAttribute('d', arc(0, 1, bandGeo));
+    zones = el('g', 'g-zones');
+    labels = el('g', 'g-labels');
+    now = el('path', 'g-now');
+    now.setAttribute('d', arc(0, 1, nowGeo));
+    const nowTrack = el('path', 'g-nowtrack');
+    nowTrack.setAttribute('d', arc(0, 1, nowGeo));
+    ticks = el('g', 'g-ticks');
+
+    svg.append(track, zones, labels, nowTrack, now, ticks);
+
+    const read = document.createElement('div');
+    read.className = 'g-read';
+    const n = document.createElement('span');
+    n.className = 'g-n';
+    n.textContent = '0.0';
+    const u = document.createElement('span');
+    u.className = 'g-u';
+    u.textContent = 'g';
+    const sub = document.createElement('div');
+    sub.className = 'g-sub';
+    sub.textContent = '—';
+    const gap = document.createElement('div');
+    gap.className = 'g-gap';
+    gap.textContent = '';
+    read.append(n, u, sub, gap);
+
+    root.replaceChildren(svg, read);
+    root.classList.add('gauge');
+    n_ = n; sub_ = sub; gap_ = gap;
+    sig = '';
+    geo.bandGeo = bandGeo;
+    geo.nowGeo = nowGeo;
   }
 
-  const track = el('path', 'g-track');
-  track.setAttribute('d', whole);
-  zones = el('g', 'g-zones');
-  now = el('path', 'g-now');
-  now.setAttribute('d', whole);
-  // The leading edge, as an object rather than as the end of a stroke. A shot
-  // arriving somewhere is easier to see than a stroke being slightly longer.
-  head = el('circle', 'g-head');
-  head.setAttribute('r', '4.5');
-  ticks = el('g', 'g-ticks');
-  // Flow, on its own inner track, so the two things a pour is doing — how much
-  // and how fast — are both on the instrument instead of one of them being a
-  // number somewhere else.
-  const flowTrack = el('path', 'g-flowtrack');
-  flowNow = el('path', 'g-flow');
-
-  inner = { ...geo, r: geo.r * 0.72 };
-  const innerWhole = arc(0, 1, inner);
-  flowTrack.setAttribute('d', innerWhole);
-  flowNow.setAttribute('d', innerWhole);
-
-  svg.append(rim, flowTrack, flowNow, track, zones, now, head, ticks);
-
-  const read = document.createElement('div');
-  read.className = 'g-read';
-  const n = document.createElement('span');
-  n.className = 'g-n';
-  n.textContent = '0.0';
-  const u = document.createElement('span');
-  u.className = 'g-u';
-  u.textContent = 'g';
-  const sub = document.createElement('div');
-  sub.className = 'g-sub';
-  sub.textContent = '—';
-  read.append(n, u, sub);
-
-  root.replaceChildren(svg, read);
-  root.classList.add('gauge');
-  root.classList.toggle('is-ring', ring);
-  n_ = n; sub_ = sub;
-  sig = '';
-  }
-
-  let n_, sub_, sig = '';
   build(initial);
 
   /**
    * @param d      what `shotDial()` returned, or null to hide
-   * @param flow   g/s right now, for the inner track
-   * @param flowMax the top of the flow scale
+   * @param flow   unused by the dial now; flow lives on the chart and the strip
    */
-  function paint(d, { flow = null, flowMax = 4 } = {}) {
-    lastArgs = [d, { flow, flowMax }];
+  function paint(d, opts = {}) {
+    lastArgs = [d, opts];
     root.hidden = !d;
     if (!d) { sig = ''; return; }
 
-    const next = `${d.top}|${d.marks.map((m) => m.grams).join(',')}`;
+    const { bandGeo, nowGeo } = geo;
+    const next = `${d.top}|${d.bottom}|${d.marks.map((m) => m.grams).join(',')}`;
     if (sig !== next) {
       sig = next;
-      zones.replaceChildren(...d.zones.map((z) => {
+      const uid = Math.random().toString(36).slice(2, 8);
+      defs.replaceChildren();
+      zones.replaceChildren();
+      labels.replaceChildren();
+
+      for (const z of d.zones) {
+        // A real gap between bands, not a hair. Three separated arcs read as
+        // three named things; a continuous ring divided by colour reads as one
+        // graduated scale, which is the rev-counter tell.
+        const a = Math.min(1, z.fromFrac + 0.012);
+        const b = Math.max(0, z.toFrac - 0.012);
+        if (!(b > a)) continue;
         const path = el('path', `g-zone z-${z.id}`);
-        path.setAttribute('d', arc(z.fromFrac, z.toFrac, geo));
+        path.setAttribute('d', arc(a, b, bandGeo));
         path.dataset.id = z.id;
-        return path;
-      }));
-      ticks.replaceChildren(...d.marks.flatMap((m) => {
-        const [x, y] = point(m.frac, geo);
-        const line = el('line', `g-tick${m.isTarget ? ' is-target' : ''}`);
-        line.setAttribute('x1', x.toFixed(1));
-        line.setAttribute('y1', y.toFixed(1));
-        // Ticks point inward from the arc, so they read as marks on the scale
-        // rather than as spokes.
-        line.setAttribute('x2', (geo.cx + (x - geo.cx) * 0.8).toFixed(1));
-        line.setAttribute('y2', (geo.cy + (y - geo.cy) * 0.8).toFixed(1));
-        if (!ring) return [line];
-        // A ring has room to name its marks; a half circle inside a panel with
-        // a chart under it does not, and a label there would sit on the number.
-        //
-        // Outside the rim, not inside it. Inside is where the reading lives,
-        // and a label there lands on top of the one number the whole
-        // instrument exists to show — which is what the first attempt did.
-        const [lx, ly] = point(m.frac, { ...geo, r: geo.r * 1.13 });
-        const label = el('text', `g-label${m.isTarget ? ' is-target' : ''}`);
-        label.setAttribute('x', lx.toFixed(1));
-        label.setAttribute('y', (ly + 3).toFixed(1));
-        label.textContent = m.label.slice(0, 4).toUpperCase();
-        return [line, label];
-      }));
+        zones.append(path);
+
+        // The name, curved along its own band, centred on it. Every band is
+        // long enough for its whole word at every dose, because the scale is
+        // anchored to the drinks — which is why nothing here is ever
+        // abbreviated.
+        const id = `gl-${uid}-${z.id}`;
+        const guide = el('path');
+        guide.setAttribute('id', id);
+        // Just inside the band, so the name sits under the arc rather than on
+        // top of it and the stroke can stay thin.
+        guide.setAttribute('d', arc(a, b, { ...bandGeo, r: bandGeo.r - 13 }));
+        defs.append(guide);
+        const text = el('text', `g-label z-${z.id}`);
+        text.dataset.id = z.id;
+        const tp = el('textPath');
+        tp.setAttribute('href', `#${id}`);
+        tp.setAttribute('startOffset', '50%');
+        tp.setAttribute('text-anchor', 'middle');
+        tp.textContent = z.label;
+        text.setAttribute('dy', '3');
+        text.append(tp);
+        labels.append(text);
+      }
+
+      // One mark, for the thing you are aiming at. The landmark ticks are gone:
+      // a boundary between two named bands is already the tick, and a second
+      // mark six units away from it is what made this look graduated.
+      ticks.replaceChildren();
+      const aim = d.marks.find((m) => m.isTarget);
+      if (aim) {
+        // Outside the band, short. It used to cross both rings like a needle.
+        const [x1, y1] = point(aim.frac, { ...geo, r: geo.r + 8 });
+        const [x2, y2] = point(aim.frac, { ...geo, r: geo.r + 16 });
+        const line = el('line', 'g-tick is-target');
+        line.setAttribute('x1', x1.toFixed(1)); line.setAttribute('y1', y1.toFixed(1));
+        line.setAttribute('x2', x2.toFixed(1)); line.setAttribute('y2', y2.toFixed(1));
+        ticks.append(line);
+      }
     }
 
-    for (const z of zones.children) {
-      z.classList.toggle('here', d.style?.id === z.dataset.id);
+    for (const node of [...zones.children, ...labels.children]) {
+      node.classList.toggle('here', d.style?.id === node.dataset.id);
     }
-    const len = arcLength(geo);
+    const len = arcLength(nowGeo);
     now.style.strokeDasharray = String(len);
     now.style.strokeDashoffset = String(len * (1 - d.frac));
-    const [hx, hy] = point(d.frac, geo);
-    head.setAttribute('cx', hx.toFixed(1));
-    head.setAttribute('cy', hy.toFixed(1));
-
-    const hasFlow = Number.isFinite(flow) && flow > 0;
-    flowNow.style.display = hasFlow ? '' : 'none';
-    if (hasFlow) {
-      const innerLen = arcLength(inner);
-      const f = Math.max(0, Math.min(1, flow / flowMax));
-      flowNow.style.strokeDasharray = String(innerLen);
-      flowNow.style.strokeDashoffset = String(innerLen * (1 - f));
-    }
 
     n_.textContent = d.net.toFixed(1);
-    sub_.textContent = d.style
-      ? `${d.style.label} · 1:${d.style.ratio}`
-      : d.over ? `past the dial · ${d.top} g` : `under ristretto · ${d.top} g at the end`;
+    sub_.textContent = d.style ? d.style.label
+      : d.over ? 'Past lungo' : 'Under ristretto';
+    // How far to the end of the band you are in — "how much longer", which the
+    // dial is supposed to answer and never did.
+    gap_.textContent = d.toNext && d.toNext.into
+      ? `${d.toNext.grams} g to ${d.toNext.into.toLowerCase()}`
+      : d.style ? `1:${d.style.ratio}` : '';
   }
 
-  /**
-   * Swap the shape, keeping the reading.
-   *
-   * A theme change is the only caller. Rebuilding and leaving the dial empty
-   * would blank it until the next sample, which on a scale that has settled is
-   * forever.
-   */
   function setGeo(next) {
     if (next === geo) return;
     build(next);
     if (lastArgs) paint(...lastArgs);
   }
 
-  return { root, paint, setGeo,
-           get svg() { return svg; }, get zones() { return zones; },
-           get ticks() { return ticks; }, get now() { return now; },
-           get head() { return head; }, get geo() { return geo; },
-           get ring() { return ring; } };
+  return {
+    root, paint, setGeo,
+    get svg() { return svg; }, get zones() { return zones; },
+    get ticks() { return ticks; }, get now() { return now; },
+    get geo() { return geo; }, get ring() { return true; },
+  };
 }

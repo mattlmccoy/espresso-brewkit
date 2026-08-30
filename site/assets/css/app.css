@@ -5,6 +5,7 @@
 @import url('./fonts.css');
 
 :root {
+  color-scheme: light;
   --bg:        #f2efe6;
   --panel:     #fffdf5;
   --panel-2:   #eae6da;
@@ -15,14 +16,31 @@
 
   /* Signal colours. Each has one job, so nothing has to do double duty:
      accent = chrome and data points, fit = the fitted line and its band,
-     flag = something wrong (an outlier, a failed check). */
+     flag = something wrong (an outlier, a failed check).
+     That was the intent, and the rules below it did not keep to it — a design
+     review found --accent painting chrome, data and state at once, --flag
+     doing both "hover" and "this is wrong" so a hovered row and an outlier row
+     were pixel-identical, and --fit carrying the fitted line, the danger fill
+     and "worse than median". The four tokens after the first group are what it
+     takes to hold the line: one for the surface a control sits on, one for the
+     ink that survives a tinted accent, one for the ink that survives --fit, and
+     one for hover that is a lift rather than a hue. */
   --accent:    #1b3cf0;
   --accent-ink:#ffffff;
   --fit:       #ff5c1f;
+  --fit-ink:   #2a1000;   /* --fit is a bright orange here; white on it was 3.09:1 */
   --flag:      #e8ff36;
   --tag-fg:    #e8ff36;   /* sits on --ink; see the dark override */
-  --warn:      #c2681a;
+  --warn:      #8a4405;   /* 7.3:1 on --warn-bg; #c2681a was 3.63:1 */
   --warn-bg:   #fff6c2;
+
+  /* The ground a control sits on, one step off its panel. Without it a theme
+     that gives panels and buttons the same fill makes a button's visibility
+     depend on where it happens to sit in the panel's gradient. */
+  --control:   var(--panel);
+  /* Hover is a lift, not a colour. Sharing --flag with outliers meant a hovered
+     table row and a flagged one were the same pixels. */
+  --hover:     color-mix(in srgb, var(--ink) 10%, var(--panel));
 
   /* Consumed by chart.js, which knows nothing about this palette. */
   --surface:   var(--panel);
@@ -37,6 +55,19 @@
   --disp: 'Archivo Black', system-ui, sans-serif;
   --sans: 'Archivo', system-ui, -apple-system, sans-serif;
   --mono: 'Space Mono', ui-monospace, monospace;
+
+  /* Spacing. One scale, so the same relationship is not spaced four different
+     ways across four files — which is what made the app read as squished: a
+     field 14px from the next, a hint 5px under its input, a grid gap of 14 and
+     a panel gap of 22, none of them agreeing about what "related" means.
+     s2 groups a label to its field, s3 separates fields, s5 separates blocks,
+     s6 separates sections. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 14px;
+  --s4: 20px;
+  --s5: 26px;
+  --s6: 36px;
 
   --band-a: .14;            /* confidence-band fill opacity */
   --bw: 2.5px;              /* border weight  */
@@ -68,17 +99,23 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
-    --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
+    --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+    --fit-ink:#100f0d;
+    --control:#26251d;
     --band-a:.09;
     --warn:#e0a24a; --warn-bg:#2e2a12;
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
-  --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#8d8878; --hair:#3a382f;
+  --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+  --fit-ink:#100f0d;
+  --control:#26251d;
   --band-a:.09;
   --warn:#e0a24a; --warn-bg:#2e2a12;
 }
@@ -89,9 +126,16 @@
    palette was designed for. Explicit only, because nothing about a system
    preference asks for a terminal. */
 :root[data-theme="terminal"] {
+  color-scheme: dark;
   --bg:#050806; --panel:#0a0f0b; --panel-2:#0f1710;
-  --ink:#6ef58e; --ink-dim:#46c46d; --ink-mute:#3fa862; --hair:#1c3f28;
-  --accent:#7df9ff; --accent-ink:#031008; --fit:#ffb000; --flag:#ffcc33;
+  --ink:#6ef58e; --ink-dim:#46c46d; --ink-mute:#4cbd72; --hair:#28563a;
+  /* One emitter, separated by luminance rather than hue. The amber accent and
+     amber flag were 1.10:1 apart — the fitted line and "something is wrong"
+     were the same colour — and a cyan hero tile on a phosphor screen is not a
+     phosphor screen. */
+  --accent:#9dffb8; --accent-ink:#031008; --fit:#4fe0a0; --flag:#c8ff5a;
+  --fit-ink:#031008;
+  --control:#131e15;
   --tag-fg:#031008;
   --band-a:.10;
   --warn:#ffb000; --warn-bg:#2a2205;
@@ -135,9 +179,17 @@
 
    Explicit only. Nothing about a system preference asks for this. */
 :root[data-theme="machined"] {
+  color-scheme: dark;
   --bg:#08090b; --panel:#111318; --panel-2:#171a21;
-  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#6e7686; --hair:#262b35;
-  --accent:#e9a44b; --accent-ink:#08090b; --fit:#5fc8d8; --flag:#f6c473;
+  --ink:#eef1f6; --ink-dim:#a8aebb; --ink-mute:#8a93a3; --hair:#333a47;
+  /* Softened from #e9a44b: a neon amber on near-black is the one thing that
+     most made this read as a dashboard warning light rather than as coffee. */
+  --accent:#d6a273; --accent-ink:#08090b; --fit:#8fe4f0; --flag:#e2c39c;
+  --fit-ink:#08090b;
+  /* Panels and controls had the same fill, so whether a button was visible
+     depended on where it sat in its panel's gradient. Measured 1.00:1 on
+     "Start over". */
+  --control:#232733;
   --tag-fg:#08090b;
   --band-a:.12;
   --warn:#e9a44b; --warn-bg:#241a0e;
@@ -155,12 +207,12 @@
 /* Nothing is bordered; everything is lit. The inset hairline is the top edge
    catching the light, the outer shadow is the surface sitting above the one
    behind it. */
-:root[data-theme="machined"] :is(.bx, .panel) {
+:root[data-theme="machined"] :is(.bx, .panel, .note, .tool-card) {
   border:0;
   border-radius:14px;
-  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  background:linear-gradient(180deg, var(--panel-2) 0, var(--panel) 120px);
   box-shadow:inset 0 1px 0 var(--lit),
-             inset 0 0 0 1px rgb(255 255 255 / 4%),
+             inset 0 0 0 1px rgb(255 255 255 / 6%),
              0 10px 30px rgb(0 0 0 / 45%);
 }
 /* The page itself has a light source: a soft pool behind the middle of the
@@ -170,15 +222,18 @@
     radial-gradient(120% 70% at 50% -10%, #12151c 0%, transparent 60%),
     var(--bg);
 }
-:root[data-theme="machined"] :is(button, input, select, textarea) {
+:root[data-theme="machined"] :is(button, a.btn-link, input, select, textarea) {
   border:0; border-radius:10px;
-  background:linear-gradient(180deg, var(--panel-2), var(--panel));
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 5%);
+  /* Its own step off the panel. Sharing the panel's gradient meant a control
+     high in a tall panel was invisible and the same control low down was not. */
+  background:linear-gradient(180deg,
+    color-mix(in srgb, var(--control) 88%, white 6%), var(--control));
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 12%);
   color:var(--ink);
 }
-:root[data-theme="machined"] button:hover:not(:disabled):not([aria-pressed="true"]) {
-  transform:none; background:var(--panel-2); color:var(--ink);
-  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 10%);
+:root[data-theme="machined"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
+  transform:none; background:var(--hover); color:var(--ink);
+  box-shadow:inset 0 1px 0 var(--lit), inset 0 0 0 1px rgb(255 255 255 / 18%);
 }
 /* A control on a machine travels when you press it. It does not slide out from
    under a shadow that is not there. */
@@ -221,38 +276,16 @@
 :root[data-theme="machined"] .badge { border-radius:999px; border:0;
   box-shadow:inset 0 0 0 1px rgb(255 255 255 / 10%); }
 
-/* ---- the dial, which is the whole point ----
-   Three quarters of a turn, a tick rim, flow on its own inner track, and the
-   reading in the middle of it rather than under it. */
+/* ---- the dial ----
+   The theme changes the material and nothing else: same shape, same layers,
+   same labels. It used to be the only theme that drew a ring, and the only one
+   that labelled its bands at all, so a dial learnt here was unreadable
+   everywhere else. */
 :root[data-theme="machined"] .gauge { border:0; background:none;
   box-shadow:none; padding:0; }
-:root[data-theme="machined"] .g-rim,
-:root[data-theme="machined"] .g-flowtrack,
-:root[data-theme="machined"] .g-flow,
-:root[data-theme="machined"] .g-head { display:block; }
-:root[data-theme="machined"] .g-track { stroke:rgb(255 255 255 / 6%); stroke-width:13; }
-:root[data-theme="machined"] .g-zone { stroke-width:13; }
-:root[data-theme="machined"] .g-zone.z-ristretto,
-:root[data-theme="machined"] .g-zone.z-lungo {
-  stroke:color-mix(in srgb, var(--accent) 16%, transparent); }
-:root[data-theme="machined"] .g-zone.z-espresso {
-  stroke:color-mix(in srgb, var(--accent) 26%, transparent); }
 :root[data-theme="machined"] .g-zone.here {
-  stroke:color-mix(in srgb, var(--accent) 45%, transparent); }
-/* The arc that has actually happened is the lit one. */
-:root[data-theme="machined"] .g-now {
-  stroke:var(--accent); stroke-width:13; stroke-linecap:round;
-  filter:drop-shadow(0 0 6px var(--glow)); }
-:root[data-theme="machined"] .g-head {
-  fill:#fff; filter:drop-shadow(0 0 7px var(--accent)); }
-:root[data-theme="machined"] .g-tick { stroke:var(--ink-mute); }
-:root[data-theme="machined"] .g-tick.is-target { stroke:var(--ink); }
-/* Centred in the ring, and big: on a machine the reading is the screen. */
-:root[data-theme="machined"] .gauge.is-ring .g-read {
-  top:50%; bottom:auto; transform:translateY(-50%); }
-:root[data-theme="machined"] .gauge.is-ring .g-n {
-  font-size:44px; letter-spacing:-.02em; }
-:root[data-theme="machined"] .g-sub { color:var(--ink-mute); }
+  filter:drop-shadow(0 0 9px var(--glow)); }
+:root[data-theme="machined"] .g-now { stroke:var(--ink); opacity:.72; }
 
 /* Glass: the same layout, rendered with depth instead of outlines.
    ------------------------------------------------------------------
@@ -268,9 +301,12 @@
 
    Explicit only. */
 :root[data-theme="glass"] {
+  color-scheme: dark;
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
-  --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#7d8698; --hair:#2b3243;
+  --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
   --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
+  --fit-ink:#0b0e15;
+  --control:#252c3b;
   --tag-fg:#0b0e15;
   --band-a:.13;
   --warn:#f0b357; --warn-bg:#2a220f;
@@ -288,13 +324,14 @@
    into flat grey. */
 :root[data-theme="glass"] body {
   background:
-    radial-gradient(70% 55% at 12% 0%, rgb(122 162 255 / 16%), transparent 62%),
-    radial-gradient(60% 50% at 92% 12%, rgb(255 159 110 / 12%), transparent 60%),
-    radial-gradient(80% 60% at 50% 108%, rgb(122 162 255 / 10%), transparent 65%),
+    radial-gradient(70% 55% at 12% 0%, rgb(122 162 255 / 24%), transparent 62%),
+    radial-gradient(60% 50% at 92% 12%, rgb(255 159 110 / 18%), transparent 60%),
+    radial-gradient(70% 45% at 20% 55%, rgb(122 162 255 / 14%), transparent 60%),
+    radial-gradient(80% 60% at 50% 108%, rgb(122 162 255 / 16%), transparent 65%),
     var(--bg);
   background-attachment: fixed;
 }
-:root[data-theme="glass"] :is(.bx, .panel) {
+:root[data-theme="glass"] :is(.bx, .panel, .note, .tool-card) {
   border:0;
   border-radius:16px;
   background:linear-gradient(160deg, var(--pane-lit), var(--pane));
@@ -304,7 +341,7 @@
              inset 0 0 0 1px var(--pane-edge),
              0 16px 40px rgb(0 0 0 / 35%);
 }
-:root[data-theme="glass"] :is(button, input, select, textarea) {
+:root[data-theme="glass"] :is(button, a.btn-link, input, select, textarea) {
   border:0; border-radius:11px;
   background:linear-gradient(160deg, var(--pane-lit), var(--pane));
   -webkit-backdrop-filter:blur(10px);
@@ -312,7 +349,7 @@
   box-shadow:inset 0 1px 0 rgb(255 255 255 / 16%), inset 0 0 0 1px var(--pane-edge);
   color:var(--ink);
 }
-:root[data-theme="glass"] button:hover:not(:disabled):not([aria-pressed="true"]) {
+:root[data-theme="glass"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
   transform:none; color:var(--ink);
   background:linear-gradient(160deg, rgb(255 255 255 / 20%), rgb(255 255 255 / 10%));
   box-shadow:inset 0 1px 0 rgb(255 255 255 / 24%), inset 0 0 0 1px rgb(255 255 255 / 18%);
@@ -352,53 +389,172 @@
 /* The dial keeps its half circle here — this theme changes the material, not
    the furniture — but it stops being a bordered box. */
 :root[data-theme="glass"] .gauge { border:0; background:none; box-shadow:none; padding:0; }
-:root[data-theme="glass"] .g-track { stroke:rgb(255 255 255 / 8%); }
-:root[data-theme="glass"] .g-now { stroke:var(--accent);
-  filter:drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 55%, transparent)); }
+:root[data-theme="glass"] .g-zone.here {
+  filter:drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 50%, transparent)); }
+
+/* SELECTION, said once per theme.
+   A themed `:is(.bx, …)` or `:is(button, …)` rule outranks a page's own
+   `.thing[aria-current="true"]`, so every "this one is chosen" style in the app
+   was being silently replaced by the panel gradient — a selected shot row and
+   an unselected one measured 1.00:1, pixel-identical. The ones that survived
+   did so by tying on specificity and winning on source order, which is luck
+   rather than design. Stating it here, after the component overrides, makes
+   selection a property of the theme rather than a race. */
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="true"],
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-current="step"],
+:root[data-theme="machined"] :is(button, a.btn-link)[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px var(--glow);
+}
+
+/* SELECTION, said once per theme.
+   A themed `:is(.bx, …)` or `:is(button, …)` rule outranks a page's own
+   `.thing[aria-current="true"]`, so every "this one is chosen" style in the app
+   was being silently replaced by the panel gradient — a selected shot row and
+   an unselected one measured 1.00:1, pixel-identical. The ones that survived
+   did so by tying on specificity and winning on source order, which is luck
+   rather than design. Stating it here, after the component overrides, makes
+   selection a property of the theme rather than a race. */
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-current="true"],
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-current="step"],
+:root[data-theme="glass"] :is(button, a.btn-link)[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 30%), 0 3px 14px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Bloom: a palette, and only a palette.
+   ------------------------------------------------------------------
+   The first version of this was a redesign — pills instead of rectangles,
+   sentence case forced over every label, a lighter display face, the hero
+   readout turned into a wash. It was worse, and instructively so: the
+   `text-transform:none` fought each page's own CSS and won in some places and
+   lost in others, so half the headings shouted and half did not; capsule radius
+   on a swatch card crammed its label against the bottom; inputs as full pills
+   put their text somewhere text does not belong.
+
+   The complaint was never the structure. It was a harsh amber and a dial that
+   looked like a rev counter. So this changes the colours and the weight of the
+   edges, and nothing else: same shapes, same type, same spacing as Light.
+
+   The plum and honey are not a taste decision. Those two are the chart's two
+   series, so they must be separable for a colourblind reader, and the first
+   soft pair — dusty rose and sage — measured ΔE 3.3 for deuteran vision.
+   Separation lives in lightness as much as in hue, which is why these are a
+   deep plum and a warm honey rather than two pastels.
+
+   Explicit only. */
+:root[data-theme="bloom"] {
+  color-scheme: light;
+  --bg:#faf5f2; --panel:#fffcfa; --panel-2:#f4eae6;
+  --ink:#3d3037; --ink-dim:#6a565f; --ink-mute:#7a6470; --hair:#d2b9b2;
+  --accent:#9c4f66; --accent-ink:#ffffff;
+  --fit:#c48a4a; --fit-ink:#2a1a08;
+  --flag:#e7cdae; --tag-fg:#ffffff;
+  --warn:#8a4a20; --warn-bg:#fdf0e2;
+  --control:#f0e3dd;
+  --hover:color-mix(in srgb, var(--accent) 9%, var(--panel));
+  --band-a:.16;
+  /* Softer edges, same edges. A hairline rather than a marker outline, and a
+     shadow that falls rather than one that offsets like stacked paper. */
+  --bw: 1.5px;
+  --sh: 0px;
+}
+:root[data-theme="bloom"] :is(.bx, .panel, .note, .tool-card) {
+  border-color:var(--hair); border-radius:10px;
+  box-shadow:0 1px 2px rgb(61 48 55 / 4%), 0 6px 18px rgb(61 48 55 / 5%);
+}
+:root[data-theme="bloom"] :is(button, a.btn-link, input, select, textarea) {
+  border-color:var(--hair); border-radius:8px;
+}
+:root[data-theme="bloom"] :is(button, a.btn-link):hover:not(:disabled):not([aria-pressed="true"]) {
+  background:var(--hover); color:var(--ink); }
+
+/* ---------- the rest of the app, over the top ----------
+   Mounted by core/overlay.js. Both Live and the viewer hold a connection that a
+   navigation would drop — a GATT connection on one, a WebRTC peer on the other
+   — so the other pages open in a frame over the page instead of replacing it. */
+.go-row { display:flex; gap:8px; flex-wrap:wrap; }
+.go-row button { flex:1 1 auto; padding:9px 10px; box-shadow:none; font-size:12px; }
+.browse { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column;
+  background:var(--bg); }
+.browse[hidden] { display:none; }
+/* The page underneath is still there and must stay there. Locking its scroll
+   stops a swipe in the frame dragging it around behind the overlay, which reads
+   as the overlay being broken. */
+body.browsing { overflow:hidden; }
+.browse-bar { display:flex; align-items:center; gap:10px; padding:8px 10px;
+  padding-top:calc(8px + env(safe-area-inset-top));
+  border-bottom:var(--bw) solid var(--hair); background:var(--panel); }
+.browse-bar button { padding:7px 11px; box-shadow:none; font-size:12px; }
+/* The pour, still visible while you are somewhere else. */
+.browse-live { font:700 13px/1 var(--mono); letter-spacing:.04em; margin-left:auto; }
+.browse-bar .badge[hidden] { display:none; }
+.browse iframe { flex:1 1 auto; width:100%; border:0; background:var(--bg); }
 
 /* ---------- the shot dial ----------
-   Mounted by core/gauge.js, worn by the viewer and the brew page. The zones are
-   the three drinks scaled by the dose, so the arc answers "which drink am I in"
-   rather than "how many grams". Lives here rather than in a page because two
-   pages draw it and a divergence would be a divergence about the answer. */
-.gauge { position:relative; border:var(--bw) solid var(--ink);
-  background:var(--panel); padding:10px 12px 12px; }
+   Mounted by core/gauge.js, worn by the viewer and the brew page.
+
+   Two rounds of review shaped this. The first found it unreadable: two arcs
+   racing from a common origin, a rim of decorative ticks pretending to be a
+   scale, and a progress stroke that painted out the very band it was measuring.
+   The second found it unlovely — thick strokes, amber on near-black, mono
+   capitals: a rev counter. Correct for a machine, wrong for the thing the
+   machine is making.
+
+   So the geometry is an instrument and the finish is not. Thin strokes with
+   rounded ends, wide gaps so the three drinks read as three separate arcs
+   rather than one graduated ring, and type that speaks rather than announces.
+   Nothing about a shot is urgent. */
+.gauge { position:relative; display:grid; place-items:center; }
 .gauge[hidden] { display:none; }
-.gauge svg { display:block; width:100%; height:auto; max-height:180px; }
-.gauge.is-ring svg { max-height:none; }
-.gauge path, .gauge line { fill:none; stroke-linecap:butt; }
-.g-track { stroke:var(--hair); stroke-width:15; }
-/* The rim and the inner flow track are the instrument's furniture: off by
-   default, because the half circle sits in a panel with a chart under it and
-   has no room for either. A theme organised around the dial turns them on. */
-.g-rim, .g-flowtrack, .g-flow, .g-head { display:none; }
-.g-rim-t { stroke:var(--hair); stroke-width:1; }
-.g-rim-t.is-major { stroke:var(--ink-mute); stroke-width:1.6; }
-.g-flowtrack { stroke:var(--hair); stroke-width:3; }
-.g-flow { stroke:var(--fit); stroke-width:3;
-  transition:stroke-dashoffset var(--t-fast) var(--ease-out); }
-.g-head { fill:var(--ink); stroke:none;
-  transition:cx var(--t-fast) var(--ease-out), cy var(--t-fast) var(--ease-out); }
-.g-label { font:700 7px/1 var(--mono); letter-spacing:.1em; fill:var(--ink-mute);
-  text-anchor:middle; stroke:none; }
-.g-label.is-target { fill:var(--ink-dim); }
-.g-zone { stroke-width:15; }
-.g-zone.z-ristretto { stroke:color-mix(in srgb, var(--accent) 22%, transparent); }
-.g-zone.z-espresso  { stroke:color-mix(in srgb, var(--accent) 42%, transparent); }
-.g-zone.z-lungo     { stroke:color-mix(in srgb, var(--accent) 22%, transparent); }
-.g-zone.here        { stroke:color-mix(in srgb, var(--accent) 78%, transparent); }
-.g-now { stroke:var(--ink); stroke-width:6;
-  transition:stroke-dashoffset var(--t-fast) var(--ease-out); }
-.g-tick { stroke:var(--ink); stroke-width:2.5; opacity:.6; }
-.g-tick.is-target { stroke-width:3.5; opacity:1; }
-.g-read { position:absolute; left:0; right:0; bottom:14px; text-align:center; }
-.g-n { font:800 30px/1 var(--sans); font-variant-numeric:tabular-nums; }
-.g-u { font:700 13px/1 var(--sans); opacity:.6; margin-left:2px; }
-.g-sub { font:700 11px/1.3 var(--mono); letter-spacing:.05em; color:var(--ink-dim);
-  margin-top:3px; }
+.gauge svg { display:block; width:100%; height:auto; grid-area:1/1; max-height:280px; }
+.gauge path, .gauge line { fill:none; stroke-linecap:round; }
+
+/* The bands. Two states, not a ramp: the drink you are in, and the ones you are
+   not. A light-dark-light ramp is the grammar of a green zone on a rev counter,
+   which is exactly the reading being avoided. */
+.g-track { display:none; }
+.g-zone { stroke:var(--hair); stroke-width:7;
+  transition:stroke var(--t-slow) var(--ease-out), stroke-width var(--t-slow) var(--ease-out); }
+.g-zone.here { stroke:var(--accent); stroke-width:9; }
+
+/* Progress, on its own ring inside the bands, so nothing overpaints anything. */
+.g-nowtrack { stroke:var(--hair); stroke-width:2; opacity:.5; }
+.g-now { stroke:var(--ink); stroke-width:2.5; opacity:.45;
+  transition:stroke-dashoffset var(--t) var(--ease-out); }
+
+/* Names ride on the bands they name, below them so the thin arc stays a thin
+   arc. Letter-spaced and small rather than heavy and shouted. */
+.g-label { font:600 7.5px/1 var(--sans); letter-spacing:.22em; fill:var(--ink-mute);
+  stroke:none; transition:fill var(--t-slow) var(--ease-out); }
+.g-label.here { fill:var(--accent); }
+
+/* One mark, for the thing you are aiming at — a short tick outside the band
+   rather than a needle crossing the whole instrument. */
+.g-tick { stroke:var(--ink-mute); stroke-width:2; opacity:.5; }
+.g-tick.is-target { stroke:var(--accent); stroke-width:2.5; opacity:1; }
+
+/* The reading, inside the instrument. */
+.g-read { grid-area:1/1; text-align:center; z-index:1; pointer-events:none; }
+.g-n { font:600 40px/1 var(--sans); font-variant-numeric:tabular-nums;
+  letter-spacing:-.015em; }
+.g-u { font:600 15px/1 var(--sans); opacity:.55; margin-left:.16em; }
+.g-sub { font:600 10px/1.3 var(--sans); letter-spacing:.26em; color:var(--accent);
+  margin-top:7px; text-transform:uppercase; }
+.g-gap { font:500 10.5px/1.4 var(--sans); color:var(--ink-mute); margin-top:4px;
+  letter-spacing:.01em; }
 @media (prefers-reduced-motion: reduce) {
-  .g-now, .g-flow, .g-head { transition:none; }
+  .g-now, .g-zone, .g-label { transition:none; }
 }
+}
+}
+
+/* The UA paints these #757575 whatever the theme, which is below AA against
+   every one of our five grounds and is a dead grey inside a phosphor screen.
+   The opacity reset matters for Firefox. */
+::placeholder { color: var(--ink-mute); opacity: 1; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -430,7 +586,7 @@ a { color: var(--accent); }
   color: var(--ink); text-decoration: none; padding: 9px 13px;
   border: 2px solid var(--ink); background: var(--panel);
 }
-.nav a:hover { background: var(--flag); color: #100f0d; }
+.nav a:hover { background: var(--hover); color: var(--ink); }
 /* A link that is about to open a new tab says so, in the two characters it
    takes, rather than in a paragraph that costs a line of the dashboard. */
 .nav a[target="_blank"]::after { content: ' \2197'; opacity: .7; }
@@ -458,7 +614,7 @@ h1 {
 h2 { font-family: var(--disp); font-size: 15px; letter-spacing: .02em; text-transform: uppercase; margin: 0 0 12px; }
 h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-transform: uppercase; margin: 0 0 12px; }
 
-.grid { display: grid; gap: 14px; }
+.grid { display: grid; gap: var(--s4); }
 .g2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); align-items: start; }
 .g3 { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 /* Six cards: three across divides evenly, auto-fit would leave a hole. */
@@ -473,8 +629,8 @@ h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-tran
 .grid > *, .split > * { min-width: 0; }
 @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
 
-.panel { padding: 22px; }
-.panel + .panel, .grid + .panel, .panel + .grid, .grid + .grid { margin-top: 22px; }
+.panel { padding: var(--s5); }
+.panel + .panel, .grid + .panel, .panel + .grid, .grid + .grid { margin-top: var(--s5); }
 /* ...but grid children are siblings too, and that adjacency margin would push
    every item after the first down a row-height, breaking the top alignment. */
 .grid > .panel, .grid > .bx { margin-top: 0; }
@@ -487,7 +643,7 @@ h3 { font-family: var(--disp); font-size: 13px; letter-spacing: .03em; text-tran
 /* ---------- forms ---------- */
 label {
   display: block; font: 700 10.5px/1 var(--sans); letter-spacing: .14em;
-  text-transform: uppercase; margin-bottom: 8px; color: var(--ink);
+  text-transform: uppercase; margin-bottom: var(--s2); color: var(--ink);
 }
 input, select, textarea {
   width: 100%; border: 2px solid var(--ink); background: var(--bg); color: var(--ink);
@@ -516,15 +672,15 @@ input:hover:not(:focus), select:hover:not(:focus), textarea:hover:not(:focus) {
   background: var(--panel-2);
 }
 select { cursor: pointer; }
-.field { margin-bottom: 14px; }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field { margin-bottom: var(--s4); }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
 
 button {
   font: 700 12px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; cursor: pointer;
   padding: 11px 16px; border: 2px solid var(--ink); background: var(--panel); color: var(--ink);
   border-radius: 0; box-shadow: 3px 3px 0 var(--ink);
 }
-button:hover { background: var(--flag); color: #100f0d; }
+button:hover { background: var(--hover); color: var(--ink); }
 button:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--ink); }
 /* The offset shadow already implies a raised object; transitioning it is what
    makes pressing one feel like pressing rather than like a repaint. Transform
@@ -535,9 +691,14 @@ button { transition: background var(--t-fast) var(--ease-out), color var(--t-fas
 button:hover:not(:disabled):not([aria-pressed="true"]) { transform: translate(-1px, -1px);
   box-shadow: 4px 4px 0 var(--ink); }
 button.ghost:hover:not(:disabled) { box-shadow: none; }
-button:disabled { opacity: .5; cursor: not-allowed; }
+button:disabled { background: var(--panel); color: var(--ink-mute);
+  box-shadow: inset 0 0 0 1px var(--hair); cursor: not-allowed; opacity: 1; }
+/* Two-tone, so focus never reads as "selected" — both used to be a 3px accent
+   outline, and tabbing the theme picker made the focused swatch and the chosen
+   one indistinguishable. */
 :where(button, a, summary, [tabindex]):focus-visible {
-  outline: 3px solid var(--accent); outline-offset: 2px;
+  outline: 2px solid var(--bg); outline-offset: 0;
+  box-shadow: 0 0 0 5px var(--accent);
 }
 button.primary { background: var(--accent); color: var(--accent-ink); }
 button.primary:hover { background: var(--ink); color: var(--tag-fg); }
@@ -552,15 +713,15 @@ a.btn-link {
   transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out),
     transform var(--t-fast) var(--ease-out);
 }
-a.btn-link:hover { background: var(--flag); color: #100f0d; transform: translate(-1px, -1px); }
+a.btn-link:hover { background: var(--hover); color: var(--ink); transform: translate(-1px, -1px); }
 a.btn-link.small { padding: 8px 12px; font-size: 11px; }
 a.btn-link.primary, a.primary { background: var(--accent); color: var(--accent-ink); }
 a.btn-link.primary:hover, a.primary:hover { background: var(--ink); color: var(--tag-fg); }
-button.danger:hover { background: var(--fit); color: #fff; }
+button.danger:hover { background: var(--fit); color: var(--fit-ink); }
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
 /* ---------- readouts ---------- */
-.st { padding: 15px 17px 17px; }
+.st { padding: var(--s4) var(--s4) 18px; }
 .st .k { font: 700 10.5px/1 var(--sans); letter-spacing: .15em; text-transform: uppercase; opacity: .82; }
 .st .v { font-family: var(--disp); font-size: 38px; line-height: 1; letter-spacing: -.04em; margin-top: 10px; }
 .st .u { font-family: var(--sans); font-size: 15px; font-weight: 700; }
@@ -603,7 +764,10 @@ button.danger:hover { background: var(--fit); color: #fff; }
 .msg { font: 600 13px/1.5 var(--sans); color: var(--ink-dim); margin: 12px 0 0; }
 
 /* ---------- tables ---------- */
-.table-scroll { overflow-x: auto; }
+/* The fade says "there is more to the right". Cut flush at the padding edge,
+   a scrollable table reads as severed data. */
+.table-scroll { overflow-x: auto; scrollbar-width: thin;
+  mask-image: linear-gradient(to right, #000 calc(100% - 26px), transparent); }
 table { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: 13px; }
 th {
   font: 700 10.5px/1 var(--sans); letter-spacing: .13em; text-transform: uppercase;
@@ -611,7 +775,7 @@ th {
 }
 th:first-child, td:first-child { text-align: left; }
 td { text-align: right; padding: 9px 12px; border-bottom: 2px solid var(--ink); font-weight: 700; white-space: nowrap; }
-tbody tr:hover td { background: var(--flag); color: #100f0d; }
+tbody tr:hover td { background: var(--hover); color: var(--ink); }
 td, th { transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
 tr.flagged td { background: var(--flag); color: #100f0d; }
 
@@ -621,6 +785,7 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 .chart .axis   { stroke: var(--ink); stroke-width: 2.5; }
 .chart .zero   { stroke: var(--ink-mute); stroke-width: 2; stroke-dasharray: 5 5; }
 .chart .tick   { fill: var(--ink); font-family: var(--mono); font-size: 11px; font-weight: 700; }
+.chart .axis-label.unit { text-transform: none; letter-spacing: 0; }
 .chart .axis-label { fill: var(--ink); font-family: var(--sans); font-weight: 700; font-size: 11px;
   letter-spacing: .14em; text-transform: uppercase; }
 .chart .pt     { fill: var(--accent); fill-opacity: 1; stroke: var(--ink); stroke-width: 2; }
@@ -659,11 +824,22 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
 }
 .theme-btn { padding: 9px 13px; box-shadow: none; }
 
-/* Nav collapses to a scrolling strip rather than reflowing into stacked rows. */
-@media (max-width: 720px) {
+/* Nav collapses to a scrolling strip rather than reflowing into stacked rows.
+   At 900 rather than 720: between those widths the head wrapped but
+   `margin-left:auto` kept applying, so the brand sat alone on one line and the
+   nav sat right-aligned on the next with a void under the wordmark — and which
+   widths did it depended on the theme, because the mono themes are wider. */
+@media (max-width: 900px) {
   .site-head { gap: 12px; }
-  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px;
+    /* The strip is cut flush at the right otherwise, so the last item reads as
+       a broken label rather than as more to scroll to. */
+    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
   .nav a { flex: 0 0 auto; }
+}
+/* Form rows stack later: an 820px iPad has room for two columns, and taking it
+   away there wastes half the width. */
+@media (max-width: 720px) {
   .row { grid-template-columns: 1fr; }
   :root { --sh: 4px; }
 }
@@ -746,7 +922,7 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .cell-head > .ghost, .cell-head > button { margin-left: auto; padding: 5px 10px; box-shadow: none;
   font: 700 11px/1 var(--sans); text-decoration: none; }
 .cell-scroll { overflow-y: auto; min-height: 0; flex: 1; padding-right: 4px; }
-.cell .hint { margin: 9px 0 0; font-size: 12.5px; }
+.cell .hint { margin: var(--s2) 0 var(--s3); font-size: 12.5px; }
 .cell .msg { margin: 7px 0 0; font-size: 12px; }
 .cell .note { font-size: 12px; padding: 9px 11px; }
 .cell .field { margin-bottom: 9px; }
@@ -843,7 +1019,7 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
   gap: 2px; flex: none; }
 .histstrip .hist svg { width: 52px; height: 24px; }
 .histstrip .hist span { font: 700 9.5px/1 var(--mono); color: var(--ink-mute); }
-.histstrip .hist:hover { background: var(--flag); }
+.histstrip .hist:hover { background: var(--hover); }
 
 @media (max-width: 1100px) {
   .dash-page .wrap { max-width: 1180px; }

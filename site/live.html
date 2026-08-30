@@ -61,6 +61,19 @@
   .methods button { flex:1 1 0; padding:7px 6px; box-shadow:none; font-size:10.5px;
     letter-spacing:.05em; }
   .methods button[aria-pressed="true"] { background:var(--ink); color:var(--tag-fg); }
+  .aim { margin-top:10px; }
+  .aim[hidden] { display:none; }
+  .aim-k { font:700 9.5px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ink-mute); margin-bottom:6px; }
+  .aims { display:flex; gap:6px; }
+  .aims button { flex:1 1 0; padding:8px 6px; box-shadow:none; font-size:10.5px;
+    letter-spacing:.05em; display:flex; flex-direction:column; gap:3px; align-items:center; }
+  .aims button[aria-pressed="true"] { background:var(--accent); color:var(--accent-ink);
+    border-color:var(--accent); }
+  /* Buttons are uppercased by the design language, which turns "27.0 g" into
+     "27.0 G" — a unit that does not exist. Units opt out. */
+  .aims .aim-g { font:700 11px/1 var(--mono); opacity:.75; letter-spacing:0;
+    text-transform:none; }
   /* Step 00's own control. The selects are prefilled from the last session, so
      "a coffee is chosen" was true before anyone looked at the screen; this is
      the deliberate act that was missing. */
@@ -244,7 +257,11 @@
      it, so the tiles end up hidden behind a bar. A real footer takes its height
      out of the scrolling part instead of covering it. */
   #cell-now { display:flex; flex-direction:column; overflow:hidden; }
-  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+  /* The fade says "there is more below". Cut flush at the scroll edge, the
+     control that happens to straddle it reads as broken rather than as
+     scrollable — the flow readout was rendering as "2.00 g/". */
+  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto;
+    mask-image:linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
   #cell-now .chrome-row { flex:none; margin:8px 0 0; padding-top:8px;
     border-top:2px solid var(--hair); }
   #cell-now .chrome-row button { padding:5px 10px; box-shadow:none; font-size:11.5px; }
@@ -326,7 +343,11 @@
   #cell-now .cell-head { margin-bottom:6px; gap:6px; }
   #cell-now .cell-head .tag { padding:5px 8px; font-size:10px; }
   #cell-now .cell-head .badge { padding:4px 7px; font-size:9.5px; }
-  #cell-now > .btn-row { flex-wrap:nowrap; overflow-x:auto; gap:5px; padding-bottom:2px; }
+  /* Wraps rather than scrolls. It was a horizontal scroll strip inside a column
+     with overflow:hidden, so the third and fourth controls were guillotined
+     mid-word with no scrollbar and no way to reach them — "Taps on" rendered as
+     "T". Four small buttons fit on two lines in a 330 px column. */
+  #cell-now > .btn-row { flex-wrap:wrap; gap:5px; padding-bottom:2px; }
   #cell-now > .btn-row button { flex:0 0 auto; }
   #cell-now .hint { margin:6px 0 0; line-height:1.4; }
   .taplog { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; min-height:26px; }
@@ -472,6 +493,16 @@
             <select id="p-grinder"></select></div>
         </div>
         <div class="methods setup-only" id="methods" role="group" aria-label="Brew method"></div>
+        <!-- WHICH DRINK, decided before the shot rather than discovered during
+             it. The three styles were already on screen as landmarks during the
+             pour, which answers "what have I made" — this answers "what am I
+             making", and it is the one that the target, and therefore the
+             chime, has to come from. Espresso methods only: a pour over has
+             ratios but not these names. -->
+        <div class="aim setup-only" id="aim-box" hidden>
+          <div class="aim-k">Aiming for &mdash; sets the target and the chime</div>
+          <div class="aims" id="aims" role="group" aria-label="Which drink"></div>
+        </div>
 
         <!-- Step 00 is a real step now. The selects above are prefilled from
              last time, which makes them a proposal; this is the nod. -->
@@ -763,6 +794,10 @@
 </div>
 
 
+<!-- THE REST OF BREWKIT, WITHOUT LETTING GO. While a scale or a phone is
+     attached, the nav opens into here instead of navigating. -->
+<div id="browse"></div>
+
 <!-- Pairing lives in a dialog: it happens once a session, and the page has no
      room to spare for something finished after fifteen seconds. -->
 <dialog id="pair-dlg">
@@ -846,6 +881,7 @@ import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
   from './assets/js/core/styles.js';
 import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
+import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
 import * as prefs from './assets/js/core/prefs.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
@@ -2342,6 +2378,63 @@ function buildMethods() {
   }));
 }
 
+const AIM_KEY = 'brewkit.aim.v1';
+
+/**
+ * Which drink this shot is aiming at.
+ *
+ * The styles were already on screen during the pour as landmarks, which answers
+ * "what have I made". This is the other half: picking one before the shot sets
+ * the target yield, and the target is what the countdown counts to and what the
+ * chime chimes at. Without it the alert fires at whatever ratio happened to be
+ * left in the field from last time, which is the wrong moment for the drink you
+ * actually wanted.
+ *
+ * Null means no style — the ratio field is yours and nothing overrides it.
+ */
+function currentAim() {
+  const styles = stylesFor(sess.method);
+  if (!styles) return null;
+  let saved = null;
+  try { saved = localStorage.getItem(AIM_KEY); } catch { /* ignore */ }
+  const hit = styles.find((st) => st.id === saved);
+  if (hit) return hit;
+  // Nothing chosen: infer from the ratio that is actually in the field, so the
+  // picker shows the truth rather than a default that disagrees with it.
+  const r = num('p-ratio');
+  return Number.isFinite(r) ? (styles.find((st) => r >= st.band[0] && r < st.band[1]) ?? null)
+    : null;
+}
+
+function setAim(id) {
+  const styles = stylesFor(sess.method);
+  const hit = styles?.find((st) => st.id === id);
+  if (!hit) return;
+  try { localStorage.setItem(AIM_KEY, hit.id); } catch { /* ignore */ }
+  // The aim IS the ratio. Everything downstream — the target, the window, the
+  // countdown, the cue — already reads the ratio, so there is nothing else to
+  // wire and nothing that can disagree with it.
+  $('p-ratio').value = hit.at;
+  $('p-ratio').dispatchEvent(new Event('input', { bubbles: true }));
+  buildAims();
+  paintSession();
+}
+
+function buildAims() {
+  const styles = stylesFor(sess.method);
+  $('aim-box').hidden = !styles;
+  if (!styles) return;
+  const now = currentAim();
+  const dose = targetDose();
+  $('aims').replaceChildren(...styles.map((st) => el('button', {
+    type: 'button', 'data-aim': st.id, title: st.blurb,
+    'aria-pressed': String(st.id === now?.id),
+    onclick: () => setAim(st.id),
+  }, el('span', {}, st.label),
+     el('span', { class: 'aim-g' },
+       Number.isFinite(dose) && dose > 0 ? `${(dose * st.at).toFixed(1)} g` : `1:${st.at}`))));
+}
+
 function setMethod(id) {
   const m = sess.setMethod(id);
   try { localStorage.setItem(METHOD_KEY, m.id); } catch { /* ignore */ }
@@ -2353,6 +2446,7 @@ function setMethod(id) {
   sess.setTarget(targetDose());
   buildStepper();
   buildMethods();
+  buildAims();
   paintSession();
   return m;
 }
@@ -2561,6 +2655,8 @@ function broadcast(snap) {
     elapsed: snap.elapsed, curve: brew.curve.map(([t, w]) => ({ t, w })),
     lag: kit.stopLag($('p-machine').value).seconds,
     theme: currentTheme(),
+    // What this page is using for its own dial, so the phone draws the same one.
+    dose: targetDose(),
   }));
 }
 
@@ -2839,6 +2935,11 @@ function syncReady() {
   paintSession();
 }
 
+// The grams under each drink are the dose times its ratio, so they move when
+// the dose does.
+for (const id of ['p-dose', 'p-ratio']) {
+  document.getElementById(id).addEventListener('input', buildAims);
+}
 for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
   $(id).addEventListener('change', refreshAdvice);
   $(id).addEventListener('change', syncReady);
@@ -3301,6 +3402,7 @@ restoreControl($('restore-notes'), { onRestore: () => { showDriverNote(currentDr
 refreshAdvice();
 buildStepper();
 buildMethods();
+buildAims();
 sess.setTarget(targetDose());
 syncReady();
 paintSession();
@@ -3368,26 +3470,50 @@ setPhase('connect');
 })();
 
 /**
- * Leaving Live drops the scale and any phone watching it, and the phone cannot
- * be picked back up silently the way the scale can — its pairing is per
- * connection. So while either is live, the other pages open in their own tab
- * and this one keeps running.
+ * Leaving Live drops the scale and any phone watching it.
+ *
+ * A GATT connection belongs to the document that opened it, and the phone's
+ * pairing is good for one connection, so a navigation costs both and only one
+ * of them comes back on its own. This used to be handled by pushing the other
+ * pages into a new tab, which kept the connection but left the shot on a tab
+ * you were no longer looking at.
+ *
+ * They open over the top instead, in the same frame the phone has used since
+ * it had the same problem for the same reason. The page never navigates, so
+ * there is nothing to preserve; the shot stays on screen in the bar; and the
+ * store modules already listen for `storage`, which fires across same-origin
+ * frames, so a bag edited in there updates this page underneath it.
  */
+const browse = mountBrowse($('browse'), { backLabel: 'The shot', home: 'live.html',
+  pages: BROWSE_PAGES });
+
 function guardNav() {
   const busy = !!link?.connected || watcher.state === 'open';
   for (const a of document.querySelectorAll('.nav a[href$=".html"]')) {
-    // The current page is not going anywhere, so it gets neither.
-    if (busy && !a.hasAttribute('aria-current')) {
-      a.target = '_blank';
-      a.rel = 'noopener';
-      // The arrow the CSS draws says a new tab is coming; this says why.
-      a.title = 'Opens in a new tab so this page keeps the scale and the phone';
-    } else {
-      a.removeAttribute('target');
-      a.removeAttribute('title');
-    }
+    const href = (a.getAttribute('href') || '').replace('./', '');
+    // The page you are on is not going anywhere, and neither is a link the
+    // overlay has no page for.
+    const guard = busy && !a.hasAttribute('aria-current')
+      && BROWSE_PAGES.some((pg) => pg.href === href);
+    a.classList.toggle('guarded', guard);
+    a.title = guard ? 'Opens here, so this page keeps the scale and the phone' : '';
+    if (!a.title) a.removeAttribute('title');
+    // Tabs are gone: the overlay does the job without splitting your attention
+    // across two windows.
+    a.removeAttribute('target');
+    a.removeAttribute('rel');
   }
 }
+
+// One listener rather than one per link, because guardNav re-runs every second
+// and the set of links it would be re-binding never changes.
+document.querySelector('.nav')?.addEventListener('click', (e) => {
+  const a = e.target.closest('a.guarded[href$=".html"]');
+  if (!a) return;
+  e.preventDefault();
+  browse.open((a.getAttribute('href') || '').replace('./', ''));
+});
+
 setInterval(guardNav, 1000);
 guardNav();
 </script>

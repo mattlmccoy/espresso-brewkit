@@ -293,8 +293,8 @@ try {
     return { seen, themes: THEMES, order: THEMES.join(','),
              at: document.documentElement.getAttribute('data-theme') };
   });
-  t('theme: five of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,machined,glass'
+  t('theme: six of them, and the button names the next one',
+    cycle.order === 'light,dark,terminal,machined,glass,bloom'
     && cycle.seen.every((s) => {
       const [now, next] = s.split('>');
       const order = cycle.themes;
@@ -348,88 +348,54 @@ try {
     && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(mach.shadow),
     `${mach.border}px border, ${mach.radius}px corners, shadow ${mach.shadow}`);
 
-  // And the dial is a different shape, which is the part a stylesheet cannot
-  // reach: a path's geometry is in the path.
+  // One shape, every theme. It used to hand machined a ring and everyone else a
+  // half circle — and only the ring branch drew band labels at all, so in four
+  // of the five themes the dial was three unexplained shades of accent. A theme
+  // changes the material; it does not change the instrument.
   const shapes = await page.evaluate(async () => {
-    const G = await import('./assets/js/core/gauge.js');
-    const D = await import('./assets/js/core/dial.js');
-    const half = G.geoFor('dark');
-    const ring = G.geoFor('machined');
-    const box = document.createElement('div');
-    document.body.append(box);
-    const mounted = G.mountGauge(box, { geo: ring });
-    const out = {
-      halfSpan: +(half.span / Math.PI).toFixed(2),
-      ringSpan: +(ring.span / Math.PI).toFixed(2),
-      isRing: mounted.ring,
-      rim: box.querySelectorAll('.g-rim-t').length,
-      // Past half a turn the arc has to say so, or SVG draws the short way
-      // round and the band silently becomes its own complement.
-      large: D.arc(0, 1, ring).includes(' 1 1 '),
-      shortNotLarge: D.arc(0, 0.2, ring).includes(' 0 1 '),
-    };
-    box.remove();
-    return out;
-  });
-  // Glass changes the material and nothing else: same layout, same dial shape,
-  // but no element is outlined and every surface is translucent over a ground
-  // that has colour in it. A pane with nothing behind it is just grey.
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass'));
-  await page.waitForTimeout(250);
-  const glass = await page.evaluate(async () => {
-    const G = await import('./assets/js/core/gauge.js');
-    const panel = getComputedStyle(document.querySelector('.bx'));
-    const body = getComputedStyle(document.body);
-    // parseFloat, not Number: the fourth part is " 0)" and Number(" 0)") is NaN.
-    const alpha = (c) => (c.startsWith('rgba') ? parseFloat(c.split(',')[3]) : 1);
-    return {
-      border: parseFloat(panel.borderTopWidth),
-      blur: panel.backdropFilter || panel.webkitBackdropFilter,
-      // The panel's own fill must let the ground through, or the blur is
-      // doing work nobody can see.
-      translucent: /gradient/.test(panel.backgroundImage)
-        && /rgba\(255, 255, 255, 0\./.test(panel.backgroundImage),
-      ground: /gradient/.test(body.backgroundImage),
-      shape: G.geoFor('glass').span === Math.PI,
-      brandBg: alpha(getComputedStyle(document.querySelector('.brand')).backgroundColor),
-    };
-  });
-  t('theme: glass is translucent panes over a ground, not outlined boxes',
-    glass.border === 0 && /blur/.test(glass.blur) && glass.translucent === true
-    && glass.ground === true && glass.brandBg === 0,
-    `border ${glass.border}px, ${glass.blur}, ground ${glass.ground}`);
-  t('theme: and it changes the material without moving anything',
-    glass.shape === true, 'the dial keeps its half circle');
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
-
-  // Reshaping must not blank it. The first version rebuilt the SVG on the
-  // theme event and left it empty until the next sample — which, on a scale
-  // that has settled, is forever.
-  const reshaped = await page.evaluate(async () => {
     const G = await import('./assets/js/core/gauge.js');
     const { shotDial } = await import('./assets/js/core/dial.js');
     const box = document.createElement('div');
     document.body.append(box);
-    const g = G.mountGauge(box, { geo: G.geoFor('dark') });
-    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }), { flow: 2 });
+    const g = G.mountGauge(box, { geo: G.geoFor('machined') });
+    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }));
     const before = box.querySelector('.g-n').textContent;
-    g.setGeo(G.geoFor('machined'));
-    const out = { before, after: box.querySelector('.g-n').textContent,
-                  ring: box.classList.contains('is-ring'),
-                  zones: box.querySelectorAll('.g-zone').length };
+    g.setGeo(G.geoFor('glass'));
+    const out = {
+      sameShape: G.geoFor('machined') === G.geoFor('light')
+        && G.geoFor('glass') === G.geoFor('dark'),
+      span: +(G.geoFor('light').span / Math.PI).toFixed(2),
+      // Labelled in every theme, and never abbreviated: the scale is anchored
+      // to the drinks, so a band is the same length at every dose and its whole
+      // word always fits.
+      labels: [...box.querySelectorAll('.g-label textPath')].map((x) => x.textContent).join(),
+      // The rim of decorative ticks is gone. It looked like a graduated scale
+      // but was a fixed count, so its spacing meant a different number of grams
+      // at every dose.
+      rim: box.querySelectorAll('.g-rim-t').length,
+      // The reading lives inside the instrument rather than captioned under it.
+      readInside: !!box.querySelector('.g-read'),
+      gap: box.querySelector('.g-gap').textContent,
+      here: [...box.querySelectorAll('.g-zone.here')].map((z) => z.dataset.id).join(),
+      before,
+      after: box.querySelector('.g-n').textContent,
+    };
     box.remove();
     return out;
   });
-  t('theme: reshaping the dial keeps the reading that was on it',
-    reshaped.before === '24.0' && reshaped.after === '24.0'
-    && reshaped.ring === true && reshaped.zones === 3,
-    `${reshaped.before} → ${reshaped.after}, ring ${reshaped.ring}, ${reshaped.zones} zones redrawn`);
-
-  t('theme: and it swaps the half circle for a ring, which CSS cannot do',
-    shapes.halfSpan === 1 && shapes.ringSpan === 1.5 && shapes.isRing === true
-    && shapes.rim > 0 && shapes.large === true && shapes.shortNotLarge === true,
-    `${shapes.halfSpan}π vs ${shapes.ringSpan}π, ${shapes.rim} rim ticks, `
-    + `large-arc flag ${shapes.large}`);
+  t('dial: one shape in every theme, so it is read once and read anywhere',
+    shapes.sameShape === true && shapes.span === 1.33 && shapes.rim === 0,
+    `${shapes.span}\u03c0 sweep, ${shapes.rim} decorative ticks`);
+  t('dial: every band carries its own name, in full',
+    // Sentence case: small caps with wide tracking is a telemetry idiom, and
+    // the dial spent a round of review being told it looked like a rev counter.
+    shapes.labels === 'Ristretto,Espresso,Lungo' && shapes.here === 'ristretto',
+    `${shapes.labels} — in ${shapes.here}`);
+  t('dial: the reading is inside it, and says how much longer',
+    shapes.readInside === true && /to espresso/.test(shapes.gap), shapes.gap);
+  t('dial: reshaping keeps the reading that was on it',
+    shapes.before === '24.0' && shapes.after === '24.0',
+    `${shapes.before} → ${shapes.after}`);
   await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('brewkit.theme', 'light');
@@ -2258,7 +2224,15 @@ try {
     const big = new Trace({ now: () => (clock += 100) });
     big.describe({ scale: 'Bench, "quoted"', session_thresholds: { holdFor: 5 } });
     // Ten seconds of nothing, then a plateau that lasts three.
-    for (let i = 0; i < 100; i++) big.push({ raw_g: 52, net_g: +(Math.random() * 30).toFixed(2), step: 'dose' });
+    // Seeded, because with Math.random() two consecutive samples occasionally
+    // land within the 0.3 g plateau window and invent a longer run than the one
+    // this is about — a coin-toss assertion that fails a few runs in a hundred.
+    let seed = 0x9e3779b9;
+    const rnd = () => { seed = (seed + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    for (let i = 0; i < 100; i++) big.push({ raw_g: 52, net_g: +(rnd() * 30).toFixed(2), step: 'dose' });
     for (let i = 0; i < 30; i++) big.push({ raw_g: 70, net_g: 18.0, step: 'dose' });
     big.mark('captured dose=18 g');
     const sum = summarise(big);
@@ -2334,7 +2308,10 @@ try {
     };
   });
   t('dial: the three drinks are contiguous zones off the dose',
-    gauge.zones.join(' ') === 'ristretto:18-30.6 espresso:30.6-45 lungo:45-60.5',
+    // Lungo used to be cut off at 1:3.36 by a scale that ran to a little past
+    // the lungo *mark*. Anchored to the drinks, the last band ends where the
+    // drink does.
+    gauge.zones.join(' ') === 'ristretto:18-30.6 espresso:30.6-45 lungo:45-72',
     gauge.zones.join(' '));
   t('dial: it names the one the cup is in right now',
     gauge.here.join() === 'ristretto', `at 24 g: ${gauge.here.join() || 'none'}`);
@@ -2342,11 +2319,13 @@ try {
     gauge.byWeight.join() === '—,—,ristretto,espresso,lungo,lungo,—' && gauge.over === true,
     gauge.byWeight.join(' '));
   t('dial: the needle runs 0 to 1 and stops there',
-    gauge.fracs.join() === '0,0.45,0.89,1', gauge.fracs.join(' '));
+    // 1:1 to 1:4, so band edges land at the same fractions whatever the dose —
+    // which is why the labels can be laid out once and never collide.
+    gauge.fracs.join() === '0,0.17,0.67,1', gauge.fracs.join(' '));
   t('dial: a method without these names gets no dial rather than invented ones',
     gauge.pourover === null && gauge.noDose === null, 'pour over and a zero dose both null');
   t('dial: the arc opens upward and fills left to right',
-    JSON.stringify(gauge.ends) === '[[14,108],[100,22],[186,108]]'
+    JSON.stringify(gauge.ends) === '[[36,155],[110,26],[184,155]]'
     && gauge.emptyArc === '' && gauge.someArc,
     JSON.stringify(gauge.ends));
 
@@ -2400,14 +2379,18 @@ try {
   t('viewer: the dial is up while it pours and gone while it weighs',
     pouring.gauge === true && weighing.gauge === false,
     `pouring ${pouring.gauge}, weighing ${weighing.gauge}`);
-  t('viewer: the tile empties from the top as the cup fills',
-    Math.abs(parseFloat(pouring.empty) - 60) < 0.2,
-    `${pouring.empty} of the tile still to fill at 24.2 of 60.5 g`);
+  t('viewer: the coffee rises from the bottom as the cup fills',
+    Math.abs(parseFloat(pouring.empty) - 33.6) < 0.2,
+    `${pouring.empty} of the tile poured at 24.2 of 72 g`);
   t('viewer: it says which drink it is, on the tile and under the dial',
-    pouring.style === 'Ristretto' && /Ristretto · 1:1\.34/.test(pouring.sub)
+    pouring.style === 'Ristretto' && pouring.sub === 'Ristretto'
     && pouring.here === 'ristretto', `${pouring.style} / ${pouring.sub}`);
-  t('viewer: the marks sit at the same heights the ladder uses',
-    pouring.marks.join() === '44.6%,59.5%,89.3%', pouring.marks.join(' '));
+  t('viewer: the marks sit where they fall in the cup, not on the dial’s scale',
+    // A cup fills from empty; the dial starts at 1:1. Sharing the dial's domain
+    // made two thirds of a shot look like a tenth of one. The browser drops a
+    // trailing zero from a percentage, so this compares the numbers.
+    pouring.marks.map((m) => parseFloat(m)).join() === '37.5,50,75',
+    pouring.marks.join(' '));
   t('viewer: nothing is drawn over the strip beneath it',
     pouring.overlap === false, `gauge overruns the strip: ${pouring.overlap}`);
   t('viewer: it wears the laptop’s theme rather than its own default',
@@ -2450,19 +2433,19 @@ try {
     await new Promise((r) => setTimeout(r, 60));
     const open = {
       shown: !document.getElementById('browse').hidden,
-      src: document.getElementById('browse-frame').getAttribute('src'),
+      src: document.querySelector('#browse iframe').getAttribute('src'),
       locked: getComputedStyle(document.body).overflow,
     };
     // The pour does not pause because you looked away from it.
     window.__view.paint({ k: 'f', w: 24.2, q: 1.9, t: 14.3, st: 'extracting', step: 'brew',
       method: 'espresso', dose: 18, target: 36, curve: [] });
-    open.live = document.getElementById('browse-live').textContent;
-    open.conn = document.getElementById('browse-conn').textContent;
+    open.live = document.querySelector('#browse .browse-live').textContent;
+    open.conn = document.querySelector('#browse .badge').textContent;
     dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await new Promise((r) => setTimeout(r, 60));
     return { ...open,
       closed: document.getElementById('browse').hidden,
-      kept: document.getElementById('browse-frame').getAttribute('src'),
+      kept: document.querySelector('#browse iframe').getAttribute('src'),
       alive: window.__stillHere,
       link: window.__view.link.state };
   });
@@ -2485,7 +2468,7 @@ try {
   }, themeWas);
   await watch.close();
   t('viewer: an iPad puts the number and the dial side by side',
-    tablet.dir === 'row' && tablet.cols === 4,
+    tablet.dir === 'row' && tablet.cols === 7,
     `stage ${tablet.dir}, strip in ${tablet.cols} columns`);
   }
 
@@ -2726,6 +2709,50 @@ try {
     po.hidden === true && po.tile === false, `hidden ${po.hidden}, tile shown ${!po.tile}`);
   // Put the page back the way the rest of the suite expects to find it.
   await page.evaluate(() => window.__sess.setMethod('espresso'));
+
+  // ---- which drink, chosen before the shot rather than found during it ----
+  // The three styles were already on screen as landmarks, which answers "what
+  // have I made". This is the other half, and it is the half the alert needs:
+  // without it the chime fires at whatever ratio was left in the field from
+  // last time, which is the wrong moment for the drink you actually wanted.
+  const aim = await page.evaluate(async () => {
+    const read = () => ({
+      pressed: document.querySelector('#aims button[aria-pressed="true"]')?.dataset.aim ?? null,
+      ratio: document.getElementById('p-ratio').value,
+      target: document.getElementById('o-target').textContent,
+      labels: [...document.querySelectorAll('#aims button')].map((b) => b.textContent),
+    });
+    document.querySelector('[data-method="espresso"]').click();
+    const d = document.getElementById('p-dose');
+    d.value = '18'; d.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 120));
+    const start = read();
+    document.querySelector('[data-aim="ristretto"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const ristretto = read();
+    document.querySelector('[data-aim="lungo"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    const lungo = read();
+    // A pour over has ratios but not these names.
+    document.querySelector('[data-method="pourover"]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    const pourover = document.getElementById('aim-box').hidden;
+    document.querySelector('[data-method="espresso"]').click();
+    document.querySelector('[data-aim="espresso"]').click();
+    await new Promise((r) => setTimeout(r, 150));
+    return { start, ristretto, lungo, pourover };
+  });
+  t('aim: the three drinks are offered before the shot, in grams for this dose',
+    aim.start.labels.join('|') === 'Ristretto27.0 g|Espresso36.0 g|Lungo54.0 g',
+    aim.start.labels.join(' · '));
+  t('aim: picking one moves the target, which is what the chime fires at',
+    aim.ristretto.pressed === 'ristretto' && aim.ristretto.ratio === '1.5'
+    && aim.ristretto.target === '27.0'
+    && aim.lungo.pressed === 'lungo' && aim.lungo.target === '54.0',
+    `ristretto → ${aim.ristretto.target} g, lungo → ${aim.lungo.target} g`);
+  t('aim: and a pour over is not offered espresso’s vocabulary',
+    aim.pourover === true, `aim box hidden for pour over: ${aim.pourover}`);
+
 
   t('styles: a finished shot is named, and an unnameable one is not',
     st.classify.join() === 'ristretto,espresso,lungo,,' ,
@@ -3574,6 +3601,48 @@ try {
     codes.frame.curve.length === 240 && codes.frame.curve[0].length === 2,
     `${codes.frame.curve.length} points of 400`);
 
+  // ---- the dose the laptop is using, not only the one it weighed ----
+  // Reported: the laptop looks right and the iPad shows nothing extra. The
+  // cause was one null. `sess.dose` stays null on any shot where the dose step
+  // never captured — straight to brew, or dosed on the grinder's own scale —
+  // and the laptop hid that from itself by falling back to the typed target.
+  // The frame sent the raw null, and since the dial, the volume, the ladder and
+  // the name of the drink are every one of them dose-derived, all four vanished
+  // on the device that exists to show them.
+  const doses = await page.evaluate(async () => {
+    const { frameOf } = await import('./assets/js/core/link.js');
+    const { shotDial } = await import('./assets/js/core/dial.js');
+    const base = { snap: { net: 24, flow: 2, state: 'extracting' }, target: 36,
+                   tol: 1.5, elapsed: 14, curve: [], lag: 1 };
+    // What a session looks like when nothing was weighed.
+    const unweighed = frameOf({ ...base, sess: { method: 'espresso', dose: null },
+                                dose: 18 });
+    const weighed = frameOf({ ...base, sess: { method: 'espresso', dose: 18.4 },
+                              dose: 18 });
+    // And with no dose from anywhere, it still must not invent one.
+    const neither = frameOf({ ...base, sess: { method: 'espresso', dose: null } });
+    return {
+      unweighed: unweighed.dose, unweighedSet: unweighed.doseSet,
+      weighed: weighed.dose, weighedSet: weighed.doseSet,
+      neither: neither.dose,
+      // The thing that was actually broken, end to end.
+      dialFromUnweighed: !!shotDial(unweighed.method, unweighed.dose,
+        { net: unweighed.w, target: unweighed.target }),
+      dialFromNeither: shotDial(neither.method, neither.dose,
+        { net: neither.w, target: neither.target }),
+    };
+  });
+  t('link: a shot that never weighed its dose still sends the one being used',
+    doses.unweighed === 18 && doses.unweighedSet === false
+    && doses.dialFromUnweighed === true,
+    `dose ${doses.unweighed}, weighed ${doses.unweighedSet}, dial ${doses.dialFromUnweighed}`);
+  t('link: a weighed dose wins over the one that was typed',
+    doses.weighed === 18.4 && doses.weighedSet === true,
+    `${doses.weighed} g, weighed ${doses.weighedSet}`);
+  t('link: and with no dose anywhere it says so rather than inventing one',
+    doses.neither === null && doses.dialFromNeither === null,
+    `dose ${doses.neither}, dial ${doses.dialFromNeither}`);
+
   // The real handshake, between two real pages.
   const phone = await ctx.newPage();
   await phone.goto(B + '/view.html');
@@ -3766,24 +3835,50 @@ try {
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
   await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
   await page.waitForTimeout(400);
-  const guarded = await page.evaluate(() => ({
-    connected: window.__mock.connected,
-    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
-      .map((a) => a.getAttribute('target') ?? '').join(','),
-    rels: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
-      .every((a) => a.rel === 'noopener'),
-    // The page you are already on is not going anywhere, so it is left alone.
-    here: document.querySelector('.nav a[aria-current]')?.getAttribute('target') ?? '-',
-    titled: [...document.querySelectorAll('.nav a[href$=".html"]:not([aria-current])')]
-      .every((a) => /new tab/.test(a.title)),
-  }));
-  t('nav guard: while the scale is connected, the other pages open in their own tab',
-    guarded.connected === true && guarded.targets.split(',').filter((v) => v === '_blank').length === 6
-    && guarded.rels === true, guarded.targets.slice(0, 48));
+  const guarded = await page.evaluate(async () => {
+    // A sentinel that cannot survive a navigation, which is the whole claim.
+    window.__stillHere = 'yes';
+    const guardedLinks = [...document.querySelectorAll('.nav a.guarded')]
+      .map((a) => a.getAttribute('href'));
+    const tabs = [...document.querySelectorAll('.nav a[href$=".html"]')]
+      .some((a) => a.getAttribute('target'));
+    document.querySelector('.nav a.guarded[href$="shots.html"]').click();
+    await new Promise((r) => setTimeout(r, 80));
+    const open = {
+      shown: !document.getElementById('browse').hidden,
+      src: document.querySelector('#browse iframe').getAttribute('src'),
+      locked: getComputedStyle(document.body).overflow,
+    };
+    dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await new Promise((r) => setTimeout(r, 80));
+    return { ...open, guardedLinks, tabs,
+      connected: window.__mock.connected,
+      alive: window.__stillHere,
+      closed: document.getElementById('browse').hidden,
+      kept: document.querySelector('#browse iframe').getAttribute('src'),
+      // The page you are already on is not going anywhere, so it is left alone.
+      here: document.querySelector('.nav a[aria-current]')?.classList.contains('guarded'),
+      titled: [...document.querySelectorAll('.nav a.guarded')]
+        .every((a) => /keeps the scale/.test(a.title)),
+    };
+  });
+  t('nav guard: while the scale is connected, the other pages open over this one',
+    guarded.connected === true && guarded.shown === true
+    && guarded.src === './shots.html' && guarded.locked === 'hidden',
+    `shown ${guarded.shown}, src ${guarded.src}`);
+  t('nav guard: and this page never unloads, so the scale is still held',
+    guarded.alive === 'yes' && guarded.connected === true,
+    `sentinel ${guarded.alive}, connected ${guarded.connected}`);
+  t('nav guard: no new tabs — the shot would be on a window you stopped watching',
+    guarded.tabs === false, `any target attribute: ${guarded.tabs}`);
   t('nav guard: except the one you are on, which is not going anywhere',
-    guarded.here === '-', `Live target: ${guarded.here}`);
-  t('nav guard: and each link says why, rather than surprising you with a tab',
-    guarded.titled === true, 'reason on every guarded link');
+    guarded.here === false, `Live guarded: ${guarded.here}`);
+  t('nav guard: and each link says why, rather than surprising you',
+    guarded.titled === true && guarded.guardedLinks.length === 5,
+    `${guarded.guardedLinks.length} guarded: ${guarded.guardedLinks.join(' ')}`);
+  t('nav guard: escape comes back, and the page you were on is still loaded',
+    guarded.closed === true && guarded.kept === './shots.html',
+    `closed ${guarded.closed}, frame kept ${guarded.kept}`);
 
   // Which scale this tab had open, so returning to Live picks it up with no
   // click. Session-scoped: a tab opened tomorrow should not go hunting for a
@@ -3798,13 +3893,12 @@ try {
   await page.waitForTimeout(1300);
   const afterDrop = await page.evaluate(() => ({
     held: sessionStorage.getItem('brewkit.live.connected'),
-    targets: [...document.querySelectorAll('.nav a[href$=".html"]')]
-      .map((a) => a.getAttribute('target') ?? '-').join(','),
+    guarded: document.querySelectorAll('.nav a.guarded').length,
     titled: [...document.querySelectorAll('.nav a[href$=".html"]')].some((a) => a.title),
   }));
   t('nav guard: and it lets go the moment there is nothing to protect',
-    /^-(,-)*$/.test(afterDrop.targets) && afterDrop.titled === false,
-    afterDrop.targets.slice(0, 20));
+    afterDrop.guarded === 0 && afterDrop.titled === false,
+    `${afterDrop.guarded} links still guarded`);
   t('nav guard: a dropout is not a decision, so the scale stays remembered',
     afterDrop.held === 'mock:lefu', String(afterDrop.held));
 
@@ -5001,7 +5095,7 @@ try {
     return { rows, distinct: new Set(rows.map((r) => r.colours)).size };
   });
   t('settings: every theme is previewed in its own colours, not the current one',
-    swatches.rows.length === 5 && swatches.distinct === 5,
+    swatches.rows.length === 6 && swatches.distinct === 6,
     `${swatches.rows.length} themes, ${swatches.distinct} distinct swatch sets`);
 
   const prefsRound = await page.evaluate(async () => {
@@ -5076,12 +5170,157 @@ try {
     P.reset();
   });
 
+  // ---- nothing is cut off ----
+  // A whole class of bug the DOM calls fine: an element inside an
+  // overflow:hidden ancestor, sticking out of it, with no scrollbar and no way
+  // to reach it. On Live that was a scroll strip in a hidden column, so "Taps
+  // on" rendered as "T" and two controls were simply unreachable.
+  const clipped = await page.evaluate(() => {
+    const bad = [];
+    const clips = (el) => {
+      const o = getComputedStyle(el);
+      return (o.overflow === 'hidden' || o.overflowX === 'hidden'
+              || o.overflowY === 'hidden');
+    };
+    for (const el of document.querySelectorAll('button, a, input, select, .st .v, .c .v')) {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) continue;
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        if (!clips(p)) continue;
+        const pr = p.getBoundingClientRect();
+        if (!pr.width) break;
+        const over = Math.max(r.right - pr.right, pr.left - r.left,
+                              r.bottom - pr.bottom, pr.top - r.top);
+        // A couple of pixels is a rounding artefact; a third of an element
+        // being outside its clipping parent is a control nobody can use.
+        if (over > 4 && over > r.width * 0.12) {
+          bad.push(`${el.textContent.trim().slice(0, 18) || el.id || el.tagName} `
+            + `out of ${p.id || p.className.split(' ')[0]} by ${Math.round(over)}px`);
+        }
+        break;
+      }
+    }
+    return bad;
+  });
+  t('layout: no control is cut off by an ancestor that hides its overflow',
+    clipped.length === 0, clipped.slice(0, 4).join(' · ') || 'nothing clipped');
+
+  // ---- the palette has to keep its own promises ----
+  // A design review measured five contrast failures that every existing test
+  // was happy with, because the tests looked at chrome pairs and the failures
+  // were in the tokens underneath. This asks the palette directly, per theme.
+  const palette = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const lum = (c) => {
+      const [r, g, b] = c.map((v) => { const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m);
+      return +((x + 0.05) / (y + 0.05)).toFixed(2); };
+    // Resolve a token to rgb by painting it, so color-mix and hex both work.
+    const probe = document.createElement('span');
+    probe.style.display = 'none';
+    document.body.append(probe);
+    const rgb = (expr) => {
+      probe.style.color = '';
+      probe.style.color = expr;
+      const c = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g);
+      return c ? c.slice(0, 3).map(Number) : null;
+    };
+
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const v = (n) => getComputedStyle(root).getPropertyValue(n).trim();
+      const accent = rgb(v('--accent'));
+      const accentInk = rgb(v('--accent-ink'));
+      out[th] = {
+        // The accent and the ink meant to sit on it. The viewer's cup tile used
+        // to slide this ground from the accent toward --bg as the level rose,
+        // which took the one number the app exists for down to 1.73:1; the tile
+        // is neutral now and the coffee is the coloured thing, so this pair is
+        // the only one that has to hold.
+        hero: ratio(accentInk, accent),
+        heroWashed: ratio(accentInk, accent),
+        fitInk: ratio(rgb(v('--fit-ink')), rgb(v('--fit'))),
+        // Hover must not be the error colour: a hovered row and a flagged one
+        // were the same pixels.
+        hoverIsNotFlag: ratio(rgb(v('--hover')), rgb(v('--flag'))) > 1.6,
+        // A control needs to be visible against the panel it sits on before
+        // anyone focuses it.
+        control: ratio(rgb(v('--control')), rgb(v('--panel'))),
+        mute: ratio(rgb(v('--ink-mute')), rgb(v('--panel'))),
+        scheme: getComputedStyle(root).colorScheme,
+      };
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    probe.remove();
+    return out;
+  });
+  const themes = Object.keys(palette);
+  const worst = (k) => themes.reduce((a, th) =>
+    palette[th][k] < palette[a][k] ? th : a, themes[0]);
+  t('palette: ink meant for the accent is legible on the accent',
+    themes.every((th) => palette[th].hero >= 4.5),
+    themes.map((th) => `${th} ${palette[th].hero}`).join(' · '));
+  t('palette: --fit carries ink that survives it, rather than a hardcoded white',
+    themes.every((th) => palette[th].fitInk >= 4.5),
+    `worst ${worst('fitInk')} at ${palette[worst('fitInk')].fitInk}:1`);
+  t('palette: hover is a lift, not the colour that means something is wrong',
+    themes.every((th) => palette[th].hoverIsNotFlag),
+    themes.filter((th) => !palette[th].hoverIsNotFlag).join() || 'all five distinct');
+  // Only the two borderless themes: light, dark and terminal draw a real border
+  // on every control, so a control there is visible without a fill step and
+  // demanding one would be demanding the wrong thing.
+  const LIT = ['machined', 'glass'];
+  t('palette: a control is visible against its panel before it is focused',
+    LIT.every((th) => palette[th].control >= 1.15),
+    LIT.map((th) => `${th} ${palette[th].control}:1`).join(' · '));
+  t('palette: muted text clears AA, since it carries the instructions',
+    themes.every((th) => palette[th].mute >= 4.5),
+    `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
+  t('palette: the four dark themes tell the browser they are dark',
+    ['dark', 'terminal', 'machined', 'glass'].every((th) => palette[th].scheme === 'dark')
+    && palette.light.scheme === 'light',
+    themes.map((th) => `${th}:${palette[th].scheme}`).join(' '));
+
+  // Selection has to survive the theme that restyles every button.
+  await page.goto(B + '/shots.html');
+  await page.waitForFunction(() => document.querySelectorAll('.shot-row').length > 1,
+    null, { timeout: 5000 });
+  const selected = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    document.querySelector('.shot-row').click();
+    const on = document.querySelector('.shot-row[aria-current="true"]');
+    const off = [...document.querySelectorAll('.shot-row')].find((r) => r !== on);
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      const a = getComputedStyle(on);
+      const b = getComputedStyle(off);
+      out[th] = a.backgroundColor !== b.backgroundColor || a.backgroundImage !== b.backgroundImage;
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    return out;
+  });
+  t('palette: a chosen thing looks chosen in every theme',
+    Object.values(selected).every(Boolean),
+    Object.entries(selected).map(([k, v]) => `${k}:${v ? 'yes' : 'NO'}`).join(' '));
+
   // Contrast: the chrome uses one foreground against --ink, whose lightness flips
   // between themes — exactly where an illegible pairing hides.
-  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass']) {
+  for (const scheme of ['light', 'dark', 'terminal', 'machined', 'glass', 'bloom']) {
     const system = scheme === 'light' || scheme === 'dark';
+    const light = scheme === 'light' || scheme === 'bloom';
     const c2 = await browser.newContext({ viewport: { width: 1300, height: 900 },
-      colorScheme: system ? scheme : 'dark' });
+      colorScheme: light ? 'light' : 'dark' });
     const p2 = await c2.newPage();
     await p2.goto(B + '/explore.html');
     // The other two are never reached by a system preference, so they are
