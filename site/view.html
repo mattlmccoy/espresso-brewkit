@@ -261,6 +261,14 @@
   <!-- Pairing: two pastes, and only until it is linked. -->
   <section class="bx panel pair" id="pairing">
     <div class="tag" id="pair-title">Watch a shot</div>
+    <!-- A link that dropped is a different situation from one never made: the
+         laptop is already putting a new code on its screen, so the only thing
+         worth saying here is where to look. -->
+    <div id="pair-dropped" hidden>
+      <p class="msg" style="margin:0 0 8px"><strong>The laptop stopped sending.</strong>
+      It has already put a new square on its screen — point this camera at it, or press
+      <strong>Reconnect phone</strong> on the laptop if it hasn&rsquo;t.</p>
+    </div>
     <div id="pair-intro">
       <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
       browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
@@ -389,6 +397,10 @@ let last = null;
 const STEP_LABEL = { setup: 'Setup', dose: 'Dose', grind: 'Grind', brew: 'Brew',
                      milk: 'Milk', rate: 'Rate' };
 
+// Whether this page has ever had a live link, which is what separates
+// "dropped" from "not paired yet".
+let wasOpen = false;
+
 function setConn(state) {
   const label = { idle: 'Not linked', waiting: last ? 'Reconnecting…' : 'Waiting for the laptop',
                   open: 'Linked', closed: 'Link closed',
@@ -406,10 +418,29 @@ function setConn(state) {
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
   $('cues').hidden = !live;
+  if (state === 'open') wasOpen = true;
+
+  // Dropped after watching, rather than never linked. The old code in the box
+  // is dead — a pairing is good for exactly one connection — so leaving it
+  // there invites the one action that cannot work, and the reply below it is
+  // an answer to a question nobody is asking any more.
+  if (wasOpen && (state === 'closed' || state === 'failed')) {
+    wasOpen = false;
+    $('offer').value = '';
+    $('reply').value = '';
+    $('reply-wrap').hidden = true;
+    $('pair-dropped').hidden = false;
+    $('pair-intro').hidden = true;
+    $('pair-again').hidden = true;
+    $('pair-title').textContent = 'Reconnect';
+    $('link').textContent = 'Reconnect';
+    $('pair-msg').textContent = '';
+  }
   if (state === 'failed') {
     $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
       + 'Wi-Fi — this connects directly rather than through a server, which is also why nothing '
-      + 'about your shots leaves the room.';
+      + 'about your shots leaves the room. A guest network, or one with device isolation on, '
+      + 'blocks exactly this and nothing else.';
   }
 }
 
@@ -752,6 +783,8 @@ link.onMessage = (m) => {
 
 async function linkWith(code) {
   if (!code) { $('pair-msg').textContent = 'Paste the laptop\u2019s code first.'; return; }
+  // A new code answers the dropped notice, whether it arrived by camera or paste.
+  $('pair-dropped').hidden = true;
   $('pair-msg').textContent = 'Linking…';
   try {
     const reply = await link.answer(code);
@@ -893,6 +926,7 @@ const PAIRED_KEY = 'brewkit.view.paired';
 const seenBefore = () => { try { return !!localStorage.getItem(PAIRED_KEY); } catch { return false; } };
 function paintPairHelp(force = false) {
   const known = seenBefore() && !force;
+  $('pair-dropped').hidden = true;
   $('pair-intro').hidden = known;
   $('pair-again').hidden = !known;
   $('pair-title').textContent = known ? 'Reconnect' : 'Watch a shot';

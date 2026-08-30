@@ -2626,6 +2626,11 @@ function sendLogToPhone() {
   return !!n;
 }
 
+// A link that drops is not the same event as a link you closed, and only one
+// of them should put a code back on the screen.
+let watchWasOpen = false;
+let stoppingWatch = false;
+
 watcher.onState = (state) => {
   const badge = $('watch-state');
   badge.hidden = state === 'idle' || state === 'closed';
@@ -2636,7 +2641,19 @@ watcher.onState = (state) => {
   $('watch-phone').textContent = state === 'open' ? 'Stop watching'
     : pairedBefore() ? 'Reconnect phone' : 'Watch on phone';
   $('send-log').hidden = state !== 'open';
-  if (state === 'open') notePairing();
+  if (state === 'open') { notePairing(); watchWasOpen = true; }
+
+  // Dropped rather than closed: put a fresh code up by itself. A phone that
+  // falls off mid-shot used to leave a badge saying so and nothing to do about
+  // it, which meant hunting for a button whose label had quietly changed.
+  if ((state === 'closed' || state === 'failed') && watchWasOpen) {
+    watchWasOpen = false;
+    const deliberate = stoppingWatch;
+    stoppingWatch = false;
+    if (!deliberate && !$('pair-dlg').open) {
+      openPairing({ note: 'The phone dropped off. Here is a new code —' });
+    }
+  }
 };
 
 /** Ten a second is plenty for a human reading a number off a phone. */
@@ -2660,11 +2677,22 @@ function broadcast(snap) {
   }));
 }
 
-$('watch-phone').addEventListener('click', async () => {
-  if (watcher.state === 'open') {
-    watcher.close();
-    return;
-  }
+/**
+ * Show a fresh code and the square that carries it.
+ *
+ * Split out of the button so a link that drops can re-arm the same flow
+ * without the person having to work out that the button they want is the one
+ * they pressed twenty minutes ago. `note` is what the dialog says about why it
+ * opened, which is the whole difference between reconnecting and pairing.
+ */
+// Which pairing attempt is on screen. A dialog dismissed on a timer has to
+// know it is dismissing its own episode: the "Linked" message tidies itself
+// away after 900 ms, and a phone that drops inside that window reopens the
+// dialog with a new code, which the old timer would then close.
+let pairEpoch = 0;
+
+async function openPairing({ note = '' } = {}) {
+  pairEpoch += 1;
   $('view-url').textContent = new URL('./view.html', location.href).href;
   $('pair-msg').textContent = 'Making a code…';
   $('pair-offer').value = '';
@@ -2703,11 +2731,21 @@ $('watch-phone').addEventListener('click', async () => {
     $('pair-msg').textContent = copied
       ? 'Scan the square, or paste the copied code on the phone. Then bring back its reply.'
       : 'Scan the square with the phone\u2019s camera, then bring back its reply.';
+    if (note) $('pair-msg').textContent = note + ' ' + $('pair-msg').textContent;
     $('pair-answer').focus();
     offerScanning();
   } catch (err) {
     $('pair-msg').textContent = err.message;
   }
+}
+
+$('watch-phone').addEventListener('click', () => {
+  if (watcher.state === 'open') {
+    stoppingWatch = true;
+    watcher.close();
+    return;
+  }
+  openPairing();
 });
 
 /**
@@ -2845,7 +2883,8 @@ $('pair-accept').addEventListener('click', async () => {
     await watcher.accept(code);
     notePairing();
     $('pair-msg').textContent = 'Linked. The phone follows this page from now on.';
-    setTimeout(() => $('pair-dlg').close(), 900);
+    const mine = pairEpoch;
+    setTimeout(() => { if (pairEpoch === mine) $('pair-dlg').close(); }, 900);
   } catch (err) {
     $('pair-msg').textContent = err.message;
   }
@@ -3424,6 +3463,10 @@ if (mock && !manualMock) {
   // The brew machine too: the software tare lives here, and a test that cannot
   // see it cannot tell a tared cup from a coincidence.
   window.__brew = brew;
+  // The peer link to the phone, so a test can drop its transport the way a
+  // pocket does. A drop cannot be asked for politely — closing the far end
+  // does not promptly tell this one — so the seam is the connection itself.
+  window.__watch = watcher;
   // The gesture listener, so a test can drive taps through it and see what it
   // decided rather than only what the page did afterwards.
   window.__taps = taps;

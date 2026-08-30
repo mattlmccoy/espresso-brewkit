@@ -545,14 +545,32 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('#frames div').length > 3, { timeout: 6000 });
   t('live: frames stream in', true, (await page.locator('#frames div').count()) + ' frames');
 
+  // Two references have to be two different weights, and the weight has to be
+  // on the scale — not just typed into the box. This used to capture 0 g twice
+  // and call the second one 120 g, which asks the decoder to find an encoding
+  // where one set of bytes means both. It rightly refuses, and the test only
+  // passed when the mock's noise happened to make the two raw values differ,
+  // letting an absurd scale factor fit two points. About one run in four it
+  // did not, and the suite failed on a decoder that was behaving correctly.
+  await page.evaluate(() => { window.__mock.grams = 0; });
+  await page.waitForTimeout(300);
   await page.fill('#ref', '0');
   await page.click('#capture');
+  await page.evaluate(() => { window.__mock.grams = 120; });
   await page.waitForTimeout(1100);
   await page.fill('#ref', '120');
   await page.click('#capture');
   await page.waitForTimeout(400);
   const candCount = await page.locator('#cands .cand').count();
   t('live: auto-decoder proposes an encoding', candCount > 0, candCount + ' candidates');
+  // And it is the real encoding, not one fitted to noise: u16 big-endian
+  // centigrams at offset 3, which is what MockScale actually emits.
+  const best = await page.evaluate(() => {
+    const b = document.querySelector('#cands .cand');
+    return b ? b.textContent.replace(/\s+/g, ' ').trim() : '';
+  });
+  t('live: and the encoding it proposes is the one the scale really uses',
+    /u16BE/.test(best) && /\u00d70\.01/.test(best) && /@3/.test(best), best.slice(0, 90));
 
   await page.locator('#cands .cand button').first().click();
   await page.waitForFunction(
@@ -3773,6 +3791,170 @@ try {
   }
   await phone.close();
   await page.evaluate(() => document.getElementById('pair-dlg').close());
+
+  // ---- a link that drops puts a new code up by itself ----
+  //
+  // Reported: the phone falls off and both screens just sit there. The laptop
+  // showed a badge and no way forward; the phone dropped back to a paste box
+  // still holding the dead code, which is the one thing that cannot work — a
+  // pairing is good for exactly one connection.
+  {
+    const drop = await ctx.newPage();
+    await drop.goto(B + '/view.html');
+    await drop.waitForFunction(() => window.__view, null, { timeout: 5000 });
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+    await page.click('#watch-phone');
+    await page.waitForFunction(
+      () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await drop.fill('#offer', await page.inputValue('#pair-offer'));
+    await drop.click('#link');
+    await drop.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await drop.inputValue('#reply'));
+    await page.click('#pair-accept');
+    await drop.waitForFunction(() => window.__view.link.state === 'open', { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+    const firstCode = await page.inputValue('#pair-offer');
+
+    // The phone goes away the way a phone does: the transport under it stops.
+    // Closing the far end is not enough — WebRTC does not promptly tell the
+    // near end — so this drops the laptop's own connection, which is what a
+    // pocket, a sleep or a walk out of range actually produces.
+    await drop.evaluate(() => window.__view.link.close());
+    // pc.close() fires nothing — the spec says so — so the data channel is the
+    // transition the page actually observes, and the one a real drop produces.
+    await page.evaluate(() => window.__watch.ch.close());
+    const rearmed = await page.waitForFunction(
+      () => document.getElementById('pair-dlg').open
+        && document.getElementById('pair-offer').value.length > 40,
+      { timeout: 10000 }).then(() => true).catch(() => false);
+    t('reconnect: a phone that drops puts a fresh code on the laptop by itself',
+      rearmed, rearmed ? await page.textContent('#pair-msg') : 'dialog never reopened');
+    t('reconnect: and it is a new code, not the spent one',
+      rearmed && (await page.inputValue('#pair-offer')) !== firstCode,
+      'differs from the code that was already used');
+
+    const onPhone = await drop.evaluate(() => ({
+      dropped: !document.getElementById('pair-dropped').hidden,
+      offer: document.getElementById('offer').value,
+      replyShown: !document.getElementById('reply-wrap').hidden,
+      button: document.getElementById('link').textContent,
+    }));
+    t('reconnect: the phone says what happened and clears the code that is now spent',
+      onPhone.dropped && onPhone.offer === '' && !onPhone.replyShown,
+      `dropped ${onPhone.dropped}, box "${onPhone.offer}", reply shown ${onPhone.replyShown}`);
+
+    // And the new code works, which is the whole point.
+    await drop.fill('#offer', await page.inputValue('#pair-offer'));
+    await drop.click('#link');
+    await drop.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await drop.inputValue('#reply'));
+    await page.click('#pair-accept');
+    const back = await drop.waitForFunction(
+      () => window.__view.link.state === 'open', { timeout: 20000 })
+      .then(() => true).catch(() => false);
+    t('reconnect: and pairing again on the new code brings the phone back',
+      back, back ? 'watching again' : 'never reconnected');
+    t('reconnect: with the dropped notice put away once it is live',
+      await drop.evaluate(() => document.getElementById('pair-dropped').hidden), 'notice cleared');
+    await drop.close();
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+  }
+
+  // Stopping deliberately is not a drop, and must not throw a code back up.
+  {
+    const bye = await ctx.newPage();
+    await bye.goto(B + '/view.html');
+    await bye.waitForFunction(() => window.__view, null, { timeout: 5000 });
+    await page.goto(B + '/live.html?mock=lefu&noshot=1');
+    await page.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+    await page.click('#watch-phone');
+    await page.waitForFunction(
+      () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await bye.fill('#offer', await page.inputValue('#pair-offer'));
+    await bye.click('#link');
+    await bye.waitForFunction(
+      () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+    await page.fill('#pair-answer', await bye.inputValue('#reply'));
+    await page.click('#pair-accept');
+    await bye.waitForFunction(() => window.__view.link.state === 'open', { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('pair-dlg').close());
+    await page.click('#watch-phone');            // "Stop watching"
+    await page.waitForTimeout(1200);
+    t('reconnect: stopping on purpose does not reopen the pairing dialog',
+      !(await page.evaluate(() => document.getElementById('pair-dlg').open)),
+      'dialog stayed shut');
+    await bye.close();
+  }
+
+  // ---- the same handshake in the configuration a real browser uses ----
+  //
+  // Every page above runs in a browser launched with
+  // --disable-features=WebRtcHideLocalIpsWithMdns, because mDNS hostnames do
+  // not resolve in a headless container. That flag is a lie about the world:
+  // Chrome and Safari hide local IPs behind `<uuid>.local` by default, so the
+  // candidates a kitchen laptop actually offers are the one shape this suite
+  // had never once exercised. `packCandidate` has an mDNS branch and nothing
+  // proved it round-trips.
+  //
+  // So: a second browser, without the flag, for one handshake.
+  {
+    const real = await chromium.launch(
+      process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
+    try {
+      const rctx = await real.newContext({ viewport: { width: 1400, height: 1000 } });
+      const laptop = await rctx.newPage();
+      const pad = await rctx.newPage();
+      await pad.goto(B + '/view.html');
+      await pad.waitForFunction(() => window.__view, null, { timeout: 5000 });
+      await laptop.goto(B + '/live.html?mock=lefu&noshot=1');
+      await laptop.waitForFunction(() => window.__mock, null, { timeout: 5000 });
+      await laptop.click('#watch-phone');
+      await laptop.waitForFunction(
+        () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+      const code = await laptop.inputValue('#pair-offer');
+
+      // What the laptop gathered, and what survived being packed.
+      const shape = await laptop.evaluate(async (c) => {
+        const S = await import('./assets/js/core/sdp.js');
+        const back = S.unpack(c) ?? '';
+        return {
+          kinds: c.split('~').pop().split('.').map((tok) => tok[0]),
+          addrs: back.split(/\r?\n/).filter((l) => l.startsWith('a=candidate:'))
+            .map((l) => l.split(' ')[4]),
+          fits: c.length <= S.MAX_CODE,
+        };
+      }, code);
+      t('link: a real browser offers mDNS candidates, and they survive packing',
+        shape.kinds.includes('m') && shape.addrs.some((a) => /\.local$/.test(a)),
+        `tokens ${shape.kinds.join(',')} \u2192 ${shape.addrs.join(' ')}`);
+      t('link: and the packed code still fits the QR budget with them in it',
+        shape.fits, `${code.length} chars`);
+
+      await pad.fill('#offer', code);
+      await pad.click('#link');
+      await pad.waitForFunction(
+        () => document.getElementById('reply').value.length > 40, { timeout: 15000 });
+      await laptop.fill('#pair-answer', await pad.inputValue('#reply'));
+      await laptop.click('#pair-accept');
+      const up = await pad.waitForFunction(
+        () => window.__view.link.state === 'open', { timeout: 25000 })
+        .then(() => true).catch(() => false);
+      t('link: two pages pair with mDNS on, the way they do outside a container',
+        up, up ? 'data channel open' : 'never connected');
+      if (up) {
+        await laptop.evaluate(() => { window.__mock.grams = 19.4; });
+        const fed = await pad.waitForFunction(
+          () => Math.abs(Number(document.getElementById('w').textContent) - 19.4) < 0.4,
+          { timeout: 10000 }).then(() => true).catch(() => false);
+        t('link: and the weight crosses that link too', fed, await pad.textContent('#w'));
+      }
+    } finally {
+      await real.close();
+    }
+  }
 
   // On screen: it appears once there is something to weigh, not before.
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
