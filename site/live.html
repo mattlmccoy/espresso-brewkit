@@ -257,7 +257,11 @@
      it, so the tiles end up hidden behind a bar. A real footer takes its height
      out of the scrolling part instead of covering it. */
   #cell-now { display:flex; flex-direction:column; overflow:hidden; }
-  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto; }
+  /* The fade says "there is more below". Cut flush at the scroll edge, the
+     control that happens to straddle it reads as broken rather than as
+     scrollable — the flow readout was rendering as "2.00 g/". */
+  #cell-now .cell-body { flex:1 1 auto; min-height:0; overflow-y:auto;
+    mask-image:linear-gradient(to bottom, #000 calc(100% - 20px), transparent); }
   #cell-now .chrome-row { flex:none; margin:8px 0 0; padding-top:8px;
     border-top:2px solid var(--hair); }
   #cell-now .chrome-row button { padding:5px 10px; box-shadow:none; font-size:11.5px; }

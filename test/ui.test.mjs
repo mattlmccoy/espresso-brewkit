@@ -348,88 +348,52 @@ try {
     && !/rgb\(\d+, \d+, \d+\) \d+px \d+px 0px 0px$/.test(mach.shadow),
     `${mach.border}px border, ${mach.radius}px corners, shadow ${mach.shadow}`);
 
-  // And the dial is a different shape, which is the part a stylesheet cannot
-  // reach: a path's geometry is in the path.
+  // One shape, every theme. It used to hand machined a ring and everyone else a
+  // half circle — and only the ring branch drew band labels at all, so in four
+  // of the five themes the dial was three unexplained shades of accent. A theme
+  // changes the material; it does not change the instrument.
   const shapes = await page.evaluate(async () => {
-    const G = await import('./assets/js/core/gauge.js');
-    const D = await import('./assets/js/core/dial.js');
-    const half = G.geoFor('dark');
-    const ring = G.geoFor('machined');
-    const box = document.createElement('div');
-    document.body.append(box);
-    const mounted = G.mountGauge(box, { geo: ring });
-    const out = {
-      halfSpan: +(half.span / Math.PI).toFixed(2),
-      ringSpan: +(ring.span / Math.PI).toFixed(2),
-      isRing: mounted.ring,
-      rim: box.querySelectorAll('.g-rim-t').length,
-      // Past half a turn the arc has to say so, or SVG draws the short way
-      // round and the band silently becomes its own complement.
-      large: D.arc(0, 1, ring).includes(' 1 1 '),
-      shortNotLarge: D.arc(0, 0.2, ring).includes(' 0 1 '),
-    };
-    box.remove();
-    return out;
-  });
-  // Glass changes the material and nothing else: same layout, same dial shape,
-  // but no element is outlined and every surface is translucent over a ground
-  // that has colour in it. A pane with nothing behind it is just grey.
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'glass'));
-  await page.waitForTimeout(250);
-  const glass = await page.evaluate(async () => {
-    const G = await import('./assets/js/core/gauge.js');
-    const panel = getComputedStyle(document.querySelector('.bx'));
-    const body = getComputedStyle(document.body);
-    // parseFloat, not Number: the fourth part is " 0)" and Number(" 0)") is NaN.
-    const alpha = (c) => (c.startsWith('rgba') ? parseFloat(c.split(',')[3]) : 1);
-    return {
-      border: parseFloat(panel.borderTopWidth),
-      blur: panel.backdropFilter || panel.webkitBackdropFilter,
-      // The panel's own fill must let the ground through, or the blur is
-      // doing work nobody can see.
-      translucent: /gradient/.test(panel.backgroundImage)
-        && /rgba\(255, 255, 255, 0\./.test(panel.backgroundImage),
-      ground: /gradient/.test(body.backgroundImage),
-      shape: G.geoFor('glass').span === Math.PI,
-      brandBg: alpha(getComputedStyle(document.querySelector('.brand')).backgroundColor),
-    };
-  });
-  t('theme: glass is translucent panes over a ground, not outlined boxes',
-    glass.border === 0 && /blur/.test(glass.blur) && glass.translucent === true
-    && glass.ground === true && glass.brandBg === 0,
-    `border ${glass.border}px, ${glass.blur}, ground ${glass.ground}`);
-  t('theme: and it changes the material without moving anything',
-    glass.shape === true, 'the dial keeps its half circle');
-  await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'machined'));
-
-  // Reshaping must not blank it. The first version rebuilt the SVG on the
-  // theme event and left it empty until the next sample — which, on a scale
-  // that has settled, is forever.
-  const reshaped = await page.evaluate(async () => {
     const G = await import('./assets/js/core/gauge.js');
     const { shotDial } = await import('./assets/js/core/dial.js');
     const box = document.createElement('div');
     document.body.append(box);
-    const g = G.mountGauge(box, { geo: G.geoFor('dark') });
-    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }), { flow: 2 });
+    const g = G.mountGauge(box, { geo: G.geoFor('machined') });
+    g.paint(shotDial('espresso', 18, { net: 24, target: 36 }));
     const before = box.querySelector('.g-n').textContent;
-    g.setGeo(G.geoFor('machined'));
-    const out = { before, after: box.querySelector('.g-n').textContent,
-                  ring: box.classList.contains('is-ring'),
-                  zones: box.querySelectorAll('.g-zone').length };
+    g.setGeo(G.geoFor('glass'));
+    const out = {
+      sameShape: G.geoFor('machined') === G.geoFor('light')
+        && G.geoFor('glass') === G.geoFor('dark'),
+      span: +(G.geoFor('light').span / Math.PI).toFixed(2),
+      // Labelled in every theme, and never abbreviated: the scale is anchored
+      // to the drinks, so a band is the same length at every dose and its whole
+      // word always fits.
+      labels: [...box.querySelectorAll('.g-label textPath')].map((x) => x.textContent).join(),
+      // The rim of decorative ticks is gone. It looked like a graduated scale
+      // but was a fixed count, so its spacing meant a different number of grams
+      // at every dose.
+      rim: box.querySelectorAll('.g-rim-t').length,
+      // The reading lives inside the instrument rather than captioned under it.
+      readInside: !!box.querySelector('.g-read'),
+      gap: box.querySelector('.g-gap').textContent,
+      here: [...box.querySelectorAll('.g-zone.here')].map((z) => z.dataset.id).join(),
+      before,
+      after: box.querySelector('.g-n').textContent,
+    };
     box.remove();
     return out;
   });
-  t('theme: reshaping the dial keeps the reading that was on it',
-    reshaped.before === '24.0' && reshaped.after === '24.0'
-    && reshaped.ring === true && reshaped.zones === 3,
-    `${reshaped.before} → ${reshaped.after}, ring ${reshaped.ring}, ${reshaped.zones} zones redrawn`);
-
-  t('theme: and it swaps the half circle for a ring, which CSS cannot do',
-    shapes.halfSpan === 1 && shapes.ringSpan === 1.5 && shapes.isRing === true
-    && shapes.rim > 0 && shapes.large === true && shapes.shortNotLarge === true,
-    `${shapes.halfSpan}π vs ${shapes.ringSpan}π, ${shapes.rim} rim ticks, `
-    + `large-arc flag ${shapes.large}`);
+  t('dial: one shape in every theme, so it is read once and read anywhere',
+    shapes.sameShape === true && shapes.span === 1.33 && shapes.rim === 0,
+    `${shapes.span}\u03c0 sweep, ${shapes.rim} decorative ticks`);
+  t('dial: every band carries its own name, in full',
+    shapes.labels === 'RISTRETTO,ESPRESSO,LUNGO' && shapes.here === 'ristretto',
+    `${shapes.labels} — in ${shapes.here}`);
+  t('dial: the reading is inside it, and says how much longer',
+    shapes.readInside === true && /to espresso/.test(shapes.gap), shapes.gap);
+  t('dial: reshaping keeps the reading that was on it',
+    shapes.before === '24.0' && shapes.after === '24.0',
+    `${shapes.before} → ${shapes.after}`);
   await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'light');
     localStorage.setItem('brewkit.theme', 'light');
@@ -2342,7 +2306,10 @@ try {
     };
   });
   t('dial: the three drinks are contiguous zones off the dose',
-    gauge.zones.join(' ') === 'ristretto:18-30.6 espresso:30.6-45 lungo:45-60.5',
+    // Lungo used to be cut off at 1:3.36 by a scale that ran to a little past
+    // the lungo *mark*. Anchored to the drinks, the last band ends where the
+    // drink does.
+    gauge.zones.join(' ') === 'ristretto:18-30.6 espresso:30.6-45 lungo:45-72',
     gauge.zones.join(' '));
   t('dial: it names the one the cup is in right now',
     gauge.here.join() === 'ristretto', `at 24 g: ${gauge.here.join() || 'none'}`);
@@ -2350,11 +2317,13 @@ try {
     gauge.byWeight.join() === '—,—,ristretto,espresso,lungo,lungo,—' && gauge.over === true,
     gauge.byWeight.join(' '));
   t('dial: the needle runs 0 to 1 and stops there',
-    gauge.fracs.join() === '0,0.45,0.89,1', gauge.fracs.join(' '));
+    // 1:1 to 1:4, so band edges land at the same fractions whatever the dose —
+    // which is why the labels can be laid out once and never collide.
+    gauge.fracs.join() === '0,0.17,0.67,1', gauge.fracs.join(' '));
   t('dial: a method without these names gets no dial rather than invented ones',
     gauge.pourover === null && gauge.noDose === null, 'pour over and a zero dose both null');
   t('dial: the arc opens upward and fills left to right',
-    JSON.stringify(gauge.ends) === '[[14,108],[100,22],[186,108]]'
+    JSON.stringify(gauge.ends) === '[[36,155],[110,26],[184,155]]'
     && gauge.emptyArc === '' && gauge.someArc,
     JSON.stringify(gauge.ends));
 
@@ -2409,13 +2378,17 @@ try {
     pouring.gauge === true && weighing.gauge === false,
     `pouring ${pouring.gauge}, weighing ${weighing.gauge}`);
   t('viewer: the coffee rises from the bottom as the cup fills',
-    Math.abs(parseFloat(pouring.empty) - 40) < 0.2,
-    `${pouring.empty} of the tile poured at 24.2 of 60.5 g`);
+    Math.abs(parseFloat(pouring.empty) - 33.6) < 0.2,
+    `${pouring.empty} of the tile poured at 24.2 of 72 g`);
   t('viewer: it says which drink it is, on the tile and under the dial',
-    pouring.style === 'Ristretto' && /Ristretto · 1:1\.34/.test(pouring.sub)
+    pouring.style === 'Ristretto' && pouring.sub === 'RISTRETTO'
     && pouring.here === 'ristretto', `${pouring.style} / ${pouring.sub}`);
-  t('viewer: the marks sit at the same heights the ladder uses',
-    pouring.marks.join() === '44.6%,59.5%,89.3%', pouring.marks.join(' '));
+  t('viewer: the marks sit where they fall in the cup, not on the dial’s scale',
+    // A cup fills from empty; the dial starts at 1:1. Sharing the dial's domain
+    // made two thirds of a shot look like a tenth of one. The browser drops a
+    // trailing zero from a percentage, so this compares the numbers.
+    pouring.marks.map((m) => parseFloat(m)).join() === '37.5,50,75',
+    pouring.marks.join(' '));
   t('viewer: nothing is drawn over the strip beneath it',
     pouring.overlap === false, `gauge overruns the strip: ${pouring.overlap}`);
   t('viewer: it wears the laptop’s theme rather than its own default',
@@ -2717,7 +2690,7 @@ try {
     `dial ${mid.dial}, chart ${mid.chartToo}px tall, overlap ${mid.overlap}`);
   t('brew page: the drinks are on it, and it knows which one is in the cup',
     mid.zones === 'ristretto,espresso,lungo' && mid.here === 'ristretto'
-    && /Ristretto/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
+    && /RISTRETTO/.test(mid.sub), `${mid.zones} — here ${mid.here} — ${mid.sub}`);
   t('brew page: and the numbers you act on sit beside it',
     Number(mid.t) > 0 && Number(mid.f) > 0 && Number(mid.ratio) > 0
     && Number(mid.lands) > Number(mid.ratio) && mid.cut !== null,

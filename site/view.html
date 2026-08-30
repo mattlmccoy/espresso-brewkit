@@ -377,7 +377,7 @@ import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
   from './assets/js/core/styles.js';
-import { shotDial } from './assets/js/core/dial.js';
+import { shotDial, shotVolume } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
 initTheme();
@@ -523,32 +523,34 @@ function paintGauge(f) {
   const d = brewing
     ? shotDial(f.method, f.dose, { net: f.w, target: f.target })
     : null;
-  gauge.paint(d, { flow: f.q, flowMax: 4 });
+  gauge.paint(d);
   $('vol').hidden = !d;
   $('now-style').hidden = !d;
   if (!d) { zoneSig = ''; return; }
 
-  // The volume carries the same marks the dial does, as heights, and they only
-  // move when the dose or the target does.
-  const sig = `${d.top}|${d.marks.map((m) => m.grams).join(',')}`;
+  // The cup has its own scale. The dial starts at 1:1 because ratios below it
+  // are not a drink; a cup starts at empty, and sharing the dial's domain made
+  // two thirds of a shot look like a tenth of one.
+  const vol = shotVolume(f.method, f.dose, { net: f.w, target: f.target });
+  const sig = `${vol.top}|${vol.marks.map((m) => m.grams).join(',')}`;
   if (zoneSig !== sig) {
     zoneSig = sig;
-    $('vol-marks').replaceChildren(...d.marks.map((m) => {
+    $('vol-marks').replaceChildren(...vol.marks.map((m) => {
       const row = document.createElement('div');
       row.className = 'vol-mark';
       const tag = document.createElement('span');
       tag.textContent = m.label;
       row.append(tag);
-      row.style.bottom = `${(m.frac * 100).toFixed(1)}%`;
+      row.style.bottom = `${(m.height * 100).toFixed(1)}%`;
       return row;
     }));
   }
 
   // The element is the coffee, so it grows as the cup fills.
-  $('vol-fill').style.height = `${(d.frac * 100).toFixed(1)}%`;
+  $('vol-fill').style.height = `${(vol.frac * 100).toFixed(1)}%`;
   for (const row of $('vol-marks').children) {
     const at = parseFloat(row.style.bottom) / 100;
-    row.classList.toggle('passed', d.frac >= at);
+    row.classList.toggle('passed', vol.frac >= at);
   }
   $('now-style').textContent = d.style ? d.style.label : '';
   $('now-style').hidden = !d.style;

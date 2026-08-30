@@ -477,8 +477,11 @@ export function livePlot(container, {
   // into G and G / S — gauss, and a letter-spaced acronym.
   el('text', { x: m.l, y: m.t - 3, class: 'axis-label unit' }, svg).textContent = 'yield (g)';
   if (hasFlow) {
-    el('text', { x: m.l + iw + 7, y: m.t - 3, class: 'axis-label alt unit' }, svg)
-      .textContent = 'flow (g/s)';
+    // Anchored to the right edge: left-anchored it ran off the end of the plot
+    // and rendered as "flow (g/", because the right margin is 46px and the
+    // label is wider than that.
+    el('text', { x: width - 4, y: m.t - 3, class: 'axis-label alt unit',
+      'text-anchor': 'end' }, svg).textContent = 'flow (g/s)';
   }
   el('text', { x: m.l + iw / 2, y: height - 6, class: 'axis-label unit', 'text-anchor': 'middle' },
     svg).textContent = 'seconds';

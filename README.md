@@ -649,15 +649,52 @@ empty cup. Landscape on a phone gets the same
 treatment in miniature. Below that it is the single column it always was, with
 the dial added underneath the number.
 
-**The dial has the drinks on it.** `core/dial.js` holds the geometry — the same
-half circle the laptop draws for weighing beans — with the three style bands
-from `styles.js` scaled by the dose, so the zones are contiguous and the arc
-answers "which drink am I in" rather than "how many grams". Which zone the cup
-is in is asked of the ratio rather than of the drawn arc: the arc stops at the
-end of the dial, so testing against it would call a shot that ran long "below
-the first band", which is the opposite of what it is.
+**The dial has the drinks on it**, and a design review was blunt about the first
+attempt: it read as a bad speedometer. The diagnosis was worth writing down,
+because every fault was a thing that *looked* like information and was not.
 
-**And the tile fills.** The number sits over a level that rises as the shot
+- Two concentric arcs raced each other from a common origin — yield outside,
+  flow inside — with no label, no scale and no number anywhere naming the
+  second. Twin needles are the grammar of a dashboard.
+- A rim of 60 minor ticks looked graduated but was a fixed *count*, so its
+  spacing meant a different number of grams at every dose.
+- Landmark ticks sat six units from band boundaries that were already the marks.
+- The progress arc shared a radius with the bands and was drawn last, so it
+  painted out the band you were in. The dial answered *how much* by erasing
+  *which drink* — and the "you are here" highlight, being visible only on the
+  unpoured remainder, was brightest **ahead** of the arc and vanished at the
+  moment you crossed into the next drink.
+- The band shading ran light–dark–light, which is the grammar of a green zone on
+  a rev counter rather than three named things.
+- And it ran from zero to a little past the lungo mark, so a third of the sweep
+  was ratios below 1:1 where nothing ever is, while lungo was cut off at 1:3.36
+  of a drink defined to 1:4.
+
+What is left is `core/dial.js` and `core/gauge.js` rebuilt around what the dial
+has to answer, in order: how much is in the cup, which drink is this and which
+is next, how much longer.
+
+**One shape, 240°, opening at the bottom, in every theme.** It used to hand one
+theme a ring and everyone else a half circle — and only the ring branch drew
+band labels at all, so in four of the five themes the dial was three unexplained
+shades of accent. A theme changes the material; it does not change the
+instrument. The opening at the bottom is what makes the middle available, which
+is where a reading belongs.
+
+**Anchored to the drinks, 1:1 to 1:4.** This is the change everything else falls
+out of: band positions become constant at every dose — ristretto always ends at
+0.233, espresso at 0.5 — so each name can be laid out once, curved along the
+band it names, and can never collide with anything. That is why nothing on it is
+ever abbreviated.
+
+**Nothing overpaints anything.** Bands at one radius, progress on a neutral ring
+inside them. The band you are in is the only saturated thing on the dial, lit
+along its whole length rather than just the part you have not reached.
+
+The reading sits inside it and carries the question that was missing: not the
+ratio, which is in the tile row, but **how much longer** — `6.8 g to espresso`.
+
+**And the tile fills.****And the tile fills.** The number sits over a level that rises as the shot
 lands, with the three marks drawn where they fall in the volume, so passing one
 is visible without reading anything. It is the same fraction of the same scale
 as the dial, from the same call — a screen showing a dial at two thirds beside a
