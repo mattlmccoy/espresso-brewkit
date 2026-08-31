@@ -233,6 +233,14 @@
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
+  /* The preview, only while it is looking. Square-ish and capped, because a
+     portrait phone camera at full height pushes everything else off screen. */
+  #cam { width:100%; max-height:46vh; object-fit:cover; background:var(--panel-2);
+    border:var(--bw) solid var(--ink); border-radius:var(--radius); display:block; }
+  #cam[hidden] { display:none; }
+  #paste-fold { font:600 12px/1.4 var(--sans); }
+  #paste-fold summary { cursor:pointer; padding:6px 0; color:var(--ink-dim); }
+  #paste-fold[open] summary { margin-bottom:6px; }
   .reply-qr { background:#fff; padding:8px; border:var(--bw) solid var(--ink); width:220px;
     border-radius:var(--radius);
     max-width:100%; margin:0 auto 10px; }
@@ -432,27 +440,45 @@
          worth saying here is where to look. -->
     <div id="pair-dropped" hidden>
       <p class="msg" style="margin:0 0 8px"><strong>The laptop stopped sending.</strong>
-      It has already put a new square on its screen — point this camera at it, or press
-      <strong>Reconnect phone</strong> on the laptop if it hasn&rsquo;t.</p>
+      A pairing is good for one connection, so this needs a new code. The laptop has
+      probably already put a fresh square on its screen &mdash; scan it below. If it
+      hasn&rsquo;t, press <strong>Reconnect phone</strong> over there first.</p>
     </div>
     <div id="pair-intro">
       <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
       browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
-      peer to peer, with no account and nothing in between. Same Wi-Fi, and it takes two pastes.</p>
+      peer to peer, with no account and nothing in between. Same Wi-Fi, and it is two squares
+      held up to two cameras.</p>
       <ol class="msg" style="margin:0;padding-left:20px">
-        <li>On the laptop’s Live page, press <strong>Watch on phone</strong> and copy the code.</li>
-        <li>Paste it below and press <strong>Link</strong>.</li>
-        <li>Copy the reply this gives you, and paste it back on the laptop.</li>
+        <li>On the laptop’s Live page, press <strong>Watch on phone</strong>.</li>
+        <li>Press <strong>Scan the laptop’s code</strong> below and point this at its screen.</li>
+        <li>Hold the square this gives you back up to the laptop’s camera.</li>
       </ol>
     </div>
     <p class="msg" id="pair-again" hidden style="margin:0">Press <strong>Reconnect phone</strong> on
-    the laptop, then paste its code here. A pairing is good for one connection only, so this is the
-    short version of the same two pastes.
+    the laptop, then scan its new square. A pairing is good for one connection only, so this is the
+    short version of the same two steps.
     <button class="ghost" id="pair-how" type="button"
             style="margin-left:6px;padding:3px 8px;box-shadow:none;font-size:11px">Remind me</button></p>
-    <textarea id="offer" placeholder="Paste the laptop’s code here"
-              autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-    <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
+    <!-- THE FIRST LEG, FROM THIS DEVICE.
+         Scanning the laptop's square with the iOS Camera app opens the code in
+         SAFARI — which is the whole first leg for free, right up until you add
+         this page to the home screen. An installed web app is its own browser
+         context, and nothing the Camera app opens can reach it, so the one
+         setup the app is best in was the one where pairing fell back to
+         copying 87 characters between two browsers. Its own camera does not
+         care which context it is in. -->
+    <div class="btn-row" id="scan-row" hidden>
+      <button class="primary" id="scan" type="button">Scan the laptop’s code</button>
+    </div>
+    <video id="cam" playsinline muted hidden></video>
+    <p class="msg" id="scan-msg" style="margin:0"></p>
+    <details id="paste-fold">
+      <summary>Paste it instead</summary>
+      <textarea id="offer" placeholder="Paste the laptop’s code here"
+                autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
+    </details>
     <p class="msg" id="pair-msg" style="margin:0"></p>
     <div id="reply-wrap" hidden>
       <p class="msg" style="margin:10px 0 6px"><strong>Last step: get this back to the laptop.</strong>
@@ -567,6 +593,8 @@ import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import * as cue from './assets/js/core/cue.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
+import { scan as scanQr } from './assets/js/core/qrscan.js';
+import { CamScan, codeFrom } from './assets/js/core/camscan.js';
 import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
@@ -605,7 +633,13 @@ function setConn(state) {
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
   $('cues').hidden = !live;
-  if (state === 'open') wasOpen = true;
+  if (state === 'open') {
+    wasOpen = true;
+    // Nothing to look for any more, and a camera left running behind a live
+    // shot is a hot phone and a lit privacy indicator for no reason.
+    if (cam.running) { cam.stop(); $('scan').textContent = 'Scan the laptop\u2019s code'; }
+    $('scan-msg').textContent = '';
+  }
 
   // Dropped after watching, rather than never linked. The old code in the box
   // is dead — a pairing is good for exactly one connection — so leaving it
@@ -622,6 +656,12 @@ function setConn(state) {
     $('pair-title').textContent = 'Reconnect';
     $('link').textContent = 'Reconnect';
     $('pair-msg').textContent = '';
+    // Reconnecting is the same two legs as pairing and used to read like a
+    // different procedure. It is one button: the laptop has already put a new
+    // square up, so point this at it.
+    $('scan').textContent = 'Scan the laptop\u2019s new code';
+    $('scan-msg').textContent = '';
+    $('paste-fold').open = false;
   }
   if (state === 'failed') {
     $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
@@ -1027,6 +1067,46 @@ async function linkWith(code) {
 
 $('link').addEventListener('click', () => linkWith($('offer').value.trim()));
 
+/* ------------------------------------------------- the camera on this device */
+// The rear one: you are pointing this at a laptop across the counter.
+const cam = new CamScan($('cam'), { facingMode: 'environment', accept: codeFrom, decode: scanQr });
+cam.onFound = (code) => {
+  $('scan').textContent = 'Scan the laptop\u2019s code';
+  $('scan-msg').textContent = 'Got it.';
+  linkWith(code);
+};
+function paintScan() {
+  $('scan-row').hidden = !CamScan.possible;
+  // The paste is the path that always works, so it stays — folded away, since
+  // it is now the fallback rather than the route.
+  $('paste-fold').open = !CamScan.possible;
+  // And when it is not on offer, say why in terms of the thing to do about it.
+  // Over plain http there is no camera to permit, at any setting, and a button
+  // that simply is not there reads as the feature being missing rather than as
+  // this page being reachable a better way.
+  $('scan-msg').textContent = CamScan.whyNot;
+}
+$('scan').addEventListener('click', async () => {
+  if (cam.running) {
+    cam.stop();
+    $('scan').textContent = 'Scan the laptop\u2019s code';
+    $('scan-msg').textContent = '';
+    return;
+  }
+  try {
+    await cam.start();
+    $('scan').textContent = 'Stop';
+    $('scan-msg').textContent = 'Point it at the square on the laptop.';
+  } catch (err) {
+    // A refusal here is nearly always the permission prompt being declined, and
+    // the useful thing to say is that there is another way rather than what the
+    // browser called it.
+    $('scan-msg').textContent = `No camera: ${err.message}. Paste the code instead.`;
+    $('paste-fold').open = true;
+  }
+});
+paintScan();
+
 /**
  * The laptop's code, arriving in the URL.
  *
@@ -1204,7 +1284,7 @@ function paintPip(f) {
   pip.say(said.text, { mood: said.mood || 'idle' });
 }
 
-window.__view = { link, paint, last: () => last, viewFor };
+window.__view = { link, paint, last: () => last, viewFor, linkWith, cam, codeFrom };
 </script>
 </body>
 </html>

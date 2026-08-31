@@ -4297,6 +4297,75 @@ try {
   t('qr: what is drawn reads back as the viewer URL at the size it is drawn',
     readable, 'decoded off the page at its rendered size');
 
+  // ---- and the phone can do the looking, which is the part that was missing --
+  // The URL in that square is the whole first leg of pairing for free: iOS
+  // Camera reads one natively and offers to open it. Right up until you add the
+  // viewer to the home screen — an installed web app is its own browser
+  // context, and nothing the Camera app opens can reach it. So the setup the
+  // app is best in was the one where pairing fell back to moving 87 characters
+  // between two browsers by hand.
+  //
+  // The claim under test is that a PICTURE OF THE LAPTOP'S SCREEN, decoded on
+  // the phone, yields exactly what the paste box wanted. Same square, same
+  // reader, no typing.
+  const svgSrc = await page.evaluate(() => document.querySelector('#pair-qr svg').outerHTML);
+  const offerOnLaptop = await page.inputValue('#pair-offer');
+  const byCamera = await phone.evaluate(async ({ markup, side }) => {
+    const S = await import('./assets/js/core/qrscan.js');
+    const { codeFrom } = await import('./assets/js/core/camscan.js');
+    const raw = await new Promise((res) => {
+      const bail = setTimeout(() => res(null), 8000);
+      const done = (v) => { clearTimeout(bail); res(v); };
+      const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = side; c.height = side;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, side, side);
+        g.drawImage(img, 0, 0, side, side);
+        URL.revokeObjectURL(url);
+        done(S.scan(g.getImageData(0, 0, side, side)));
+      };
+      img.onerror = () => done(null);
+      img.src = url;
+    });
+    return { raw, code: codeFrom(raw) };
+  }, { markup: svgSrc, side: 420 });
+  t('pairing: a picture of the laptop\u2019s square gives the phone the same code the paste box wanted',
+    byCamera.code === offerOnLaptop && /view\.html#p=/.test(byCamera.raw ?? ''),
+    byCamera.code === offerOnLaptop
+      ? `${byCamera.code.length} characters, out of a URL`
+      : `got ${String(byCamera.code).slice(0, 24)}\u2026`);
+  // The unwrapping, and its refusal. A camera pointed at a kitchen sees a great
+  // many things that are not a pairing code.
+  const unwrap = await phone.evaluate(async () => {
+    const { codeFrom } = await import('./assets/js/core/camscan.js');
+    return {
+      bare: codeFrom('2~abc~def'),
+      url: codeFrom('https://box.local/view.html#p=2~abc~def'),
+      encoded: codeFrom('https://box.local/view.html#p=2~abc%7Edef'),
+      other: codeFrom('https://example.com/'),
+      words: codeFrom('WIFI:S=kitchen;'),
+      empty: codeFrom(''),
+    };
+  });
+  t('pairing: a scanned code is taken bare or out of a URL, and nothing else is taken at all',
+    unwrap.bare === '2~abc~def' && unwrap.url === '2~abc~def' && unwrap.encoded === '2~abc~def'
+    && unwrap.other === null && unwrap.words === null && unwrap.empty === null,
+    `bare ${unwrap.bare}, url ${unwrap.url}, a wifi code ${unwrap.words}`);
+  const phoneScan = await phone.evaluate(() => ({
+    offered: !document.getElementById('scan-row').hidden,
+    folded: !document.getElementById('paste-fold').open,
+    label: document.getElementById('scan').textContent,
+  }));
+  // The paste is the path that always works, so it stays — as the fallback it
+  // now is rather than as the route.
+  t('pairing: the phone leads with its own camera and keeps the paste behind it',
+    phoneScan.offered && /scan/i.test(phoneScan.label),
+    `button "${phoneScan.label}", paste folded ${phoneScan.folded}`);
+
+  await phone.evaluate(() => { document.getElementById('paste-fold').open = true; });
   await phone.fill('#offer', offer);
   await phone.click('#link');
   await phone.waitForFunction(
@@ -4688,6 +4757,7 @@ try {
     await page.click('#watch-phone');
     await page.waitForFunction(
       () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await drop.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await drop.fill('#offer', await page.inputValue('#pair-offer'));
     await drop.click('#link');
     await drop.waitForFunction(
@@ -4727,6 +4797,7 @@ try {
       `dropped ${onPhone.dropped}, box "${onPhone.offer}", reply shown ${onPhone.replyShown}`);
 
     // And the new code works, which is the whole point.
+    await drop.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await drop.fill('#offer', await page.inputValue('#pair-offer'));
     await drop.click('#link');
     await drop.waitForFunction(
@@ -4754,6 +4825,7 @@ try {
     await page.click('#watch-phone');
     await page.waitForFunction(
       () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await bye.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await bye.fill('#offer', await page.inputValue('#pair-offer'));
     await bye.click('#link');
     await bye.waitForFunction(
@@ -4814,6 +4886,7 @@ try {
       t('link: and the packed code still fits the QR budget with them in it',
         shape.fits, `${code.length} chars`);
 
+      await pad.evaluate(() => { document.getElementById('paste-fold').open = true; });
       await pad.fill('#offer', code);
       await pad.click('#link');
       await pad.waitForFunction(

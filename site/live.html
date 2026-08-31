@@ -1006,8 +1006,11 @@
     </div>
     <div class="qr-said">
       <p class="msg" style="margin:0 0 6px"><strong>1 &middot; scan this with the phone</strong></p>
-      <p class="msg" style="margin:0">Open the Camera app and point it here. Tap the link it
-      offers. The viewer opens already holding this laptop&rsquo;s code.</p>
+      <p class="msg" style="margin:0">On the phone, open the viewer and press
+      <strong>Scan the laptop&rsquo;s code</strong>, then point it here.</p>
+      <p class="msg" style="margin:6px 0 0">Or point the phone&rsquo;s Camera app here and tap the
+      link it offers &mdash; which opens the viewer in Safari, so use the button above instead if
+      you keep this on the home screen.</p>
       <details style="margin-top:10px">
         <summary class="msg" style="cursor:pointer">No camera? Use the code</summary>
         <p class="msg" style="margin:8px 0 4px" id="view-url">/view.html</p>
@@ -1019,7 +1022,7 @@
   </div>
 
   <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong>
-  &mdash; 87 characters, so it pastes in one go</p>
+  &mdash; hold its square up to this laptop&rsquo;s camera, or paste the 87 characters</p>
   <textarea id="pair-answer" rows="2" placeholder="Paste the reply from the phone here"
             autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
   <div class="btn-row">
@@ -1074,6 +1077,7 @@ import { mountPip } from './assets/js/core/pip.js';
 import * as coach from './assets/js/core/coach.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
+import { CamScan, codeFrom } from './assets/js/core/camscan.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
 import { TapListener, actionFor, gestureHint, thresholdFor,
@@ -3058,7 +3062,7 @@ function offerScanning() {
   // reliably — so on the machine most likely to be the laptop the button was
   // hidden and the code got typed out by hand. core/qrscan.js reads the symbol
   // itself; the browser's own reader is kept as a fast path where it exists.
-  $('pair-scan').hidden = !navigator.mediaDevices?.getUserMedia;
+  $('pair-scan').hidden = !CamScan.possible;
 }
 
 /**
@@ -3095,67 +3099,29 @@ $('qr-big').addEventListener('click', () => {
 $('qr-full-dlg').addEventListener('click', () => $('qr-full-dlg').close());
 addEventListener('resize', () => { if ($('pair-dlg').open) sizeQr(); });
 
-let camStream = null;
+// The same reader the phone now uses, pointed the other way. It used to be
+// seventy lines here and nowhere else, which is why the phone could not do it.
+const pairCam = new CamScan($('pair-cam'), {
+  // A laptop's camera faces the person holding the phone up to it.
+  facingMode: 'user',
+  accept: codeFrom,
+  decode: scanQr,
+});
+pairCam.onFound = (value) => {
+  $('pair-answer').value = value;
+  $('pair-scan').textContent = 'Scan the phone\u2019s code';
+  $('pair-accept').click();
+};
 $('pair-scan').addEventListener('click', async () => {
-  const video = $('pair-cam');
-  if (camStream) {
-    camStream.getTracks().forEach((t) => t.stop());
-    camStream = null;
-    video.hidden = true;
+  if (pairCam.running) {
+    pairCam.stop();
     $('pair-scan').textContent = 'Scan the phone\u2019s code';
     return;
   }
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-    video.srcObject = camStream;
-    video.hidden = false;
-    await video.play();
+    await pairCam.start();
     $('pair-scan').textContent = 'Stop scanning';
     $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
-    const detector = 'BarcodeDetector' in window
-      ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
-    const canvas = document.createElement('canvas');
-    const ctx2d = canvas.getContext('2d', { willReadFrequently: true });
-    const looksLikeAnswer = (v) => /^\d+~/.test(v ?? '');
-    const take = () => {
-      // Downscaled: a module has to be a few pixels across to be read, and it
-      // is at 640 wide, while a full-resolution frame is four times the work
-      // for nothing.
-      const w = Math.min(640, video.videoWidth || 640);
-      const h = Math.round((video.videoHeight || 480) * (w / (video.videoWidth || 640)));
-      if (!w || !h) return null;
-      canvas.width = w; canvas.height = h;
-      ctx2d.drawImage(video, 0, 0, w, h);
-      return ctx2d.getImageData(0, 0, w, h);
-    };
-    const tick = async () => {
-      if (!camStream) return;
-      let value = null;
-      try {
-        if (detector) {
-          const found = await detector.detect(video);
-          value = found.map((f) => f.rawValue).find(looksLikeAnswer) ?? null;
-        }
-        if (!value) {
-          const frame = take();
-          if (frame) {
-            const got = scanQr(frame);
-            if (looksLikeAnswer(got)) value = got;
-          }
-        }
-      } catch { /* a frame that would not decode is not an error */ }
-      if (value) {
-        $('pair-answer').value = value;
-        camStream.getTracks().forEach((t) => t.stop());
-        camStream = null;
-        video.hidden = true;
-        $('pair-scan').textContent = 'Scan the phone\u2019s code';
-        $('pair-accept').click();
-        return;
-      }
-      setTimeout(tick, 120);
-    };
-    tick();
   } catch (err) {
     $('pair-msg').textContent = `Could not open the camera: ${err.message}. Paste the code instead.`;
   }
