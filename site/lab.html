@@ -76,10 +76,15 @@
     <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
     Runs entirely in your browser; no data leaves this device.
   </footer>
+  <!-- HE IS ON EVERY PAGE. A coach who exists only while coffee is
+       coming out is a readout, not a coach. -->
+  <div id="pip-dock"></div>
 </div>
 <script type="module">
 import { initNotices } from './assets/js/core/notice.js';
 import { boot, fmt } from './assets/js/ui.js';
+import { installPip } from './assets/js/core/pip.js';
+import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 boot();
 initNotices();
@@ -90,6 +95,13 @@ document.getElementById('summary').textContent = rows.length
     + `reading. Extraction yield needs Brix, so the tools below have ${withBrix.length} `
     + `row${withBrix.length === 1 ? '' : 's'} to work with.`
   : 'No shots logged yet. These tools read the same log the Live page writes.';
+
+/* ------------------------------------------------------------------- Pip */
+// He is on every page. The switch, the question the x asks and the way back
+// are the shared arrangement; what he says here is this page's business, and
+// on a page with nothing to add he says nothing and simply keeps you company.
+const pip = installPip(document.getElementById('pip-dock'), prefs,
+  { quietLabel: 'for now' });
 </script>
 </body>
 </html>

@@ -1174,22 +1174,6 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }
 
-/* ROOM, WHERE THERE IS ROOM.
-   He is sized for a phone, and on a phone that is right — the pour column is
-   the whole screen and a bigger character would be in the way of it. On a
-   laptop the same box is a footnote in the corner of a very wide screen, which
-   is what "barely there" means: not hidden, just too small to register as
-   something looking back at you. The face and the screen grow; the case,
-   the name and the close button stay as they are, because a bigger × is a
-   bigger invitation to dismiss him. */
-@media (min-width: 1100px) {
-  .pip-face { font-size: 20px; line-height: 1.2; }
-  .pip-caret { font-size: 20px; }
-  .pip-screen { padding: 9px 12px 10px; gap: 7px; }
-  .pip-bar { font-size: 9px; }
-  .pip-box { padding: 0 7px 7px; }
-}
-
 /* ---- simple and full ---------------------------------------------------- */
 /* Two views of the same app, marked declaratively so a page says which of its
    parts are apparatus and which are the shot, rather than each page inventing
@@ -1378,7 +1362,7 @@ body.replaying .fillchart { flex: 1 1 auto; min-height: 200px; }
 body.replaying #replay-row,
 /* And nothing that talks. Pip reads a shot as it happens; on a recording there
    is nothing for him to say that he did not say the first time. */
-body.replaying #pip, body.replaying #pip-stub { display: none !important; }
+body.replaying #pip-dock { display: none !important; }
 /* The controls that only make sense while a shot is happening. A replay cannot
    be stopped, and a stop button over a recording is a button that lies. */
 body.replaying #stop, body.replaying #reset, body.replaying #replay-keep { display: none; }
