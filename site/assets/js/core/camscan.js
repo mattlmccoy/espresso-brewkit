@@ -63,20 +63,94 @@ export class CamScan {
 
   async start() {
     if (this.stream) return;
-    // `environment` on a phone reading a laptop across the counter, `user` on a
-    // laptop reading a phone held up to it. An exact constraint would fail
-    // outright on a device with one camera, which is the wrong trade: a laptop
-    // that offers its only camera is fine, a laptop that refuses to scan is not.
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: this.facingMode },
-    });
-    this.video.srcObject = this.stream;
-    this.video.hidden = false;
-    // Required for autoplay on iOS, and harmless everywhere else.
+    // WHAT KIND OF ELEMENT THIS IS, SAID BEFORE IT IS GIVEN A STREAM.
+    // iOS begins loading the moment srcObject is assigned, and a video not yet
+    // marked muted and inline goes down Safari's fullscreen path; setting the
+    // attributes afterwards interrupts the load it already started, and the
+    // play() that follows rejects with AbortError. Set first, assign second.
     this.video.setAttribute('playsinline', '');
+    this.video.setAttribute('autoplay', '');
     this.video.muted = true;
-    await this.video.play();
+    // And visible before play: iOS will not start a video with no layout box.
+    this.video.hidden = false;
+    try {
+      // `environment` on a phone reading a laptop across the counter, `user` on
+      // a laptop reading a phone held up to it. An exact constraint would fail
+      // outright on a device with one camera, which is the wrong trade: a laptop
+      // that offers its only camera is fine, a laptop that refuses to scan is
+      // not.
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: this.facingMode },
+      });
+      this.video.srcObject = this.stream;
+      await this._play();
+    } catch (err) {
+      // NOTHING HALF-STARTED IS LEFT BEHIND. This used to throw straight to the
+      // caller with the element already unhidden and, past getUserMedia, the
+      // camera still held — so a failure showed a large empty grey box, kept the
+      // hardware, and left `running` true, which turned the next press of the
+      // button into a silent no-op that just stopped a scan never started.
+      this.stop();
+      throw err;
+    }
     this._loop();
+  }
+
+  /**
+   * Play, and do not take a rejection at face value.
+   *
+   * A muted inline video with a live stream generally renders whether or not
+   * play() resolves, and on iOS that promise rejects for reasons that have
+   * nothing to do with whether frames are arriving — a competing load, a
+   * backgrounded tab. The question worth asking is the one the scanner actually
+   * depends on: are there frames? If there are, it is running.
+   */
+  async _play() {
+    try {
+      await this.video.play();
+    } catch (err) {
+      if (!(await this._frames())) throw err;
+    }
+  }
+
+  /** Whether the element is decoding: videoWidth is 0 until the first frame. */
+  _frames(ms = 1500) {
+    return new Promise((done) => {
+      const t0 = Date.now();
+      const tick = () => {
+        if (this.video.videoWidth > 0) return done(true);
+        if (!this.stream || Date.now() - t0 > ms) return done(false);
+        setTimeout(tick, 60);
+      };
+      tick();
+    });
+  }
+
+  /**
+   * What went wrong, in terms of the thing to do about it.
+   *
+   * The raw message is the wrong thing to show. "The operation was aborted" is
+   * what iOS says when the camera is held by something else, and the something
+   * else is nearly always the Camera app you just used to scan the very code
+   * that brought you here — it keeps the hardware while it is still open behind
+   * Safari. Told that, the fix is obvious and takes a second. Told "the
+   * operation was aborted", nobody has ever known what to do next.
+   */
+  static why(err) {
+    const name = err?.name ?? '';
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      return 'The camera was not permitted for this page. Safari asks once per '
+        + 'site — Settings \u203a Safari \u203a Camera lets you undo a no.';
+    }
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      return 'No camera this page can open.';
+    }
+    if (name === 'NotReadableError' || name === 'AbortError') {
+      return 'Something else has the camera. The Camera app holds it while it is '
+        + 'still open behind Safari, which is easy to hit right after scanning — '
+        + 'close it, and any other tab using the camera, then try again.';
+    }
+    return err?.message ? String(err.message).replace(/\.+$/, '') : 'The camera would not start';
   }
 
   stop() {

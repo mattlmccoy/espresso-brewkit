@@ -4610,6 +4610,52 @@ try {
     phoneScan.offered && /scan/i.test(phoneScan.label),
     `button "${phoneScan.label}", paste folded ${phoneScan.folded}`);
 
+  // A CAMERA THAT WILL NOT OPEN, which on an iPad is the ordinary case rather
+  // than the exotic one: the iOS Camera app holds the hardware while it is still
+  // open behind Safari, and the Camera app is exactly what you just used to scan
+  // the code that opened this page. getUserMedia then rejects with AbortError.
+  //
+  // What that used to do: throw out of start() with the video already unhidden
+  // and, past getUserMedia, the stream still held — a large empty grey box, the
+  // camera kept, and `running` left true, so the next press took the stop branch
+  // and silently ended a scan that had never begun. The message said "The
+  // operation was aborted..", which names no cause and suggests no action.
+  const refused = await phone.evaluate(async () => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    const fail = (name) => Object.assign(new Error('The operation was aborted.'), { name });
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(fail('AbortError'));
+    document.getElementById('scan').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const out = {
+      boxGone: document.getElementById('cam').hidden,
+      running: window.__view.cam.running,
+      msg: document.getElementById('scan-msg').textContent,
+      label: document.getElementById('scan').textContent,
+      pasteOpen: document.getElementById('paste-fold').open,
+    };
+    navigator.mediaDevices.getUserMedia = real;
+    return out;
+  });
+  t('pairing: a camera that will not open leaves nothing half-started behind',
+    refused.boxGone && refused.running === false,
+    `video hidden ${refused.boxGone}, scanner still running ${refused.running}`);
+  t('pairing: and says what is holding the camera, not what the browser called it',
+    /camera/i.test(refused.msg) && !/aborted/i.test(refused.msg)
+    && /again/i.test(refused.label) && refused.pasteOpen,
+    `"${refused.msg}" · button "${refused.label}"`);
+  // The mapping itself, so each failure gets the sentence that fits it rather
+  // than one apology reused four ways.
+  const why = await phone.evaluate(async () => {
+    const { CamScan } = await import('./assets/js/core/camscan.js');
+    const as = (name) => CamScan.why(Object.assign(new Error('raw.'), { name }));
+    return { denied: as('NotAllowedError'), none: as('NotFoundError'),
+             busy: as('NotReadableError'), odd: as('WeirdError') };
+  });
+  t('pairing: each way the camera can fail gets the sentence that fits it',
+    /permitted/i.test(why.denied) && /No camera/i.test(why.none)
+    && /Something else/i.test(why.busy) && why.odd === 'raw',
+    `${[why.denied, why.none, why.busy].map((v) => v.slice(0, 28)).join(' · ')}`);
+
   await phone.evaluate(() => { document.getElementById('paste-fold').open = true; });
   await phone.fill('#offer', offer);
   await phone.click('#link');

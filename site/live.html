@@ -3170,7 +3170,12 @@ $('pair-scan').addEventListener('click', async () => {
     $('pair-scan').textContent = 'Stop scanning';
     $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
   } catch (err) {
-    $('pair-msg').textContent = `Could not open the camera: ${err.message}. Paste the code instead.`;
+    // The same reading of the failure the phone gives, rather than the raw
+    // DOMException message — a laptop with the camera held by a video call is
+    // the same situation as a phone with it held by the Camera app, and it
+    // deserves the same sentence about what to close.
+    $('pair-scan').textContent = 'Try the camera again';
+    $('pair-msg').textContent = `${CamScan.why(err)} Or paste the code instead.`;
   }
 });
 
