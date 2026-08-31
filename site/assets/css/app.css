@@ -739,6 +739,12 @@ button.danger:hover { background: var(--fit); color: var(--fit-ink); }
 .badge {
   display: inline-block; font: 700 10.5px/1 var(--sans); letter-spacing: .1em;
   text-transform: uppercase; padding: 5px 9px; border: 2px solid var(--ink); background: var(--panel);
+  /* PAINTS ITS OWN FOREGROUND, because it paints its own background. Inheriting
+     the colour is fine until a badge sits inside something that recoloured its
+     text for a different ground: a selected shot row is accent-filled with
+     accent-ink text, so a badge there drew white on its own white panel and was
+     a blank rectangle. Anything that sets one of the pair has to set both. */
+  color: var(--ink);
 }
 .badge.ok { background: var(--accent); color: var(--accent-ink); }
 .badge.flag { background: var(--flag); color: #100f0d; }
@@ -1333,3 +1339,124 @@ body.full .simple-only { display: none !important; }
 @media (prefers-reduced-motion: reduce) {
   .pip-caret, .pip-bubble { animation: none; }
 }
+
+/* ------------------------------------------------------------------ replay */
+/* A recording, and it has to look like one. The numbers here move the way the
+   live ones do, so without a standing signal that this is a playback the panel
+   is a shot in progress that is not in progress — the one genuinely bad outcome
+   in this feature. The hatched rule along the top is that signal: it is present
+   the whole time, costs no vertical space worth counting, and is not a caption
+   anyone can stop reading. */
+.replay {
+  border: var(--bw) solid var(--ink); border-radius: var(--radius);
+  background: var(--panel); padding: 0 0 var(--s3);
+  box-shadow: var(--sh, 5px) var(--sh, 5px) 0 var(--ink);
+  overflow: hidden;
+}
+.replay::before {
+  content: ''; display: block; height: 6px;
+  background: repeating-linear-gradient(-45deg,
+    var(--ink) 0 6px, transparent 6px 12px);
+  opacity: .5;
+}
+.replay-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: var(--s3) var(--s3) 0;
+}
+.replay-head .tag { margin: 0; }
+.replay-of { font: 700 12px/1.3 var(--sans); opacity: .8; }
+.replay-x { margin-left: auto; padding: 5px 10px; box-shadow: none; }
+
+.replay-stage {
+  display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1.6fr);
+  gap: var(--s3); align-items: start; padding: var(--s3) var(--s3) 0;
+}
+.replay-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.replay-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.replay-n { font-family: var(--disp); line-height: .9; letter-spacing: -.03em; }
+.replay-n b { font-size: clamp(38px, 7vw, 62px); }
+.replay-n i { font-style: normal; font-size: 16px; opacity: .6; margin-left: 3px; }
+.replay-dial { width: 100%; max-width: 240px; }
+.replay-dial svg { width: 100%; height: auto; display: block; }
+.replay-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.replay-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.replay-k {
+  font: 700 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.replay-v {
+  font: 800 15px/1 var(--sans); font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* The plot is given a height rather than left to the curve, so the panel does
+   not resize itself every frame as the trace grows into it. */
+.replay-plot { height: clamp(190px, 26vh, 280px); }
+.replay-plot svg { width: 100%; height: 100%; display: block; }
+
+.replay-ladder { display: flex; flex-wrap: wrap; gap: 6px; }
+.replay-rung {
+  display: inline-flex; flex-direction: column; gap: 1px;
+  border: 1px solid var(--hair); border-radius: 8px; padding: 5px 9px;
+  transition: background .18s ease, border-color .18s ease, color .18s ease;
+}
+.replay-rung b {
+  font: 700 10.5px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase;
+}
+.replay-rung i { font: 700 11px/1 var(--mono); font-style: normal; opacity: .7; }
+.replay-rung.past { opacity: .45; }
+.replay-rung.here {
+  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
+}
+.replay-rung.here i { opacity: .85; }
+
+.replay-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: var(--s3) var(--s3) 0;
+}
+.replay-play { min-width: 84px; }
+/* The scrub takes the room left over: it is the control you reach for most, and
+   a short one is a shot you cannot land on the second you want. */
+.replay-scrub {
+  flex: 1 1 160px; min-width: 120px; margin: 0;
+  /* The app gives every input a bordered box, which on a range renders as an
+     empty field with a dot loose inside it. This one is a track. */
+  -webkit-appearance: none; appearance: none;
+  background: none; border: 0; padding: 0; min-height: 0; height: 22px;
+  box-shadow: none; cursor: pointer;
+}
+.replay-scrub::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 3px;
+  background: var(--hair); border: 1px solid var(--ink);
+}
+.replay-scrub::-moz-range-track {
+  height: 6px; border-radius: 3px;
+  background: var(--hair); border: 1px solid var(--ink);
+}
+.replay-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%; margin-top: -6px;
+  background: var(--accent); border: 2px solid var(--ink);
+}
+.replay-scrub::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--ink);
+}
+.replay-scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.replay-clock { font: 700 12px/1 var(--mono); opacity: .8; white-space: nowrap; }
+.replay-speeds { display: flex; gap: 4px; }
+.replay-speed { padding: 5px 8px; box-shadow: none; font-size: 11px; min-width: 38px; }
+.replay-speed[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+@media (max-width: 720px) {
+  .replay-stage { grid-template-columns: 1fr; }
+  .replay-dial { max-width: 200px; margin: 0 auto; }
+  /* The clock goes under the scrub rather than squeezing it to nothing. */
+  .replay-scrub { flex: 1 1 100%; order: -1; }
+}
+/* While a replay is playing the static chart and the projections step aside.
+   Two charts of the same shot on one panel, one moving and one not, is a screen
+   you have to read twice to find out which is the answer. */
+#slide-pour.replaying .pour-top,
+#slide-pour.replaying #curve { display: none; }
+.replay-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+#replay-panel { margin-top: 12px; }

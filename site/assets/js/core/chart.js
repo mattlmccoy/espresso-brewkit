@@ -410,7 +410,7 @@ function niceTop(v) {
 
 export function livePlot(container, {
   weight = [], flow = [], ghost = [], ghostFlow = [], target = NaN,
-  firstDrip = NaN, width = 720, height = 380,
+  firstDrip = NaN, width = 720, height = 380, tMax: tFixed = NaN,
 } = {}) {
   const m = { t: 14, r: 46, b: 38, l: 46 };
   container.replaceChildren();
@@ -423,7 +423,13 @@ export function livePlot(container, {
   const iw = width - m.l - m.r, ih = height - m.t - m.b;
 
   const allT = [...weight, ...ghost].map((p) => p[0]);
-  const tMax = Math.max(12, ...allT, Number.isFinite(firstDrip) ? firstDrip + 2 : 0);
+  // `tFixed` is for a caller that already knows how long the shot was — a
+  // replay. During a live pour the end is unknown and the axis has to grow;
+  // replaying one, a growing axis holds the trace still and slides the grid
+  // underneath it, which is not what watching a shot looks like.
+  const tMax = Number.isFinite(tFixed) && tFixed > 0
+    ? Math.max(tFixed, ...allT)
+    : Math.max(12, ...allT, Number.isFinite(firstDrip) ? firstDrip + 2 : 0);
   const wMax = Math.max(
     Number.isFinite(target) ? target * 1.12 : 0,
     10, ...[...weight, ...ghost].map((p) => p[1]),

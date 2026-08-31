@@ -878,6 +878,17 @@
                  here, beside the curve it is about, from the moment the pump
                  stops. -->
             <div id="r-diag"></div>
+            <!-- WATCHING IT AGAIN. A pour is thirty seconds long and you spend
+                 all of them with your hands busy — the one view of the shot
+                 that exists only while it happens is the one you are least able
+                 to look at. Offered here, under the curve it is about, from the
+                 moment the pump stops. -->
+            <div class="replay-row" id="replay-row" hidden>
+              <button class="ghost" id="replay-open" type="button">Watch it again</button>
+              <button class="ghost" id="replay-keep" type="button">Keep this replay</button>
+              <span class="msg" id="replay-msg" style="margin:0"></span>
+            </div>
+            <div id="replay-panel" hidden></div>
           </div>
         </div>
 
@@ -1104,6 +1115,8 @@ import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
 import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
+import { mountReplay } from './assets/js/core/replayview.js';
+import * as replay from './assets/js/core/replay.js';
 import * as prefs from './assets/js/core/prefs.js';
 import { mountPip } from './assets/js/core/pip.js';
 import * as coach from './assets/js/core/coach.js';
@@ -3491,8 +3504,77 @@ function finishShot() {
     ? fmt(draft.yield_g / doseIn, 2) : '\u2014');
   sess.goto('rate');
   autoSave();
+  paintReplayRow();
   paintSession();
 }
+
+/* ----------------------------------------------------------------- replay */
+// The recording of the pour that just happened, and whether to keep it.
+//
+// `draft.curve` is the stream-rate capture still in memory — every sample the
+// scale sent. What goes into the shot record is a 4 Hz reduction, which is the
+// right thing to plot and to put in a CSV and the wrong thing to scrub through:
+// a quarter-second step is visible when you are dragging to find the second the
+// flow turned over. So the replay you watch now is the full capture, and
+// keeping it stores that rather than the reduction.
+let player = null;
+
+function closeReplay() {
+  player?.destroy();
+  player = null;
+  $('replay-panel').hidden = true;
+  $('replay-panel').replaceChildren();
+  $('slide-pour').classList.remove('replaying');
+}
+
+function openReplay() {
+  closeReplay();
+  const shot = savedId ? store.all().find((r) => r.shot_id === savedId) : null;
+  player = mountReplay($('replay-panel'), {
+    shot: shot ?? { dose_g: draft.dose_g, yield_g: draft.yield_g, method: draft.method },
+    curve: draft.curve,
+    autoplay: true,
+    onClose: closeReplay,
+  });
+  $('replay-panel').hidden = false;
+  // The static curve and the projections step aside while it plays. Two charts
+  // of the same shot, one moving and one not, is a screen that has to be read
+  // twice to find out which one is the answer.
+  $('slide-pour').classList.add('replaying');
+  $('replay-panel').focus();
+}
+
+function paintReplayRow() {
+  const can = draft.curve.length > 3;
+  $('replay-row').hidden = !can;
+  if (!can) return;
+  const kept = savedId ? replay.has(savedId) : false;
+  $('replay-keep').textContent = kept ? 'Replay kept' : 'Keep this replay';
+  $('replay-keep').setAttribute('aria-pressed', String(kept));
+  $('replay-keep').disabled = !savedId;
+  $('replay-msg').textContent = kept
+    ? 'Saved with this shot \u2014 it is in the log under Shots.'
+    : '';
+}
+
+$('replay-open').addEventListener('click', () => {
+  if (player) closeReplay(); else openReplay();
+});
+$('replay-keep').addEventListener('click', () => {
+  if (!savedId) return;
+  if (replay.has(savedId)) {
+    replay.drop(savedId);
+    $('replay-msg').textContent = 'Removed. The shot and its curve are still in the log.';
+  } else if (!replay.save(savedId, draft.curve)) {
+    // Storage is a few megabytes and a pour is on the order of ten kilobytes,
+    // so this is the hundredth replay rather than the second — but a save that
+    // silently did not happen is worse than one that says so.
+    $('replay-msg').textContent = 'No room to keep it. Removing a few old replays '
+      + 'in Settings frees the space.';
+    return;
+  }
+  paintReplayRow();
+});
 
 /* ------------------------------------------------------------------- rate */
 function buildRateControls() {
@@ -3693,6 +3775,12 @@ function resetShot(why = 'Session reset.') {
   for (const id of ['r-brix', 'r-yield', 'r-notes', 'd-manual', 'g-manual']) $(id).value = '';
   $('r-diag').replaceChildren();
   $('b-summary').replaceChildren();
+  // The replay goes with the shot it is of. A player still running under the
+  // next shot's chart would be the clearest possible version of the mistake
+  // this panel's hatched border exists to prevent.
+  closeReplay();
+  paintReplayRow();
+  $('replay-msg').textContent = '';
   $('save-msg').textContent = '';
   // This one is toggled with style.display everywhere else; `hidden` would be
   // beaten by the inline style and silently do nothing.
