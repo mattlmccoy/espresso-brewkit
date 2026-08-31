@@ -119,9 +119,10 @@ const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(
 function fillKit() {
   const bagSel = $("bag"), gSel = $("grinder");
   const keepBag = bagSel.value, keepG = gSel.value;
+  const openBags = kit.activeBags();
+  const bagNames = kit.labelBags(openBags);
   bagSel.replaceChildren(el("option", { value: "" }, "Not recorded"),
-    ...kit.activeBags().map((b) => el("option", { value: b.id },
-      (b.bean_name || b.id) + (b.roaster ? " · " + b.roaster : ""))));
+    ...openBags.map((b) => el("option", { value: b.id }, bagNames.get(b.id))));
   gSel.replaceChildren(el("option", { value: "" }, "Not recorded"),
     ...kit.grinders().map((g) => el("option", { value: g.id }, g.name || g.id)));
   bagSel.value = keepBag; gSel.value = keepG;

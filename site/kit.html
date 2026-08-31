@@ -354,7 +354,17 @@ $('b-save').addEventListener('click', () => {
     thawed_at: $('b-thawed').value, vacuum_sealed: $('b-vacuum').checked,
     weight_g: num('b-weight'), notes: $('b-notes').value.trim(),
   });
-  $('b-msg').textContent = `${editingBag ? 'Updated' : 'Added'} ${b.bean_name}.`;
+  // SAID, NOT PREVENTED. Owning two bags of one coffee from one roast date is
+  // ordinary; typing the same bag in twice is a mistake that only shows up
+  // later, once there are shots filed against both. The difference is not
+  // something this form can know, so it reports and lets you decide.
+  const twins = kit.twinBags(b);
+  $('b-msg').textContent = `${editingBag ? 'Updated' : 'Added'} ${b.bean_name}.`
+    + (twins.length
+      ? ` You already had ${twins.length} other bag${twins.length === 1 ? '' : 's'} of this`
+        + ` coffee from the same roast date — the pickers tell them apart by weight and`
+        + ` date, or name this one for what makes it different.`
+      : '');
   clearBagForm();
 });
 $('b-cancel').addEventListener('click', clearBagForm);

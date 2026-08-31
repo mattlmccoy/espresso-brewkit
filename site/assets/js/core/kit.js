@@ -50,6 +50,146 @@ export const bags = () => readJSON(BAG_KEY, []);
 export const activeBags = () => bags().filter((b) => !b.archived);
 export const bag = (id) => bags().find((b) => b.id === id) ?? null;
 
+/* ------------------------------------------------------------ naming a bag */
+//
+// Splitting a bag into portions makes several records that are, by design,
+// identical in every field a person reads: same beans, same roaster, same roast
+// date. The picker showed five entries all saying "Peru Medium Roast ·
+// Bellwood" and there was no way to tell which one you were about to dose from.
+//
+// Nothing is written to fix this. The records already carry what tells them
+// apart — `portion_index`, `portion_of`, `split_into`, the weight, the dates —
+// and a migration that stamped names into storage would be a second copy of
+// that information, wrong the moment a bag was edited. The name is derived,
+// which is also what makes this work on bags entered before any of it existed:
+// a record with none of these fields is simply a bag, and gets the plain name
+// it always had.
+//
+// The rule has two halves. What a bag is on its own — a portion, or a parent
+// that has been split — and then, only if that still leaves two entries reading
+// the same, whatever detail actually separates them. Two bags of the same
+// coffee split on the same day into different portion sizes are told apart by
+// "of 3" against "of 2"; two split the same way fall through to the weight, the
+// dates, and finally the id, which cannot collide.
+
+const bagName = (b) => {
+  const name = String(b?.bean_name ?? '').trim() || b?.id || 'Unnamed coffee';
+  const roaster = String(b?.roaster ?? '').trim();
+  return roaster ? `${name} · ${roaster}` : name;
+};
+
+/** What this record is within its own bag: a portion, a split parent, or neither. */
+function bagRole(b) {
+  const i = Number(b?.portion_index);
+  const n = Number(b?.portion_of);
+  if (Number.isFinite(i) && Number.isFinite(n) && n > 1) return `portion ${i} of ${n}`;
+  const into = Number(b?.split_into);
+  if (Number.isFinite(into) && into > 1) return `split into ${into}`;
+  return '';
+}
+
+// Tried in this order, and only where they actually separate the tied records.
+// The id is last and is never useful to read, which is the point: it is there so
+// the function cannot return two identical names, not so anyone sees it.
+const TELLS = [
+  (b) => (b.roast_date ? `roasted ${b.roast_date}` : ''),
+  (b) => {
+    const g = Number(b.weight_g);
+    return Number.isFinite(g) && g > 0 ? `${g % 1 ? g.toFixed(1) : g.toFixed(0)} g` : '';
+  },
+  (b) => (b.frozen_at ? `frozen ${b.frozen_at}` : ''),
+  (b) => (b.added_at ? `added ${b.added_at}` : ''),
+  (b) => b.id ?? '',
+];
+
+/**
+ * A distinct name for every bag in a set.
+ *
+ * @param {Bag[]} list the bags being shown together — collisions are only
+ *   resolved against what is on screen, so a picker of active bags does not
+ *   grow longer names because of an archived one you cannot choose.
+ * @returns {Map<string, string>} id → label
+ */
+function resolve(list = []) {
+  const out = new Map();
+  for (const b of list) {
+    const role = bagRole(b);
+    out.set(b.id, { base: bagName(b), marks: role ? [role] : [] });
+  }
+  const full = (b) => {
+    const r = out.get(b.id);
+    return [r.base, ...r.marks].join(' · ');
+  };
+  for (const tell of TELLS) {
+    const groups = new Map();
+    for (const b of list) {
+      const k = full(b);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(b);
+    }
+    const tied = [...groups.values()].filter((g) => g.length > 1);
+    if (!tied.length) break;
+    for (const group of tied) {
+      const vals = group.map((b) => tell(b) || '');
+      // A detail every tied record shares tells you nothing and would only make
+      // the name longer, so it is skipped rather than appended.
+      if (new Set(vals).size < 2) continue;
+      group.forEach((b, k) => { if (vals[k]) out.get(b.id).marks.push(vals[k]); });
+    }
+  }
+  return out;
+}
+
+/** id → the whole name, for anywhere a bag is being chosen. */
+export function labelBags(list = []) {
+  return new Map([...resolve(list)].map(([id, r]) => [id, [r.base, ...r.marks].join(' · ')]));
+}
+
+/**
+ * id → only what distinguishes it, without the coffee's name.
+ *
+ * For the shot log, which must not be renamed by this. A shot record carries
+ * the bean name it was pulled with on purpose: that is what you actually made,
+ * and it survives the bag being renamed, split again or deleted. Replacing it
+ * with the bag's current name rewrites history — so the log keeps its own name
+ * and takes only the qualifier, which is the part it was missing.
+ */
+export function bagQualifiers(list = []) {
+  return new Map([...resolve(list)].map(([id, r]) => [id, r.marks.join(' · ')]));
+}
+
+/** One bag's name, told apart from the others it is shown beside. */
+export function bagLabel(b, among = null) {
+  if (!b) return '';
+  return labelBags(among ?? bags()).get(b.id) ?? bagName(b);
+}
+
+/**
+ * Bags already on the shelf that look like this one.
+ *
+ * Not a rule against them: two bags of the same coffee from the same roast date
+ * is an ordinary thing to own — you buy two, or you split one and keep the
+ * halves apart — and refusing the second would be wrong. What is worth saying is
+ * that it happened, because the other way to get here is typing the same bag in
+ * twice and not noticing until the log has shots filed against both.
+ *
+ * Portions are excluded. A portion is a bag deliberately made to match its
+ * siblings, and warning about the thing the split button just did would be
+ * noise about your own action.
+ */
+export function twinBags(candidate, list = bags()) {
+  const key = (b) => [
+    String(b?.bean_name ?? '').trim().toLowerCase(),
+    String(b?.roaster ?? '').trim().toLowerCase(),
+    String(b?.roast_date ?? '').trim(),
+  ].join('\u0000');
+  const mine = key(candidate);
+  if (!mine.replace(/\u0000/g, '')) return [];
+  return list.filter((b) => b.id !== candidate?.id
+    && !b.portion_of && !candidate?.portion_of
+    && key(b) === mine);
+}
+
 export function saveBag(patch) {
   const list = bags();
   const i = list.findIndex((b) => b.id === patch.id);
