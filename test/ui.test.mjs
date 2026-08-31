@@ -1323,13 +1323,37 @@ try {
       faces: FACES,
       unit: +unit.toFixed(2),
     };
-    // Dismissing is not "hide this message" — it is being told to go away.
+    // Dismissing is not "hide this message" — it is being told to go away. But
+    // "go away" is two different instructions, and the x used to guess: it
+    // wrote the preference off, and the only route back was a toggle on another
+    // page. So it asks, in his own bubble, and both answers leave a way back.
     host.querySelector('.pip-x')?.click();
-    await new Promise((r) => setTimeout(r, 60));
-    const after = { hidden: host.hidden, pref: prefs.prefs().coach };
-    prefs.set({ coach: true });
-    await new Promise((r) => setTimeout(r, 60));
-    return { before, after, back: !document.getElementById('pip').hidden };
+    await new Promise((r) => setTimeout(r, 80));
+    const asked = {
+      choices: [...host.querySelectorAll('.pip-choice')].map((b) => b.textContent.trim()),
+      stillPref: prefs.prefs().coach,
+    };
+    // The softer answer: quiet now, preference untouched, and a stub in his
+    // place saying where he went.
+    [...host.querySelectorAll('.pip-choice')][0]?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    const shot = { hidden: host.hidden, pref: prefs.prefs().coach,
+                   stub: !document.getElementById('pip-stub').hidden,
+                   why: document.querySelector('#pip-stub .stub-why').textContent };
+    document.getElementById('pip-wake').click();
+    await new Promise((r) => setTimeout(r, 80));
+    const woke = { hidden: host.hidden, stub: !document.getElementById('pip-stub').hidden };
+    // And the hard answer, which does write the preference.
+    host.querySelector('.pip-x')?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    [...host.querySelectorAll('.pip-choice')][1]?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    const after = { hidden: host.hidden, pref: prefs.prefs().coach,
+                    stub: !document.getElementById('pip-stub').hidden };
+    document.getElementById('pip-wake').click();
+    await new Promise((r) => setTimeout(r, 80));
+    return { before, asked, shot, woke, after,
+             back: !document.getElementById('pip').hidden && prefs.prefs().coach !== false };
   });
   t('pip: every glyph in every face is in the font this app actually ships',
     pipWire.before.missing.length === 0,
@@ -1397,11 +1421,25 @@ try {
       `${f.watch.open} \u2192 ${f.watch.blink} \u2192 ${f.watch.glance.join(' ')}; `
       + `alert holds ${f.alert.open}`);
   }
-  t('pip: dismissing him turns him off for good, not just for now',
-    pipWire.after.hidden && pipWire.after.pref === false,
-    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
-  t('pip: and turning him back on brings him back',
-    pipWire.back, 'remounted');
+  // The x used to write "off for good" on a single tap and leave no trace of
+  // where he went — which made an impatient press mid-shot effectively
+  // permanent. It asks now, and asking is the behaviour worth protecting.
+  t('pip: closing him asks which kind of go away it was',
+    pipWire.asked.choices.length === 2 && pipWire.asked.stillPref !== false,
+    `offered ${pipWire.asked.choices.join(' / ') || 'nothing'}, `
+    + `preference still ${pipWire.asked.stillPref}`);
+  t('pip: quiet for this shot leaves the setting alone and says where he went',
+    pipWire.shot.hidden && pipWire.shot.pref !== false && pipWire.shot.stub
+    && /quiet/i.test(pipWire.shot.why),
+    `hidden ${pipWire.shot.hidden}, preference ${pipWire.shot.pref}, `
+    + `stub ${pipWire.shot.stub} — "${pipWire.shot.why}"`);
+  t('pip: off for good does turn him off, and still leaves a way back',
+    pipWire.after.hidden && pipWire.after.pref === false && pipWire.after.stub,
+    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}, `
+    + `stub ${pipWire.after.stub}`);
+  t('pip: and the stub in his place is the one tap that brings him back',
+    pipWire.woke.hidden === false && pipWire.woke.stub === false && pipWire.back,
+    `after "this shot" ${!pipWire.woke.hidden}, after "off" ${pipWire.back}`);
 
   // THE PHONE REPEATS, IT DOES NOT REASON.
   // The viewer sees frames, not the shot log, so a coach running there would be
@@ -1529,6 +1567,85 @@ try {
   t('coach: and refuses to invent steps for a conical, where there is no honest number',
     coach.conical && !coach.conical.steps && /conical/.test(coach.conical.say),
     coach.conical ? coach.conical.say : 'nothing');
+
+  // BEFORE THE POUR, which is the only part of making a shot where anything can
+  // still be changed. Same rule as during it: silence is the common answer, and
+  // nothing is said that cannot be acted on in the next minute.
+  const atGrinder = await page.evaluate(async () => {
+    const c = await import('./assets/js/core/coach.js');
+    const bag = { id: 'b', roast_level: 'Medium', roast_date: '' };
+    const grinder = { id: 'df64', feed: 'single' };
+    const one = (state) => {
+      const r = c.prep(state, new Set());
+      return r ? r.id : null;
+    };
+    const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+    // A settled routine: same bag, same setting, times inside a second of each
+    // other, and the last one is the best one. Nothing to say.
+    const settled = [27.4, 27.9, 27.6, 28.0, 27.7].map((t, i) => ({
+      shot_id: `s${i}`, bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+      dose_g: 18, time_s: t, rating: 8,
+    }));
+    // The same routine, drifting: the last TWO both ran long. One long shot is
+    // usually one bad puck, and must not move the grinder.
+    const drifted = [...settled,
+      { shot_id: 'l1', bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+        dose_g: 18, time_s: 35, rating: 5 },
+      { shot_id: 'l2', bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+        dose_g: 18, time_s: 37, rating: 4 }];
+    // And one long shot on its own, which is the case that must stay quiet.
+    const oneOff = [...settled, { shot_id: 'l1', bag_id: 'b', grinder_id: 'df64',
+      grind_setting: 12, dose_g: 18, time_s: 37, rating: 4 }];
+    return {
+      // Weighing, nothing unusual: quiet.
+      quiet: one({ step: 'dose', bag, grinder, history: settled }),
+      // Weighing after a shot that ran long: the move, now, at the grinder.
+      carry: one({ step: 'dose', bag, grinder, history: drifted }),
+      carryText: (c.prep({ step: 'dose', bag, grinder, history: drifted }, new Set()) || {}).text,
+      // One shot off on its own is a puck, not a setting.
+      noise: one({ step: 'dose', bag, grinder, history: oneOff }),
+      // Grinding, and 0.9 g never came out.
+      retention: one({ step: 'grind', dose: 18.2, grounds: 17.3, bag, grinder,
+        history: settled }),
+      // The same weights on a hopper grinder, where holding coffee back is the job.
+      hopper: one({ step: 'grind', dose: 18.2, grounds: 17.3, bag,
+        grinder: { id: 'df64', feed: 'hopper' }, history: settled }),
+      // Three days off roast on a medium, which wants seven to fourteen.
+      young: one({ step: 'dose', bag: { ...bag, roast_date: day(3) }, grinder,
+        history: settled }),
+      youngText: (c.prep({ step: 'dose', bag: { ...bag, roast_date: day(3) }, grinder,
+        history: settled }, new Set()) || {}).text,
+      // Comfortably inside the window: nothing worth saying about the date.
+      rested: one({ step: 'dose', bag: { ...bag, roast_date: day(10) }, grinder,
+        history: settled }),
+      // A bag with nothing pulled on it yet.
+      fresh: one({ step: 'dose', bag: { id: 'new' }, grinder, history: settled }),
+      // And it says nothing at all once the pump is the thing that matters.
+      brewing: one({ step: 'brew', dose: 18, bag, grinder, history: drifted }),
+    };
+  });
+  t('coach: says nothing at the grinder when the routine is running fine',
+    atGrinder.quiet === null && atGrinder.rested === null,
+    `settled ${atGrinder.quiet}, rested coffee ${atGrinder.rested}`);
+  // The bad habit this whole file argues against, in the one place it would be
+  // easiest to encourage: moving the grinder because of a single bad puck.
+  t('coach: will not move the grinder for one shot out of six',
+    atGrinder.noise === null, `one long shot produced ${atGrinder.noise}`);
+  // The reading is made on the rating screen and the move it implies can only
+  // be made here, before anything is ground — and in between is a night's sleep.
+  t('coach: carries the last shot\u2019s verdict to the grinder, where it can be acted on',
+    atGrinder.carry === 'carry' && /finer|coarser/.test(atGrinder.carryText || ''),
+    atGrinder.carryText || `nothing (${atGrinder.carry})`);
+  t('coach: reads retention on a single-doser, and not on a hopper',
+    atGrinder.retention === 'retention' && atGrinder.hopper === null,
+    `single-dose ${atGrinder.retention}, hopper ${atGrinder.hopper}`);
+  t('coach: says when a coffee is too young to judge, so it is not chased at the dial',
+    atGrinder.young === 'rest' && /do not chase/.test(atGrinder.youngText || ''),
+    atGrinder.youngText || 'nothing');
+  t('coach: marks the first shot on a bag as a reference rather than a verdict',
+    atGrinder.fresh === 'new_bag', String(atGrinder.fresh));
+  t('coach: and stands down entirely once the pump is running',
+    atGrinder.brewing === null, String(atGrinder.brewing));
 
   // THE KNOWLEDGE BANK'S OWN CONTRACTS.
   // The point of the file is that a claim carries its evidence, so the checks

@@ -1159,6 +1159,32 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
 }
 
+/* ---- and the one thing he ever asks ------------------------------------- */
+/* Answers to a question he asked, inside the bubble that asked it. A dialog
+   here would be the app interrupting to ask how you would like to stop being
+   interrupted. */
+.pip-choices { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.pip-choices[hidden] { display: none; }
+.pip-choice {
+  font: 700 10.5px/1 var(--mono); letter-spacing: .04em;
+  padding: 5px 8px; box-shadow: none;
+  border: var(--bw) solid var(--ink); border-radius: var(--radius-sm);
+  background: var(--panel-2); color: var(--ink); cursor: pointer;
+}
+.pip-choice:hover { background: var(--hover); }
+
+/* ---- and where he is when he is not there ------------------------------- */
+/* One line, in the place he occupies, so the way back is where he was rather
+   than on a settings page two taps away. Deliberately quiet: someone who just
+   closed him should not be nagged by the evidence of it. */
+.pip-stub {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; font: 400 11px/1 var(--mono); color: var(--ink-mute);
+}
+.pip-stub[hidden] { display: none; }
+.pip-stub .stub-face { letter-spacing: .04em; }
+.pip-stub button { padding: 4px 8px; box-shadow: none; font-size: 10.5px; }
+
 @keyframes pip-pop { from { opacity: 0; transform: translateX(-4px); } }
 .pip-bubble { animation: pip-pop .16s ease-out; }
 

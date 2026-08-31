@@ -834,6 +834,12 @@
                  assistant in the way, and this panel is the one place on the
                  screen with nothing underneath it that has to be pressed. -->
             <div id="pip" hidden></div>
+            <!-- THE WAY BACK. Where he was, so it is where you look for him. -->
+            <div id="pip-stub" class="pip-stub" hidden>
+              <span class="stub-face" aria-hidden="true">[ -_- ]</span>
+              <span class="stub-why"></span>
+              <button class="ghost" id="pip-wake" type="button">Wake him</button>
+            </div>
             <div id="b-summary"></div>
             <!-- WHAT THE SHOT MEANT. This used to appear under the rating form,
                  and only after you pressed Save — so the reading of the shot
@@ -2480,6 +2486,7 @@ try { startMethod = localStorage.getItem(METHOD_KEY) || 'espresso'; } catch { /*
 // holding the scale is the one who can correct them — see Settings.
 const sess = new SessionMachine({ method: startMethod, ...prefs.sessionOptions() });
 let lastStep = null;
+let lastPrepSig = null;
 
 function fillKitSelects() {
   const st = kit.session();
@@ -2794,7 +2801,18 @@ function paintSession() {
     lastStep = s.step;
     // Entering brew arms the machine so the cup landing tares and times itself.
     if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
+    // A LINE ABOUT THE LAST STEP IS WRONG ON THIS ONE. `pipSaying` was only
+    // ever cleared between shots, so "0.32 g/s — close to choking" was still on
+    // screen, and still being sent to the phone, while you stood at the
+    // grinder weighing beans for the next one.
+    if (pip?.talking) pip.hide();
+    pipSaying = null;
   }
+  // The prep rules read the step, the dose and the grounds, so they are offered
+  // when one of those three changes and not on every scale sample — retention
+  // cannot be read until the grounds land, which is well after the step did.
+  const prepSig = `${s.step}|${s.dose}|${s.grounds}`;
+  if (prepSig !== lastPrepSig) { lastPrepSig = prepSig; pipPrep(); }
   const bm = methodOf(s.method).brew;
   $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g `
     + `${bm.measures === 'in' ? 'water' : 'out'} at 1:${fmt(targetRatio(), 1)}`;
@@ -3486,20 +3504,81 @@ function buildRateControls() {
 // in coach.js, which has no DOM and is tested on its own.
 function pipOn() { return prefs.prefs().coach !== false; }
 
+// QUIET FOR THIS SHOT, which is a different thing from turned off.
+// Closing him used to write coach:false, and from then on the only route back
+// was a toggle on another page — so an impatient tap mid-shot was, in effect,
+// permanent, and nothing on screen said where the switch had gone. Pressing the
+// x is now a question with two answers, and both of them leave a way back.
+let pipMuted = false;
+
 function mountCoach() {
   const host = $('pip');
-  if (!pipOn()) { pip?.destroy(); pip = null; host.hidden = true; return; }
+  if (!pipOn()) { pip?.destroy(); pip = null; paintPipStub(); return; }
+  paintPipStub();
+  if (pipMuted) { pip?.destroy(); pip = null; return; }
   if (pip) return;
   host.hidden = false;
-  pip = mountPip(host, {
-    // Dismissing is not "hide this one message". Someone who closes the bubble
-    // mid-shot is telling you to go away, and an assistant that comes back
-    // thirty seconds later has not listened.
-    onDismiss: () => { prefs.set({ coach: false }); mountCoach(); },
-  });
+  pip = mountPip(host, { onDismiss: askPip });
 }
+
+/**
+ * The x, answered in his own window rather than in a dialog.
+ *
+ * "Go away" is genuinely ambiguous — for the rest of this shot, or for good —
+ * and guessing wrong in either direction is bad: guess "for now" and he comes
+ * back thirty seconds after being told to leave, guess "for good" and a single
+ * tap silently buries him behind a settings page.
+ */
+function askPip() {
+  if (!pip) return;
+  pip.ask('Quiet until the next shot, or off for good?', [
+    { label: 'this shot', act: () => { pipMuted = true; mountCoach(); } },
+    { label: 'off', act: () => { prefs.set({ coach: false }); mountCoach(); } },
+  ]);
+}
+
+/** The way back, in his own place, so it is where he was. */
+function paintPipStub() {
+  const stub = $('pip-stub');
+  if (!stub) return;
+  const away = !pipOn() || pipMuted;
+  stub.hidden = !away;
+  $('pip').hidden = away;
+  if (away) {
+    stub.querySelector('.stub-why').textContent = pipOn()
+      ? 'pip is quiet until the next shot' : 'pip is off';
+  }
+}
+$('pip-wake').addEventListener('click', () => {
+  pipMuted = false;
+  if (!pipOn()) prefs.set({ coach: true });
+  mountCoach();
+});
 mountCoach();
 prefs.subscribe?.(mountCoach);
+
+/**
+ * Offer the weighing steps to the coach, which will usually decline to comment.
+ *
+ * Called on step changes rather than on every scale sample: nothing here is
+ * about the number moving, and running it at 10 Hz would only mean testing the
+ * same four rules six hundred times to say the same nothing.
+ */
+function pipPrep() {
+  if (!pip || !pipOn()) return;
+  const said = coach.prep({
+    step: sess.step,
+    dose: sess.dose,
+    grounds: sess.grounds,
+    bag: kit.bag($('p-bag').value),
+    grinder: kit.grinder($('p-grinder').value),
+    history: store.all(),
+  }, pipSaid);
+  if (said) {
+    pip.say(said.text, { mood: said.mood, ms: said.ms });
+    pipSaying = { text: said.text, mood: said.mood };
+  }
+}
 
 /** Offer the live state to the coach, which will usually decline to comment. */
 function pipLive(s) {

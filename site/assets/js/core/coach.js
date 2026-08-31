@@ -26,7 +26,7 @@
 // that cannot distinguish a channel from the machine ramping, is worse than an
 // app that says nothing.
 
-import { CLAIMS, FLOW_BAND, grindMove, GRINDER_STEPS } from './knowledge.js';
+import { CLAIMS, FLOW_BAND, ROAST, grindMove, GRINDER_STEPS } from './knowledge.js';
 import { diagnose } from './diagnose.js';
 
 const F = (v) => (typeof v === 'number' ? v
@@ -38,6 +38,161 @@ function voiced(claimId, text) {
   if (!c) return text;
   if (c.confidence === 'contested') return `${text} (though this one is genuinely disputed.)`;
   return text;
+}
+
+/* --------------------------------------------------------------------- before */
+
+/**
+ * What to say while you are weighing and grinding, or null.
+ *
+ * WHY THIS EXISTS AT ALL. The character had one job — the pour — and a pour is
+ * the one part of making a shot where there is nothing left to change. By the
+ * time the pump is running, the grind is ground and the puck is tamped; the
+ * only available action is to stop early. So the moment a coach is most useful
+ * is the moment he had nothing to say: standing at the grinder with the dial in
+ * your hand, before anything is committed.
+ *
+ * Same four rules as `live`. In particular the third one, restated for here:
+ * only what you can act on IN THE NEXT MINUTE. "Your last four shots were
+ * inconsistent" is a rating-screen line; "two clicks coarser before you grind"
+ * is this one.
+ *
+ * `state` is { step, dose, grounds, retention, bag, grinder, history }.
+ * Returns one utterance or null, ranked, and never repeats within a session.
+ */
+export function prep(state, said = new Set()) {
+  const { step, dose, grounds, bag, grinder, history = [] } = state ?? {};
+  if (step !== 'dose' && step !== 'grind') return null;
+
+  const out = (id, mood, text, ms = 9000) => {
+    if (said.has(id)) return null;
+    said.add(id);
+    return { id, mood, text, ms };
+  };
+
+  // ---- grind: what the grinder kept ----------------------------------------
+  // Only on a single-doser. A hopper is supposed to hold coffee back; that is
+  // what a hopper is, and calling it retention there would be calling a
+  // machine broken for working.
+  if (step === 'grind' && grinder && grinder.feed !== 'hopper') {
+    const held = F(dose) - F(grounds);
+    if (Number.isFinite(held) && held >= 0.4 && F(grounds) > 0) {
+      const r = out('retention', 'think',
+        `${held.toFixed(1)} g stayed in the grinder. Dose that much heavier, or purge it out.`);
+      if (r) return r;
+    }
+  }
+
+  if (step !== 'dose') return null;
+
+  // ---- dose: carry the last shot's verdict to the one moment it is useful --
+  // This is the whole reason the coach comes to this step. The reading is made
+  // on the rating screen and the move it implies can only be made here, at the
+  // grinder, before anything is ground — and in between is a night's sleep.
+  //
+  // The reference is the user's OWN best-rated shot on this coffee, not a
+  // number out of a book: there is no honest universal target time, and a
+  // recipe that scores 9 for them beats one that matches a norm.
+  const move = carryOver(state);
+  if (move) {
+    // "The last two", because that is what the rule actually read — `was` is
+    // their average, and calling it the last one would be describing a number
+    // nobody pulled.
+    const r = out('carry', 'watch',
+      `Your last two ran around ${move.was.toFixed(0)} s; your best on this bag was `
+      + `${move.want.toFixed(0)} s. ${move.say}`, 12000);
+    if (r) return r;
+  }
+
+  // ---- dose: how old the coffee is ----------------------------------------
+  // Not advice — there is nothing to do about the date — but a shot pulled
+  // three days off roast that runs fast and tastes thin is the coffee, and
+  // someone who does not know that spends a week chasing it at the grinder.
+  // Saying so IS the action: do not chase this one.
+  const rest = restWindow(bag);
+  if (rest) {
+    const r = out('rest', 'think', rest, 12000);
+    if (r) return r;
+  }
+
+  // ---- dose: a bag with no shots on it yet ---------------------------------
+  if (bag?.id && !history.some((h) => h && h.bag_id === bag.id)) {
+    const r = out('new_bag', 'watch',
+      'First shot on this bag. Whatever it does is the reference, not a verdict.');
+    if (r) return r;
+  }
+
+  return null;
+}
+
+/**
+ * The grind move implied by the last shot, measured against the best one you
+ * have pulled on this coffee.
+ *
+ * Deliberately narrow: same bag, same grinder, same setting as you are about to
+ * use, and it stays quiet unless the gap is bigger than the run-to-run scatter
+ * of the shots it is reading. Three seconds either way on a 28-second shot is
+ * the puck, and telling someone to move the grinder for it is how a coach
+ * teaches people to chase noise.
+ */
+export function carryOver({ bag, grinder, history = [], grindSetting = null } = {}) {
+  if (!bag?.id) return null;
+  const mine = (history ?? []).filter((r) => r && r.bag_id === bag.id
+    && (!grinder?.id || r.grinder_id === grinder.id)
+    && Number.isFinite(F(r.time_s)) && F(r.time_s) > 0);
+  if (mine.length < 2) return null;
+  const last = mine[mine.length - 1];
+  const rated = mine.filter((r) => Number.isFinite(F(r.rating)));
+  if (!rated.length) return null;
+  const best = rated.reduce((a, b) => (F(b.rating) > F(a.rating) ? b : a));
+  if (best.shot_id === last.shot_id) return null;
+  // A best you did not actually like is not a target.
+  if (!(F(best.rating) >= 6)) return null;
+  // TWO SHOTS, NOT ONE. A single long shot is very often a single bad puck, and
+  // a coach that says "go coarser" after every one of those teaches people to
+  // chase their own noise at the grinder — which is the specific bad habit the
+  // rest of this file exists to argue against. Both of the last two have to be
+  // off, and off the same way, before there is a move worth making.
+  const recent = mine.slice(-2);
+  if (recent.length < 2) return null;
+  const want = F(best.time_s);
+  const offs = recent.map((r) => F(r.time_s) - want);
+  if (!offs.every((d) => Math.abs(d) > 3)) return null;
+  if (!(offs[0] > 0 === offs[1] > 0)) return null;
+  // The pair, averaged: the move should follow where the shots have settled
+  // rather than wherever the most recent one happened to land.
+  const was = (F(recent[0].time_s) + F(recent[1].time_s)) / 2;
+  const advice = grindAdvice({ nowSeconds: was, wantSeconds: want, grinderId: grinder?.id });
+  if (!advice) return null;
+  return { was, want, say: advice.say, ...advice };
+}
+
+/**
+ * Whether this coffee is inside its rest window, in words.
+ *
+ * The window is per roast level and comes from the knowledge bank, which is
+ * also where the hedging lives — this is practice rather than physics, and the
+ * line says so by being about what to expect rather than what to do.
+ */
+export function restWindow(bag, now = new Date()) {
+  const on = bag?.roast_date;
+  if (!on) return null;
+  const t = Date.parse(on);
+  if (!Number.isFinite(t)) return null;
+  const days = Math.floor((now.getTime() - t) / 86400000);
+  if (days < 0) return null;
+  const level = String(bag.roast_level ?? 'medium').toLowerCase();
+  const spec = ROAST[level] ?? ROAST.medium;
+  const [lo, hi] = spec.rest;
+  if (days < lo) {
+    return `${days} ${days === 1 ? 'day' : 'days'} off roast. A ${level} roast usually wants `
+      + `${lo}–${hi} — expect it to run fast and gas up, and do not chase that at the grinder.`;
+  }
+  if (days > hi * 3) {
+    return `${days} days off roast, well past the ${lo}–${hi} window. Flat and fast-running `
+      + 'from here is the coffee, not the setting.';
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------- during */
