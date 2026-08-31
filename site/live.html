@@ -2119,7 +2119,7 @@ function render(s) {
   paintPourTop(s, { lands, eta });
   // Pip reads a shot as it happens and says what to do next. On a recording
   // there is nothing to do next, and he already said it the first time.
-  if (!replaying) pipLive(s);
+  if (!replaying) { pipLive(s); pipWatch(s); }
 
   // A channel is worth knowing about while the shot is still running, not only
   // in the post-mortem. The trend is NaN until there is enough shot to judge,
@@ -3897,6 +3897,53 @@ function pipPrep() {
     pip.say(said.text, { mood: said.mood, ms: said.ms });
     pipSaying = { text: said.text, mood: said.mood };
   }
+}
+
+/**
+ * WHAT HE LOOKS LIKE WHEN HE IS NOT TALKING.
+ *
+ * He was barely there on the laptop, and the reason was not that he was hidden
+ * — he is on screen the whole time. It was that nothing ever called `mood()`.
+ * His face changed only on the rare occasions the coach had something worth
+ * saying, so between them he sat at whatever expression he last spoke in: a
+ * small static box that reads as decoration.
+ *
+ * The moods already exist, and he already blinks and glances on his own. This
+ * just tells him what is happening, so he watches the pour, stares at a flow
+ * that is climbing, and looks pleased when the cup lands where you aimed. That
+ * is presence without noise, which is the whole trick — a coach that has to
+ * talk to be present is a coach you turn off.
+ *
+ * Never over a line he is saying: `say()` sets a mood for as long as the bubble
+ * is up, and overwriting it mid-sentence would change his face while he was
+ * still making the point.
+ */
+function pipWatch(s) {
+  if (!pip || !pipOn() || pip.talking) return;
+  pip.mood(moodFor(s));
+}
+
+function moodFor(s) {
+  if (!s) return 'idle';
+  if (s.state === BREW.EXTRACTING) {
+    // A channel opening, or the stop coming up. Both are the moment to look.
+    if (Number.isFinite(s.trend) && s.trend > 0.05) return 'alert';
+    return stopArmed ? 'alert' : 'watch';
+  }
+  if (s.state === BREW.COMPLETE) {
+    // Landed where you aimed, or not. `pleased` is the only mood that is a
+    // judgement, so it is spent on the one thing that earns it.
+    const t = targetYield();
+    const w = Number(draft.yield_g ?? s.net);
+    if (Number.isFinite(t) && Number.isFinite(w) && Math.abs(w - t) <= Math.max(1, t * 0.04)) {
+      return 'pleased';
+    }
+    return 'flat';
+  }
+  if (s.state === BREW.DRIPPING) return 'watch';
+  // Weighing: he is following the number, which is a different kind of looking
+  // from watching a pour.
+  return sess.step === 'dose' || sess.step === 'grind' ? 'think' : 'idle';
 }
 
 /** Offer the live state to the coach, which will usually decline to comment. */
