@@ -1174,6 +1174,56 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }
 
+/* ---- he floats, and you put him where you want him ---------------------- */
+/* In the page flow he sat wherever the content ended, which on a long page is
+   below the fold — so the character commenting on what you are looking at was
+   not on screen while you looked at it. */
+.pip-dock {
+  position: fixed;
+  z-index: 70;
+  width: max-content;
+  transition: inset .18s var(--ease-out, ease);
+}
+.pip-dock[data-at="tl"] { top: 16px; left: 16px; right: auto; bottom: auto; }
+.pip-dock[data-at="tr"] { top: 16px; right: 16px; left: auto; bottom: auto; }
+.pip-dock[data-at="bl"] { bottom: 16px; left: 16px; right: auto; top: auto; }
+.pip-dock[data-at="br"] { bottom: 16px; right: 16px; left: auto; top: auto; }
+/* While a finger or a pointer has him, he goes exactly where it goes — no
+   easing, or he lags behind the cursor and feels stuck. */
+.pip-dock.dragging { transition: none; right: auto; bottom: auto; z-index: 72; }
+.pip-bar { cursor: grab; touch-action: none; user-select: none; }
+.pip-dock.dragging .pip-bar { cursor: grabbing; }
+.pip-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* THE BUBBLE FLIPS. It spawns to his right with a tail pointing back at him,
+   which runs straight off the screen from a right-hand corner. */
+.pip-dock[data-at$="r"] .pip { flex-direction: row-reverse; }
+.pip-dock[data-at$="r"] .pip-bubble::before {
+  left: auto; right: calc(-8px - var(--bw));
+  border-width: 7px 0 7px 8px;
+  border-color: transparent transparent transparent var(--ink);
+}
+.pip-dock[data-at$="r"] .pip-bubble::after {
+  left: auto; right: -8px;
+  border-width: 7px 0 7px 8px;
+  border-color: transparent transparent transparent var(--panel);
+}
+
+/* Where he can land, shown only while you are deciding. */
+.pip-snap {
+  position: fixed; z-index: 69; pointer-events: none;
+  border: 2px dashed var(--ink); border-radius: var(--radius);
+  opacity: .25;
+}
+.pip-snap.near {
+  opacity: 1; border-style: solid; border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pip-dock { transition: none; }
+}
+
 /* ---- simple and full ---------------------------------------------------- */
 /* Two views of the same app, marked declaratively so a page says which of its
    parts are apparatus and which are the shot, rather than each page inventing

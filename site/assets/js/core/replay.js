@@ -41,12 +41,36 @@ export function prepare(curve, win = 0.8) {
   // marker. Read off the curve rather than stored, because it is already in it:
   // the first sample that is meaningfully above zero.
   const first = pts.find((p) => p[1] >= 0.3);
+  const flow = pts.map(([t], i) => [t, Number.isFinite(fs[i]) ? Math.max(0, fs[i]) : 0]);
   return {
     pts,
-    flow: pts.map(([t], i) => [t, Number.isFinite(fs[i]) ? Math.max(0, fs[i]) : 0]),
+    flow,
     duration: pts.length ? pts.at(-1)[0] : 0,
     firstDrip: first ? first[0] : null,
+    stoppedAt: stopOf(flow),
   };
+}
+
+/**
+ * When the pump stopped — the start of the drip tail.
+ *
+ * A curve does not end when the shot does. The pump cuts and the puck keeps
+ * delivering, so the last few seconds are a decay to nothing, and anything
+ * reading flow over that stretch sees a shot slowing to a halt. That is how the
+ * coach came to say "0.36 g/s — close to choking" over the tail of a shot that
+ * had been stopped on purpose: it was reading the drip as the pour.
+ *
+ * The stop is the last moment flow was still meaningfully running, measured
+ * against this shot's own plateau rather than an absolute — a ristretto that
+ * only ever reaches 1.2 g/s must not read as permanently stopped.
+ */
+function stopOf(flow) {
+  const vals = flow.map((p) => p[1]).filter((v) => v > 0.05).sort((a, b) => a - b);
+  if (!vals.length) return Infinity;
+  const mid = vals[Math.floor(vals.length / 2)];
+  const floor = Math.max(0.25, mid * 0.4);
+  for (let i = flow.length - 1; i >= 0; i--) if (flow[i][1] >= floor) return flow[i][0];
+  return Infinity;
 }
 
 /**
@@ -387,7 +411,12 @@ export function saidDuring(prepared, live, { target = NaN, hz = 4 } = {}) {
   for (let t = step; t <= prepared.duration + 1e-6; t += step) {
     const s = sample(prepared, t);
     const line = live({
-      running: true, elapsed: s.t, net: s.w, flow: s.flow,
+      // NOT `true` for the whole curve. Live, `running` is EXTRACTING only —
+      // the page never asks the coach to read the drip tail. Replaying it as
+      // permanently running handed him the decay after the stop and he read it
+      // as a shot choking, which is the opposite of what it is.
+      running: s.t <= prepared.stoppedAt,
+      elapsed: s.t, net: s.w, flow: s.flow,
       trend: stepAt(prepared.pts, s.t), target,
     }, said);
     if (line) {

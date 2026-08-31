@@ -91,6 +91,20 @@ const rand = (lo, hi) => lo + Math.random() * (hi - lo);
  * The API is the one every earlier version had, so nothing that mounts him
  * needs to know he stopped being a drawing.
  */
+/**
+ * Where the pointer last was, or null on a device that has never had one.
+ *
+ * One listener for the page rather than one per character: passive, and it
+ * writes two numbers, so it costs nothing to leave running.
+ */
+let pointerAt = null;
+if (typeof addEventListener === 'function') {
+  addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse') pointerAt = { x: e.clientX, y: e.clientY };
+  }, { passive: true });
+}
+const lastPointer = () => pointerAt;
+
 export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
   host.replaceChildren();
   host.classList.add('pip');
@@ -153,6 +167,22 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
   let holdTimer = null;
   let blinkTimer = null;
   let glanceTimer = null;
+
+  /**
+   * Which way to look: towards the pointer, if we have ever seen one.
+   *
+   * Falls back to a coin toss on a device that has no cursor to follow, which
+   * is every phone — there, the glance is the aimless one it always was, and
+   * that is the right behaviour rather than a degraded one.
+   */
+  function glanceIndex(n) {
+    const at = lastPointer();
+    if (!at || n < 2) return Math.floor(Math.random() * n);
+    const r = box.getBoundingClientRect();
+    if (!r.width) return Math.floor(Math.random() * n);
+    // Index 0 is eyes-left, 1 is eyes-right, which is the order in FACES.
+    return at.x < r.left + r.width / 2 ? 0 : 1;
+  }
   let typeTimer = null;
 
   const facesFor = () => FACES[mood] ?? FACES.idle;
@@ -193,7 +223,16 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
       glanceTimer = setTimeout(function again() {
         const g = facesFor().glance;
         if (g.length) {
-          showFace(g[Math.floor(Math.random() * g.length)]);
+          // AIMED, NOT RANDOM. The two glance frames are eyes-left and
+          // eyes-right, and he already used one at random — so he was already
+          // looking around, just never at anything. Pointing them at the cursor
+          // costs nothing and is the difference between an animation and
+          // something that has noticed you.
+          //
+          // The TIMING stays random: he looks over occasionally, not
+          // continuously. A face that tracks the mouse frame by frame is a
+          // gimmick and, worse, never looks away — which reads as staring.
+          showFace(g[glanceIndex(g.length)]);
           setTimeout(rest, rand(600, 1100));
         }
         glanceTimer = setTimeout(again, rand(5000, 13000));
@@ -359,6 +398,144 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
     if (away) why.textContent = on() ? `pip is quiet ${quietLabel}` : 'pip is off';
   }
 
+
+  /* ------------------------------------------------ where he floats ------ */
+  //
+  // HE IS AN OVERLAY, NOT A BLOCK IN THE PAGE.
+  //
+  // In the flow he sat wherever the page ended — which on a long Shots detail
+  // put him a screen and a half below the thing he was talking about, so the
+  // one reading of the shot you had to scroll to find was his. A character who
+  // comments on what you are looking at has to be on screen while you look at
+  // it.
+  //
+  // Four corners rather than free placement. Free placement means he ends up
+  // over a control eventually and it is your problem to fix; corners are four
+  // decisions, all of them safe. The one you pick is remembered, because he is
+  // on every page now and being somewhere different on each would be worse than
+  // being in the wrong place on all of them.
+  const CORNERS = ['tl', 'tr', 'bl', 'br'];
+  host.classList.add('pip-dock');
+  host.dataset.at = (() => {
+    const at = prefs.prefs?.().pipAt;
+    return CORNERS.includes(at) ? at : 'bl';
+  })();
+
+  /**
+   * How big HE is — the case, not the case plus whatever he is saying.
+   *
+   * The dock is him and his bubble side by side, so measuring it made the
+   * snap targets as wide as his longest sentence and moved his resting place
+   * every time he spoke. What lands in a corner is the box.
+   */
+  const boxRect = () => (slot.querySelector('.pip-box') ?? host).getBoundingClientRect();
+
+  /** Where each corner puts his middle, in viewport coordinates. */
+  function anchors() {
+    const r = boxRect();
+    const w = r.width || 120, h = r.height || 70, m = 16;
+    return {
+      tl: { x: m + w / 2, y: m + h / 2 },
+      tr: { x: innerWidth - m - w / 2, y: m + h / 2 },
+      bl: { x: m + w / 2, y: innerHeight - m - h / 2 },
+      br: { x: innerWidth - m - w / 2, y: innerHeight - m - h / 2 },
+    };
+  }
+
+  function settle(at) {
+    host.dataset.at = CORNERS.includes(at) ? at : 'bl';
+    host.style.left = host.style.top = '';
+    prefs.set?.({ pipAt: host.dataset.at });
+  }
+
+  function nearest(x, y) {
+    const a = anchors();
+    let best = 'bl', d = Infinity;
+    for (const c of CORNERS) {
+      const dd = (a[c].x - x) ** 2 + (a[c].y - y) ** 2;
+      if (dd < d) { d = dd; best = c; }
+    }
+    return best;
+  }
+
+  // The four places he can land, drawn only while you are deciding.
+  let hints = null;
+  function showHints(on_, near) {
+    if (!on_) { hints?.forEach((n) => n.remove()); hints = null; return; }
+    const a = anchors();
+    const r = boxRect();
+    hints ??= CORNERS.map((c) => {
+      const n = document.createElement('div');
+      n.className = 'pip-snap';
+      n.dataset.corner = c;
+      document.body.append(n);
+      return n;
+    });
+    for (const n of hints) {
+      const at = a[n.dataset.corner];
+      n.style.width = `${Math.round(r.width)}px`;
+      n.style.height = `${Math.round(r.height)}px`;
+      n.style.left = `${Math.round(at.x - r.width / 2)}px`;
+      n.style.top = `${Math.round(at.y - r.height / 2)}px`;
+      n.classList.toggle('near', n.dataset.corner === near);
+    }
+  }
+
+  function draggable(bar) {
+    if (!bar) return;
+    let id = null, dx = 0, dy = 0;
+    bar.addEventListener('pointerdown', (e) => {
+      // The close button lives on this bar and is not a handle.
+      if (e.target.closest('.pip-x')) return;
+      const r = host.getBoundingClientRect();
+      dx = e.clientX - r.left;
+      dy = e.clientY - r.top;
+      id = e.pointerId;
+      bar.setPointerCapture(id);
+      host.classList.add('dragging');
+      host.style.left = `${r.left}px`;
+      host.style.top = `${r.top}px`;
+      showHints(true, host.dataset.at);
+      e.preventDefault();
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== id) return;
+      host.style.left = `${e.clientX - dx}px`;
+      host.style.top = `${e.clientY - dy}px`;
+      const r = boxRect();
+      showHints(true, nearest(r.left + r.width / 2, r.top + r.height / 2));
+    });
+    const drop = (e) => {
+      if (e.pointerId !== id) return;
+      id = null;
+      // MEASURED BEFORE THE CLASS COMES OFF. `.dragging` is what suppresses the
+      // corner's own bottom/right, so removing it first snapped him back to
+      // where he started and the rect read there — every drag "landed" in the
+      // corner it began in, however far it had been carried.
+      const r = boxRect();
+      const to = nearest(r.left + r.width / 2, r.top + r.height / 2);
+      host.classList.remove('dragging');
+      settle(to);
+      showHints(false);
+    };
+    bar.addEventListener('pointerup', drop);
+    bar.addEventListener('pointercancel', drop);
+    // A drag is not reachable from a keyboard, so the corners are.
+    bar.tabIndex = 0;
+    bar.setAttribute('role', 'button');
+    bar.setAttribute('aria-label', 'Move Pip \u2014 arrow keys change corner');
+    bar.addEventListener('keydown', (e) => {
+      const at = host.dataset.at;
+      const to = {
+        ArrowLeft: at[0] + 'l', ArrowRight: at[0] + 'r',
+        ArrowUp: 't' + at[1], ArrowDown: 'b' + at[1],
+      }[e.key];
+      if (!to) return;
+      e.preventDefault();
+      settle(to);
+    });
+  }
+
   function build() {
     if (!on() || quiet) { him?.destroy(); him = null; paint(); return; }
     paint();
@@ -369,6 +546,7 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
         { label: 'off', act: () => { prefs.set({ coach: false }); build(); } },
       ]);
     } });
+    draggable(slot.querySelector('.pip-bar'));
   }
 
   wake.addEventListener('click', () => {
@@ -377,6 +555,9 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
     build();
   });
   const stop = prefs.subscribe?.(build);
+  // A corner is a rule rather than a coordinate, so a resize needs no work —
+  // except to drop hints if the window changed shape mid-drag.
+  addEventListener('resize', () => showHints(false));
   build();
 
   return {
