@@ -257,6 +257,12 @@
     .big .n { font-size:clamp(44px, 9vw, 84px); }
     .gauge svg { max-height:132px; }
   }
+  /* Pip sits in the flow, full width, and only exists once there is something
+     to repeat. font-size drives the whole pane, so this is all the sizing it
+     needs on a phone. */
+  #pip { font-size:12px; margin:0 0 2px; }
+  #pip[hidden] { display:none; }
+
   .log-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px; }
   .log-row[hidden] { display:none; }
   .log-row button { padding:7px 11px; box-shadow:none; font-size:11.5px; }
@@ -406,6 +412,11 @@
     <div class="head" id="coffee-line"><span class="who" id="coffee">—</span>
       <span class="badge" id="step">—</span></div>
     <p id="hint"></p>
+    <!-- The coach, repeating what the laptop's said. Above the instrument
+         rather than under it: on a phone the bottom of the screen is where the
+         curve and the ladder are, and a pane that appears down there pushes
+         them. Up here it takes the room the hint line already reserves. -->
+    <div id="pip" hidden></div>
 
     <div class="stage" id="stage">
       <!-- ONE OBJECT, ONE NUMBER.
@@ -493,6 +504,7 @@ import { ladder as shotLadder, ladderScale, styleOf }
 import { shotDial, shotVolume } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
+import { mountPip } from './assets/js/core/pip.js';
 initTheme();
 
 const $ = (id) => document.getElementById(id);
@@ -616,6 +628,7 @@ function paint(f) {
   $('coffee').textContent = f.coffee || 'No coffee chosen';
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';
+  paintPip(f);
   paintFill(f);
   paintLadder(f);
   paintGauge(f);
@@ -1046,6 +1059,29 @@ $('pair-how').addEventListener('click', () => paintPairHelp(true));
 paintPairHelp();
 
 setConn('idle');
+/* --------------------------------------------------------------------- Pip */
+// The phone shows what the LAPTOP'S coach said; it does not run one. It has
+// frames, not the shot log, so anything it worked out here would be a second
+// and weaker opinion — and two screens disagreeing about your shot is worse
+// than one of them staying quiet.
+let pip = null;
+let pipLast = '';
+
+function paintPip(f) {
+  const host = $('pip');
+  const said = f && f.pip && f.pip.text ? f.pip : null;
+  // Mounted lazily, so a phone that never sees a coached shot never draws one.
+  if (!said && !pip) { host.hidden = true; return; }
+  if (!pip) {
+    host.hidden = false;
+    pip = mountPip(host, { onDismiss: () => { pip.destroy(); pip = null; host.hidden = true; } });
+  }
+  if (!said) { if (pipLast) { pip.hide(); pipLast = ''; } return; }
+  if (said.text === pipLast) return;
+  pipLast = said.text;
+  pip.say(said.text, { mood: said.mood || 'idle' });
+}
+
 window.__view = { link, paint, last: () => last, viewFor };
 </script>
 </body>

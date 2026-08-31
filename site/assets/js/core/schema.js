@@ -45,6 +45,10 @@ export const FIELDS = [
   { key: 'peak_flow_gs',  label: 'Peak flow',      unit: 'g/s', type: 'number', group: 'result' },
   { key: 'steady_flow_gs', label: 'Steady flow',   unit: 'g/s', type: 'number', group: 'result' },
   { key: 'flow_slope_late', label: 'Late slope',   unit: 'g/s²', type: 'number', group: 'result' },
+  // The biggest half-second jump in flow, as a fraction of the flow already
+  // running. A channel is a step rather than a slope, so this is the field that
+  // carries the signal the late slope was wrongly asked to carry.
+  { key: 'flow_step', label: 'Biggest flow step', type: 'number', group: 'result' },
 
   // refractometry
   { key: 'brix',          label: 'Brix',           unit: '°Bx', type: 'number', group: 'result', measured: true, step: 0.01 },

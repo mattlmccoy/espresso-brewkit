@@ -1245,20 +1245,356 @@ try {
     return {
       // Healthy: ramps up, sags gently, pump cuts at 28 s.
       clean: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.6 : t < 28 ? 1.8 - (t - 5) * 0.012 : 0.05), { ratio: 2 }),
-      // A channel opening at 16 s: flow climbs when it should be sagging.
-      channel: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5 : t < 30 ? 1.4 + Math.max(0, t - 16) * 0.09 : 0.04), { ratio: 2.4 }),
+      // A channel opening at 16 s: flow STEPS. The signature is the
+      // discontinuity, not the direction — see the rising-flow case below.
+      channel: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 16 ? 1.4 : t < 30 ? 2.5 : 0.04), { ratio: 2.4 }),
+      // AND THE CASE THAT USED TO BE MISREAD. Flow climbing steadily through
+      // the back half is what puck resistance falling looks like, which is
+      // nearly every shot. The old rule called this channelling at high
+      // severity and sent people off to fix their distribution.
+      rising: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 30 ? 1.4 + (t - 5) * 0.022 : 0.04), { ratio: 2.4 }),
+      // A ristretto, correctly made. EY = ratio x TDS, so it CANNOT reach the
+      // conventional band; the old rule flagged every one of them.
+      ristretto: codes(build((t) => t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+        : t < 26 ? 1.2 - (t - 5) * 0.008 : 0.04), { ratio: 1.3, ey_pct: 15.2 }),
       // Choked: nothing for 14 s, then a trickle.
       choked: codes(build((t) => (t < 14 ? 0 : t < 33 ? 0.45 : 0)), { ratio: 1.4 }),
       // Gusher: water through almost immediately, fast throughout.
       gusher: codes(build((t) => (t < 1 ? 0 : t < 12 ? 2.9 : 0.03)), { ratio: 2 }),
     };
   });
+  // PIP, WIRED IN. The character on the page, as opposed to the judgement
+  // behind it: does he appear, does he stay out of the way, and — the one that
+  // matters most — does dismissing him actually make him go away and stay away.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+  const pipWire = await page.evaluate(async () => {
+    const prefs = await import('./assets/js/core/prefs.js');
+    const { FACES } = await import('./assets/js/core/pip.js');
+    prefs.set({ coach: true });
+    const host = document.getElementById('pip');
+    await document.fonts.ready;
+    // EVERY FACE GLYPH HAS TO BE IN THE FONT WE SHIP.
+    // The app self-hosts a latin-only subset of Space Mono. A character outside
+    // it still renders, from a system monospace, so the failure is silent and
+    // looks nearly right. Asking "is the result monospace" does not catch it —
+    // the fallback is monospace too, which is how U+0298 and U+25A1 nearly
+    // shipped. The discriminator is the advance width against a glyph known to
+    // be present: 24.48 px for the real font at 40 px, 24.09 for the fallback.
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;'
+      + 'font:700 40px "Space Mono", monospace';
+    document.body.appendChild(probe);
+    const adv = (ch) => { probe.textContent = ch; return probe.getBoundingClientRect().width; };
+    const unit = adv('o');
+    const missing = [];
+    const wrongWidth = [];
+    for (const [mood, set] of Object.entries(FACES)) {
+      const all = [set.open, set.blink, ...(set.glance || [])].filter(Boolean);
+      for (const face of all) {
+        // Every variant has to be the same LENGTH as the open face as well as
+        // being in the font: a blink that is one cell wider shoves the box
+        // sideways every time he blinks.
+        if ([...face].length !== [...set.open].length) wrongWidth.push(`${mood}:${face}`);
+        for (const ch of [...face]) {
+          if (ch === ' ') continue;
+          if (Math.abs(adv(ch) - unit) > 0.02) {
+            missing.push(ch + ' U+' + ch.codePointAt(0).toString(16).padStart(4, '0'));
+          }
+        }
+      }
+    }
+    probe.remove();
+    const before = {
+      hidden: host.hidden,
+      bar: !!host.querySelector('.pip-who'),
+      face: (host.querySelector('.pip-face') || {}).textContent || '',
+      // The caret lives in HIS box, beside the face — it is what says he is
+      // still there when he has nothing to say.
+      caretOnHim: !!host.querySelector('.pip-box .pip-caret'),
+      // And what he says is NOT in the box. That separation is the whole
+      // reason he can blink: nothing else is in there to be disturbed.
+      sayOutside: !!host.querySelector('.pip-bubble .pip-say')
+        && !host.querySelector('.pip-box .pip-say'),
+      missing,
+      wrongWidth,
+      faces: FACES,
+      unit: +unit.toFixed(2),
+    };
+    // Dismissing is not "hide this message" — it is being told to go away.
+    host.querySelector('.pip-x')?.click();
+    await new Promise((r) => setTimeout(r, 60));
+    const after = { hidden: host.hidden, pref: prefs.prefs().coach };
+    prefs.set({ coach: true });
+    await new Promise((r) => setTimeout(r, 60));
+    return { before, after, back: !document.getElementById('pip').hidden };
+  });
+  t('pip: every glyph in every face is in the font this app actually ships',
+    pipWire.before.missing.length === 0,
+    pipWire.before.missing.join(', ')
+      || `all present, advance ${pipWire.before.unit} px`);
+  // A WINDOW, NOT A BANNER. The first build stretched to the column, which is
+  // what a bar does and not what a terminal does. It also has to be the same
+  // width whatever it is saying — sizing to content made it resize on every
+  // line, which reads as jitter.
+  const pipBox = await page.evaluate(async () => {
+    const { mountPip } = await import('./assets/js/core/pip.js');
+    const host = document.getElementById('pip');
+    host.hidden = false;
+    const pip = mountPip(host);
+    const col = host.parentElement.getBoundingClientRect().width;
+    const him = () => host.querySelector('.pip-box').getBoundingClientRect();
+    const row = () => host.getBoundingClientRect().width;
+    pip.mood('idle');
+    const quiet = { w: him().width, h: him().height, row: row() };
+    pip.say('Flow jumped.', { mood: 'alert' });
+    const short = { w: him().width, h: him().height, row: row() };
+    pip.say('Your last six shots on this setting ranged 21 to 39 s. That spread '
+      + 'is the puck, not the grind.', { mood: 'think' });
+    const long = { w: him().width, h: him().height, row: row() };
+    return { col: Math.round(col),
+      quiet: { w: Math.round(quiet.w), h: Math.round(quiet.h), row: Math.round(quiet.row) },
+      short: { w: Math.round(short.w), h: Math.round(short.h), row: Math.round(short.row) },
+      long: { w: Math.round(long.w), h: Math.round(long.h), row: Math.round(long.row) } };
+  });
+  t('pip: he is a small box, not a bar stretched across the column',
+    pipBox.quiet.w > 0 && pipBox.quiet.w < 120 && pipBox.quiet.row < pipBox.col * 0.25,
+    `${pipBox.quiet.w}\u00d7${pipBox.quiet.h} px, taking ${pipBox.quiet.row} of a `
+    + `${pipBox.col} px column when silent`);
+  // HE never changes size — only the bubble beside him comes and goes. This is
+  // the contract that stops a blink or a new line from nudging the layout, and
+  // it is why the message had to leave the box.
+  t('pip: stays exactly the same size whatever he says',
+    pipBox.quiet.w === pipBox.short.w && pipBox.short.w === pipBox.long.w
+    && pipBox.quiet.h === pipBox.short.h && pipBox.short.h === pipBox.long.h,
+    `${pipBox.quiet.w}\u00d7${pipBox.quiet.h} idle, ${pipBox.short.w}\u00d7${pipBox.short.h} `
+    + `short, ${pipBox.long.w}\u00d7${pipBox.long.h} long`);
+
+  t('pip: every face variant is the same width, so a blink cannot move the box',
+    pipWire.before.wrongWidth.length === 0,
+    pipWire.before.wrongWidth.join(', ') || 'all variants the same cell count');
+  t('pip: is a little terminal with a face and a caret, and speaks outside it',
+    pipWire.before.bar && /\[.+\]/.test(pipWire.before.face)
+    && pipWire.before.caretOnHim && pipWire.before.sayOutside && !pipWire.before.hidden,
+    `${pipWire.before.face}, caret on him ${pipWire.before.caretOnHim}, `
+    + `speech outside ${pipWire.before.sayOutside}`);
+  // He has to have somewhere to go. The timers themselves are ordinary
+  // setTimeout; what could actually be wrong is the variants, so those are what
+  // is checked — each present mood needs a shut-eyed face or somewhere to look
+  // that is not where he is already looking.
+  {
+    const f = pipWire.before.faces;
+    const alive = ['idle', 'watch', 'think'].every((m) => f[m].blink
+      && f[m].blink !== f[m].open
+      && f[m].glance.length >= 2
+      && f[m].glance.every((g) => g !== f[m].open));
+    // And the three that should hold still: staring, smiling, already shut.
+    const still = ['alert', 'pleased', 'flat'].every((m) => !f[m].blink && !f[m].glance.length);
+    t('pip: blinks and glances when he is watching, and holds still when he is not',
+      alive && still,
+      `${f.watch.open} \u2192 ${f.watch.blink} \u2192 ${f.watch.glance.join(' ')}; `
+      + `alert holds ${f.alert.open}`);
+  }
+  t('pip: dismissing him turns him off for good, not just for now',
+    pipWire.after.hidden && pipWire.after.pref === false,
+    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
+  t('pip: and turning him back on brings him back',
+    pipWire.back, 'remounted');
+
+  // THE PHONE REPEATS, IT DOES NOT REASON.
+  // The viewer sees frames, not the shot log, so a coach running there would be
+  // a second and weaker one — and two screens disagreeing about your shot is
+  // worse than one staying quiet. The laptop decides and sends the line.
+  await page.goto(B + '/view.html');
+  await page.waitForFunction(() => window.__view, null, { timeout: 8000 });
+  const phoneCoach = await page.evaluate(async () => {
+    document.getElementById('pairing').hidden = true;
+    document.getElementById('watching').hidden = false;
+    const base = { method: 'espresso', dose: 18, doseSet: true, target: 36, tol: 1.5,
+      lag: 1, coffee: 'Guji', hint: '', k: 'f', w: 24, q: 1.9, t: 14,
+      st: 'extracting', step: 'brew', phase: 'fill', curve: [[0, 0], [14, 24]] };
+    const host = document.getElementById('pip');
+    // No line yet: nothing is drawn at all, so a phone that never sees a
+    // coached shot never grows a pane.
+    window.__view.paint({ ...base, pip: null });
+    const before = { hidden: host.hidden, mounted: !!host.querySelector('.pip-face') };
+    window.__view.paint({ ...base, pip: { text: 'Flow jumped.', mood: 'alert' } });
+    // The visible line is TYPED, so reading it straight away catches it
+    // mid-word — the first version of this test read "Flo". The hidden live
+    // region gets the whole line at once, which is the contract that matters
+    // for a screen reader; the visible copy is waited for.
+    const early = (host.querySelector('.pip-live') || {}).textContent;
+    for (let i = 0; i < 60; i++) {
+      if ((host.querySelector('.pip-say') || {}).textContent === 'Flow jumped.') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const on = { hidden: host.hidden, mood: host.dataset.mood,
+      early,
+      says: (host.querySelector('.pip-say') || {}).textContent,
+      face: (host.querySelector('.pip-face') || {}).textContent };
+    // And when the laptop stops saying anything the pane goes quiet rather than
+    // disappearing — a prompt with nothing to say is still a prompt.
+    window.__view.paint({ ...base, pip: null });
+    await new Promise((r) => setTimeout(r, 40));
+    const quiet = { hidden: host.hidden,
+      says: (host.querySelector('.pip-say') || {}).textContent,
+      caret: !!host.querySelector('.pip-caret') };
+    return { before, on, quiet };
+  });
+  t('phone: no pane at all until the laptop has something to say',
+    phoneCoach.before.hidden && !phoneCoach.before.mounted, 'nothing drawn');
+  t('phone: repeats the laptop\u2019s line and mood rather than working out its own',
+    !phoneCoach.on.hidden && phoneCoach.on.says === 'Flow jumped.'
+    && phoneCoach.on.mood === 'alert' && /\[.+\]/.test(phoneCoach.on.face),
+    `${phoneCoach.on.face} ${phoneCoach.on.mood}: ${phoneCoach.on.says}`);
+  t('phone: a screen reader gets the whole line at once, not one letter at a time',
+    phoneCoach.on.early === 'Flow jumped.',
+    `live region had "${phoneCoach.on.early}" while the visible copy was still typing`);
+  t('phone: goes quiet without vanishing when the laptop stops',
+    !phoneCoach.quiet.hidden && phoneCoach.quiet.says === '' && phoneCoach.quiet.caret,
+    `pane kept, caret still there: ${phoneCoach.quiet.caret}`);
+
+  // THE COACH. The half that decides whether to speak at all.
+  // The failure mode being tested for is not "says the wrong thing" but "says
+  // anything at all when it should not" — an assistant that talks through a
+  // normal shot is the thing everyone hated about the last one.
+  const coach = await page.evaluate(async () => {
+    const c = await import('./assets/js/core/coach.js');
+    const run = (frames) => {
+      const said = new Set();
+      const spoke = [];
+      for (const f of frames) {
+        const r = c.live({ running: true, ...f }, said);
+        if (r) spoke.push({ at: f.elapsed, id: r.id });
+      }
+      return spoke;
+    };
+    // An ordinary shot: ramps, settles at 1.8 g/s, lands on target.
+    const normal = [];
+    for (let t = 0.5; t <= 27; t += 0.5) {
+      const q = t < 4 ? t * 0.45 : 1.8;
+      normal.push({ elapsed: t, net: Math.max(0, (t - 2) * 1.6), flow: q, trend: -0.01, target: 36 });
+    }
+    // The same shot with a step in the middle.
+    const stepped = normal.map((f) => ({ ...f, trend: f.elapsed > 14 && f.elapsed < 16 ? 0.4 : -0.01 }));
+    // A gusher.
+    const gusher = normal.map((f) => ({ ...f, flow: f.elapsed < 4 ? f.elapsed : 4.6 }));
+
+    const hist = (n, times) => times.slice(0, n).map((tt, i) => ({
+      shot_id: `s${i}`, bag_id: 'b', grinder_id: 'g', grind_setting: 12, dose_g: 18,
+      time_s: tt, rating: 7, ratio: 2,
+    }));
+    const base = { shot_id: 'now', bag_id: 'b', grinder_id: 'g', grind_setting: 12,
+      dose_g: 18, time_s: 28, ratio: 2, rating: 7 };
+    return {
+      normal: run(normal),
+      stepped: run(stepped),
+      gusher: run(gusher),
+      // Same settings, wildly different times: the puck, not the dial.
+      erratic: c.after(base, hist(6, [21, 34, 25, 39, 22, 31])).map((x) => x.id),
+      // Same settings, tight times.
+      tight: c.after(base, hist(6, [27.5, 28, 27.8, 28.2, 27.6, 28.1])).map((x) => x.id),
+      // Two moves finer, slower each time, no better rated.
+      pastPeak: c.after({ ...base, grind_setting: 8, time_s: 40, rating: 5 }, [
+        { bag_id: 'b', grind_setting: 12, time_s: 27, rating: 7 },
+        { bag_id: 'b', grind_setting: 10, time_s: 33, rating: 6 },
+      ]).map((x) => x.id),
+      // The grind conversion, and its refusal on a conical.
+      move: c.grindAdvice({ nowSeconds: 30, wantSeconds: 26, grinderId: 'df64' }),
+      conical: c.grindAdvice({ nowSeconds: 30, wantSeconds: 26, grinderId: 'niche-zero' }),
+    };
+  });
+  t('coach: says nothing at all through an ordinary shot',
+    coach.normal.length === 0,
+    coach.normal.map((x) => `${x.id}@${x.at}s`).join(',') || 'silent, as it should be');
+  t('coach: speaks once when the flow steps, and only once',
+    coach.stepped.filter((x) => x.id === 'stepping').length === 1,
+    coach.stepped.map((x) => `${x.id}@${x.at}s`).join(',') || 'nothing');
+  t('coach: calls out a shot running far outside the usual flow band',
+    coach.gusher.some((x) => x.id === 'fast'),
+    coach.gusher.map((x) => x.id).join(',') || 'nothing');
+  // The two readings a single shot cannot produce.
+  t('coach: spread across shots at one setting is read as the puck, not the dial',
+    coach.erratic.includes('erratic') && !coach.tight.includes('erratic'),
+    `erratic -> ${coach.erratic.join(',')}; tight -> ${coach.tight.join(',')}`);
+  t('coach: a tight run of shots is recognised as worth keeping',
+    coach.tight.includes('repeatable'), coach.tight.join(','));
+  t('coach: two finer moves that only made it slower are named as the far side of the peak',
+    coach.pastPeak.includes('past_peak'), coach.pastPeak.join(','));
+  t('coach: a grind move comes back in the grinder\u2019s own steps, hedged',
+    coach.move && coach.move.steps > 0 && /under-predicts/.test(coach.move.say),
+    coach.move ? coach.move.say : 'nothing');
+  t('coach: and refuses to invent steps for a conical, where there is no honest number',
+    coach.conical && !coach.conical.steps && /conical/.test(coach.conical.say),
+    coach.conical ? coach.conical.say : 'nothing');
+
+  // THE KNOWLEDGE BANK'S OWN CONTRACTS.
+  // The point of the file is that a claim carries its evidence, so the checks
+  // are structural: nothing may assert without a class, nothing established may
+  // be uncited, and the app must not be caught saying something it has itself
+  // listed as refuted.
+  const kb = await page.evaluate(async () => {
+    const k = await import('./assets/js/core/knowledge.js');
+    const classes = ['established', 'practice', 'contested'];
+    const bad = [];
+    for (const [id, c] of Object.entries(k.CLAIMS)) {
+      if (!classes.includes(c.confidence)) bad.push(`${id}: class "${c.confidence}"`);
+      if (!c.say || !c.because) bad.push(`${id}: missing say/because`);
+      // Established means somebody measured it, so it has to name who.
+      if (c.confidence === 'established' && !(c.sources || []).length
+        && !['freshIsNotBetter', 'cremaIsNotQuality'].includes(id)) bad.push(`${id}: established but uncited`);
+      for (const src of c.sources || []) if (!k.SOURCES[src]) bad.push(`${id}: unknown source ${src}`);
+    }
+    // Every taste has to route to one of the three structural classes, since
+    // that is what decides whether the advice is "more", "less" or "evener".
+    for (const [id, tv] of Object.entries(k.TASTE)) {
+      if (!['under', 'over', 'uneven'].includes(tv.structure)) bad.push(`taste ${id}: structure`);
+      if (!tv.causes.length) bad.push(`taste ${id}: no causes`);
+      for (const c of tv.causes) if (!classes.includes(c.confidence)) bad.push(`taste ${id}: cause class`);
+    }
+    // A ristretto's band must be reachable: EY = ratio x TDS is arithmetic, and
+    // the whole bug this fixed was a band that no correct ristretto could meet.
+    const r = k.STYLE_BANDS.ristretto;
+    const reachable = r.ey[1] <= r.ratio[1] * r.tds[1];
+    return { bad, claims: Object.keys(k.CLAIMS).length, refuted: k.REFUTED.length,
+      reachable, sources: Object.keys(k.SOURCES).length };
+  });
+  t('knowledge: every claim carries an evidence class and a citation if it asserts',
+    kb.bad.length === 0,
+    kb.bad.slice(0, 3).join(' | ') || `${kb.claims} claims, ${kb.sources} sources, `
+      + `${kb.refuted} refuted`);
+  t('knowledge: the yield band for a drink is one that drink can actually reach',
+    kb.reachable, 'ristretto band is arithmetically attainable');
+
   t('diagnose: a clean curve is reported as clean', diag.clean.codes.length === 0,
     diag.clean.codes.join(',') || 'no findings');
-  t('diagnose: a late flow rise is called channelling', diag.channel.codes.includes('channeling'),
+  t('diagnose: a step in the flow is reported', diag.channel.codes.includes('flow_step'),
     diag.channel.codes.join(','));
-  t('diagnose: channelling is not confused with a slow shot',
+  t('diagnose: a step is not confused with a slow shot',
     !diag.channel.codes.includes('choked'), diag.channel.codes.join(','));
+  // THE REGRESSION THIS FILE EXISTS TO PREVENT. Flow rising as the puck's
+  // resistance falls is what an ordinary shot does. Calling it a channel was
+  // wrong, and wrong on the common case.
+  t('diagnose: flow rising as resistance falls is not called a fault',
+    diag.rising.codes.length === 0,
+    diag.rising.codes.join(',') || 'no findings');
+  t('diagnose: a ristretto is not told it is under-extracted',
+    !diag.ristretto.codes.includes('ey_low'),
+    `${diag.ristretto.codes.join(',') || 'no findings'} at 15.2% on 1:1.3`);
+  // Two opposite defects at once is unevenness, not a midpoint — the reading
+  // most often got wrong, and the one the app is most useful for getting right.
+  const both = await page.evaluate(async () => {
+    const d = await import('./assets/js/core/diagnose.js');
+    const one = (tags) => d.diagnose({ tags, ratio: 2, time_s: 27 }).map((x) => x.code);
+    return { opposed: one('sour bitter'), single: one('sour'), dry: one('harsh') };
+  });
+  t('diagnose: sour and bitter together is called unevenness, not a midpoint',
+    both.opposed.includes('uneven') && !both.single.includes('uneven'),
+    `both -> ${both.opposed.join(',') || 'none'}; sour alone -> ${both.single.join(',') || 'none'}`);
+  t('diagnose: drying is kept apart from bitter, since the fix is the opposite',
+    both.dry.includes('astringent'), both.dry.join(','));
   t('diagnose: a long pre-drip is called choked', diag.choked.codes.includes('choked'),
     diag.choked.codes.join(','));
   t('diagnose: a fast free-flowing shot is called a gusher', diag.gusher.codes.includes('gusher'),
@@ -5904,6 +6240,75 @@ try {
   t('palette: muted text clears AA, since it carries the instructions',
     themes.every((th) => palette[th].mute >= 4.5),
     `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
+  // Pip is type, not a drawing, so the pairs worth checking are the ones he
+  // actually paints: his title bar's text on the bar, his face on his screen,
+  // and the message on the bubble. Measured off the mounted component rather
+  // than off tokens, so a cascade problem counts too — and he has to be made to
+  // SAY something first, because the bubble does not exist while he is quiet.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+  const pip = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    const prefs = await import('./assets/js/core/prefs.js');
+    prefs.set({ coach: true });
+    const root = document.documentElement;
+    const had = root.getAttribute('data-theme');
+    const { mountPip } = await import('./assets/js/core/pip.js');
+    const host = document.getElementById('pip');
+    host.hidden = false;
+    const pip = mountPip(host);
+    pip.say('Flow jumped.', { mood: 'alert' });
+    // BOTH SERIALISATIONS. color-mix() computes to `color(srgb 0.49 0.48 0.46)`
+    // — 0-to-1 floats — not to rgb(). Reading those as 0-to-255 makes every
+    // mixed colour look nearly black, which is exactly what happened here: the
+    // bezel rim measured 1.2:1 against the case when it is really 4.2:1. Second
+    // time this has bitten in this file; the first was the tile gradient.
+    const rgb = (s) => {
+      const n = (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+      return s.startsWith('color(') ? n.map((x) => x * 255) : n;
+    };
+    const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const out = {};
+    for (const th of THEMES) {
+      root.setAttribute('data-theme', th);
+      host.dataset.tone = 'warn';
+      const who = getComputedStyle(host.querySelector('.pip-who'));
+      const bezel = getComputedStyle(host.querySelector('.pip-box'));
+      const screen = getComputedStyle(host.querySelector('.pip-screen'));
+      const bubble = getComputedStyle(host.querySelector('.pip-bubble'));
+      const txt = getComputedStyle(host.querySelector('.pip-say'));
+      const face = getComputedStyle(host.querySelector('.pip-face'));
+      out[th] = {
+        // His name on his case.
+        bar: +ratio(rgb(who.color), rgb(bezel.backgroundColor)).toFixed(2),
+        // What he says, in the bubble.
+        body: +ratio(rgb(txt.color), rgb(bubble.backgroundColor)).toFixed(2),
+        // The alarmed face, lit on the screen.
+        warn: +ratio(rgb(face.color), rgb(screen.backgroundColor)).toFixed(2),
+        // And the screen against the case. Without separation he is not a
+        // monitor, he is a rectangle. There are two ways to get it and either
+        // will do: the fill differs enough to see (which only the light theme
+        // manages, since the dark ones have nowhere darker to go), or the
+        // screen has a rim — which is what a real bezel is.
+        fill: +ratio(rgb(screen.backgroundColor), rgb(bezel.backgroundColor)).toFixed(2),
+        rim: +ratio(rgb(screen.borderTopColor), rgb(bezel.backgroundColor)).toFixed(2),
+      };
+      host.dataset.tone = '';
+    }
+    if (had === null) root.removeAttribute('data-theme');
+    else root.setAttribute('data-theme', had);
+    return out;
+  });
+  const pt = Object.keys(pip);
+  t('palette: Pip reads in every theme \u2014 his name, his face, and what he says',
+    pt.every((th) => pip[th].bar >= 4.5 && pip[th].body >= 4.5 && pip[th].warn >= 4.5),
+    pt.map((th) => `${th} ${pip[th].bar}/${pip[th].body}/${pip[th].warn}`).join(' \u00b7 '));
+  t('palette: his screen reads as an inset in the case, not as more case',
+    pt.every((th) => pip[th].fill >= 1.25 || pip[th].rim >= 1.5),
+    pt.map((th) => `${th} fill ${pip[th].fill} rim ${pip[th].rim}`).join(' \u00b7 '));
+
   t('palette: the four dark themes tell the browser they are dark',
     ['dark', 'terminal', 'glass'].every((th) => palette[th].scheme === 'dark')
     && palette.light.scheme === 'light',

@@ -81,6 +81,13 @@
      component drawing its own surface reads them instead of hardcoding a square
      corner — hardcoding is what left the state strip a hard rectangle in the
      middle of a page of rounded ones. */
+  /* Pip's screen and the light it throws. A PAIR: the screen is a real inset
+     surface inside his bezel, not the page's panel, so it cannot be derived
+     from --panel — in a light theme the bezel is cream and the screen is near
+     black, which is the whole point of him being a little monitor. */
+  --pip-screen: #100f0d;
+  --pip-glow:   #fffdf5;
+
   --radius: 0px;      /* a surface: panel, strip, bar */
   --radius-sm: 0px;   /* a control inside one */
   --seam: 0px;        /* extra air between stacked surfaces, where no border separates them */
@@ -119,6 +126,7 @@
     --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
     --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+    --pip-screen:#080806; --pip-glow:#f4f1e6;
     --fit-ink:#100f0d;
     --control:#26251d;
     --band-a:.09;
@@ -130,6 +138,7 @@
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
   --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+  --pip-screen:#080806; --pip-glow:#f4f1e6;
   --fit-ink:#100f0d;
   --control:#26251d;
   --band-a:.09;
@@ -150,6 +159,7 @@
      were the same colour — and a cyan hero tile on a phosphor screen is not a
      phosphor screen. */
   --accent:#9dffb8; --accent-ink:#031008; --fit:#4fe0a0; --flag:#c8ff5a;
+  --pip-screen:#020403; --pip-glow:#6ef58e;
   --fit-ink:#031008;
   --control:#131e15;
   --tag-fg:#031008;
@@ -232,6 +242,7 @@
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
   --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
   --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
+  --pip-screen:#05070c; --pip-glow:#dbe6ff;
   --fit-ink:#0b0e15;
   --control:#252c3b;
   --tag-fg:#0b0e15;
@@ -1033,3 +1044,124 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .source { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
 .source button { padding: 7px 11px; box-shadow: none; font-size: 11px; }
 .source button[aria-pressed="true"] { background: var(--ink); color: var(--tag-fg); }
+
+/* ------------------------------------------------------------------- Pip
+   A little terminal with a face in it, and what he says spawning off him.
+   See core/pip.js for how the shape got here; the short version is that a box
+   holding a paragraph is a container, and a box holding a seven-character face
+   is a character. Splitting them is what lets him blink without the text
+   jumping. Nothing here is a drawing — it is all type and borders, so he
+   inherits every theme and is native to the terminal one. */
+.pip {
+  display: flex; align-items: flex-start; gap: 9px;
+  font-family: var(--mono);
+}
+
+/* ---- him ----------------------------------------------------------------
+   A BEZEL WITH A SCREEN IN IT, not a dark bar over a light panel. He is a
+   little monitor: the case carries his name, and the display is an inset that
+   is genuinely darker than everything around it, with his face lit on it. That
+   is what makes him read as a machine sitting on the page rather than as a
+   themed rectangle. */
+.pip-box {
+  flex: none;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 0 5px 5px;
+}
+/* The name sits ON the case, in the case's own ink — no reversed bar. */
+.pip-bar {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--ink);
+  padding: 3px 0 3px 2px;
+  font: 700 8px/1.5 var(--mono); letter-spacing: .1em;
+}
+.pip-who { opacity: .9; }
+.pip-x {
+  flex: none; width: 13px; height: 13px; padding: 0; margin-left: auto;
+  font: 700 11px/1 var(--mono);
+  background: none; border: 0; box-shadow: none; border-radius: 0;
+  color: var(--ink); opacity: .5; cursor: pointer;
+}
+.pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--ink) 14%, transparent); }
+
+.pip-screen {
+  display: flex; align-items: center; gap: 5px;
+  padding: 6px 8px 7px;
+  background: var(--pip-screen);
+  color: var(--pip-glow);
+  /* THE BEZEL EDGE, and it is not decoration.
+     In a light theme a near-black screen on a cream case reads on fill alone —
+     18.8:1. In the dark themes the case is already dark and the screen has
+     nowhere darker to go: measured at 1.06 to 1.18 against it, which is not a
+     screen, it is a slightly different rectangle. It only looked right because
+     of the box's outer border. A rim mixed halfway between the case's ink and
+     the screen gives the inset an edge in every theme, which is what a real
+     bezel does and what makes him a monitor rather than a panel. */
+  border: 1px solid color-mix(in srgb, var(--ink) 50%, var(--pip-screen));
+}
+/* white-space:pre so the spaces a glance shifts him by are kept, and the seven
+   cells stay seven cells. */
+.pip-face {
+  font: 700 13px/1.25 var(--mono); white-space: pre; letter-spacing: .01em;
+  color: var(--pip-glow);
+}
+/* The one thing that ever takes a hue. On a dark screen the page's --warn is
+   too dim to read, so the mood tints the glow rather than replacing it. */
+.pip[data-tone="warn"] .pip-face { color: var(--flag); }
+.pip-caret {
+  flex: none; width: .5em; height: 1em;
+  background: var(--pip-glow);
+  font-size: 13px;
+}
+@keyframes pip-blink { 50% { opacity: 0; } }
+.pip-caret { animation: pip-blink 1.06s step-end infinite; }
+
+/* ---- what he says ------------------------------------------------------- */
+.pip-bubble {
+  position: relative;
+  max-width: 30ch;
+  margin-top: 6px;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 6px 9px 7px;
+}
+.pip-bubble[hidden] { display: none; }
+/* The tail, pointing back at him. Two triangles: the outer one is the border,
+   the inner one covers it with the panel so the outline reads as continuous. */
+.pip-bubble::before,
+.pip-bubble::after {
+  content: ''; position: absolute; top: 9px;
+  width: 0; height: 0; border-style: solid;
+}
+.pip-bubble::before {
+  left: calc(-8px - var(--bw));
+  border-width: 7px 8px 7px 0;
+  border-color: transparent var(--ink) transparent transparent;
+}
+.pip-bubble::after {
+  left: -8px;
+  border-width: 6px 7px 6px 0;
+  border-color: transparent var(--panel) transparent transparent;
+}
+.pip-say {
+  margin: 0; font: 400 11px/1.45 var(--mono); color: var(--ink);
+  /* Reserves the line while it types, so the bubble does not grow a row
+     mid-sentence and nudge whatever is under it. */
+  min-height: 1.45em;
+}
+/* The live region carries the whole line for a screen reader; the visible copy
+   is typed, and announcing that would spell it out letter by letter. */
+.pip-live {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+@keyframes pip-pop { from { opacity: 0; transform: translateX(-4px); } }
+.pip-bubble { animation: pip-pop .16s ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pip-caret, .pip-bubble { animation: none; }
+}
