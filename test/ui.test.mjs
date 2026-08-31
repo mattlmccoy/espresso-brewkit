@@ -1724,51 +1724,80 @@ try {
     readyAt !== undefined && stopAt - readyAt > 5,
     `ready at ${readyAt} g, stop at ${stopAt} g`);
 
-  // ---- two ways to watch the same shot ----
-  // The failure mode of a "simplified" view is that it simplifies away
-  // something you needed, so what is checked is not that things disappeared
-  // but WHICH: the instrument, the curve, the flow and the stop weight all
-  // survive, and what goes is either a duplicate of one of those or a
-  // projection that the stop weight has made redundant.
+  // ---- two ways to use the same app ----
+  // Not a declutter button on one panel: a mode, in the nav, on every page, the
+  // way a camera offers auto and manual. The failure mode of a simplified view
+  // is that it simplifies away something you needed, so what is checked is not
+  // that things disappeared but WHICH — the instrument, the curve, the flow and
+  // the stop weight all survive, and what goes is either a duplicate of one of
+  // those or apparatus for working out why a shot did what it did.
   const views = await page.evaluate(async () => {
-    const prefs = await import('./assets/js/core/prefs.js');
+    const ui = await import('./assets/js/ui.js');
     const shown = (id) => {
       const el = document.getElementById(id);
       return !!el && el.getBoundingClientRect().height > 0;
     };
-    const keep = ['brew-gauge', 'curve', 'pn-cut', 'stop', 'flowrow', 'pip'];
-    const drop = ['ladder', 'pn-target', 'pn-lands', 'pour-legend'];
-    prefs.set({ clean: false });
-    await new Promise((r) => setTimeout(r, 120));
+    const keep = ['brew-gauge', 'curve', 'stop', 'flowrow', 'pip'];
+    const drop = ['ladder', 'pn-target', 'pn-lands', 'pour-legend', 'advanced'];
+    const btn = () => document.querySelector('.nav [data-mode-toggle]');
+    ui.setMode('full');
+    await new Promise((r) => setTimeout(r, 140));
     const full = { keep: keep.filter(shown), drop: drop.filter(shown),
-                   label: document.getElementById('clean').textContent };
-    document.getElementById('clean').click();
-    await new Promise((r) => setTimeout(r, 160));
-    const clean = { keep: keep.filter(shown), drop: drop.filter(shown),
-                    body: document.body.classList.contains('clean'),
-                    label: document.getElementById('clean').textContent,
-                    // The flow number is the one live reading that says whether
-                    // the shot is running right. Tidying it away would be
-                    // hiding the reading rather than the clutter.
-                    flow: !!document.getElementById('c-f')?.closest('.pn')
-                      ?.getBoundingClientRect().height };
-    const stored = prefs.prefs().clean;
-    document.getElementById('clean').click();
-    await new Promise((r) => setTimeout(r, 160));
-    const back = document.body.classList.contains('clean');
-    prefs.set({ clean: false });
-    return { full, clean, stored, back };
+                   body: document.body.classList.contains('full'),
+                   label: btn()?.textContent };
+    btn().click();
+    await new Promise((r) => setTimeout(r, 180));
+    const simple = { keep: keep.filter(shown), drop: drop.filter(shown),
+                     body: document.body.classList.contains('simple'),
+                     label: btn()?.textContent,
+                     // The flow number is the one live reading that says whether
+                     // the shot is running right. Tidying it away would be
+                     // hiding the reading rather than the apparatus.
+                     flow: !!document.getElementById('c-f')?.closest('.pn')
+                       ?.getBoundingClientRect().height };
+    const stored = ui.currentMode();
+    btn().click();
+    await new Promise((r) => setTimeout(r, 180));
+    const back = ui.currentMode();
+    ui.setMode('full');
+    return { full, simple, stored, back, hasButton: !!btn() };
   });
-  t('view: the clean one keeps the instrument, the curve, the flow and the stop',
-    views.clean.keep.length === views.full.keep.length && views.clean.flow === true,
-    `kept ${views.clean.keep.join(', ')}${views.clean.flow ? ' + flow' : ' — FLOW GONE'}`);
-  t('view: and drops only the duplicates and the projections',
-    views.full.drop.length > 0 && views.clean.drop.length === 0,
-    `full showed ${views.full.drop.join(', ')}; clean shows ${views.clean.drop.join(', ') || 'none of them'}`);
-  t('view: the switch says which way it goes, and the choice is remembered',
-    views.full.label === 'Clean view' && views.clean.label === 'Full view'
-    && views.stored === true && views.back === false,
-    `"${views.full.label}" → "${views.clean.label}", stored ${views.stored}`);
+  t('view: the mode lives in the nav, so it is the same control on every page',
+    views.hasButton && views.full.label === 'Simple' && views.simple.label === 'Full',
+    `nav button reads "${views.full.label}" in full and "${views.simple.label}" in simple`);
+  t('view: simple keeps the instrument, the curve, the flow and the stop',
+    views.simple.keep.length === views.full.keep.length && views.simple.flow === true,
+    `kept ${views.simple.keep.join(', ')}${views.simple.flow ? ' + flow' : ' \u2014 FLOW GONE'}`);
+  t('view: and drops the duplicates and the apparatus, including device settings',
+    views.full.drop.length > 0 && views.simple.drop.length === 0,
+    `full showed ${views.full.drop.join(', ')}; simple shows ${views.simple.drop.join(', ') || 'none of them'}`);
+  t('view: the choice is remembered, and it is a body class pages can key off',
+    views.stored === 'simple' && views.back === 'full'
+    && views.full.body === true && views.simple.body === true,
+    `stored ${views.stored} then ${views.back}`);
+
+  // It is an app-wide mode, so the pages that are mostly apparatus have to
+  // answer to it too — a "simple" that only reached one panel would be a
+  // declutter wearing a mode's name.
+  await page.goto(B + '/settings.html');
+  const elsewhere = await page.evaluate(async () => {
+    const ui = await import('./assets/js/ui.js');
+    const heads = () => [...document.querySelectorAll('.sect h2')]
+      .filter((h) => h.getBoundingClientRect().height > 0).map((h) => h.textContent.trim());
+    ui.setMode('full');
+    await new Promise((r) => setTimeout(r, 140));
+    const full = heads();
+    ui.setMode('simple');
+    await new Promise((r) => setTimeout(r, 140));
+    const simple = heads();
+    ui.setMode('full');
+    return { full, simple, nav: !!document.querySelector('.nav [data-mode-toggle]') };
+  });
+  t('view: settings folds its instrument sections away in simple, and keeps the rest',
+    elsewhere.nav && elsewhere.simple.length < elsewhere.full.length
+    && elsewhere.simple.includes('Sound and taps')
+    && !elsewhere.simple.includes('Refractometry'),
+    `${elsewhere.full.length} sections in full, ${elsewhere.simple.length} in simple`);
 
   // THE KNOWLEDGE BANK'S OWN CONTRACTS.
   // The point of the file is that a claim carries its evidence, so the checks

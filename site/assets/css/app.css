@@ -1118,6 +1118,26 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }
 
+/* ---- simple and full ---------------------------------------------------- */
+/* Two views of the same app, marked declaratively so a page says which of its
+   parts are apparatus and which are the shot, rather than each page inventing
+   its own hiding rules.
+
+   `.pro-only` is the machinery: projections, diagnostics, decoder internals,
+   thresholds. Nothing in it is wrong or unimportant — it is what you want when
+   you are working out why a shot did what it did, and noise when you are
+   making a coffee before work.
+
+   `.simple-only` is the small amount of copy that earns its place only when the
+   apparatus is hidden: a line naming what a page is for, where the full view
+   lets the controls speak for themselves. */
+body.simple .pro-only { display: none !important; }
+body.full .simple-only { display: none !important; }
+
+/* The mode button sits beside the theme button and is the same kind of thing:
+   a small chrome control naming where it takes you. */
+.nav [data-mode-toggle] { font-variant-numeric: tabular-nums; }
+
 /* ---- what he says ------------------------------------------------------- */
 .pip-bubble {
   position: relative;

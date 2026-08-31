@@ -330,14 +330,14 @@
      both hands are busy. The ladder repeats the bands the dial already draws,
      and several of the seven cells are projections; what is left is the weight,
      the time, the flow and where to stop. */
-  body.clean #ladder,
-  body.clean #c-ratio,
-  body.clean #c-lands,
-  body.clean #c-dose,
-  body.clean #hint { display:none !important; }
-  body.clean.brewing .strip { grid-template-columns:repeat(2, 1fr); }
+  body.simple #ladder,
+  body.simple #c-ratio,
+  body.simple #c-lands,
+  body.simple #c-dose,
+  body.simple #hint { display:none !important; }
+  body.simple.brewing .strip { grid-template-columns:repeat(2, 1fr); }
   @media (min-width: 700px) {
-    body.clean.brewing .strip { grid-template-columns:repeat(4, 1fr); }
+    body.simple.brewing .strip { grid-template-columns:repeat(4, 1fr); }
   }
   #pip { font-size:12px; margin:0 0 2px; }
   #pip[hidden] { display:none; }
@@ -427,7 +427,7 @@
          laptop's either, so a dark laptop beside a light phone was the normal
          case. The button is the local override; without it the frame decides. -->
     <button class="ghost" id="clean" type="button" aria-pressed="false" hidden
-            style="padding:6px 10px;box-shadow:none;font-size:11px">Clean</button>
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Simple</button>
     <button class="ghost" data-theme-toggle id="theme" type="button"
             style="padding:6px 10px;box-shadow:none;font-size:11px">Theme</button>
     <button class="ghost" id="unpair" type="button" hidden
@@ -607,7 +607,8 @@
 </div>
 
 <script type="module">
-import { initTheme, paintFlow, applyTheme, themeChosen, currentTheme } from './assets/js/ui.js';
+import { initTheme, paintFlow, applyTheme, themeChosen, currentTheme,
+         currentMode, setMode } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
 import { cutPoint } from './assets/js/core/cutoff.js';
@@ -1023,24 +1024,21 @@ addEventListener('resize', () => { if (last) drawCurve(last); });
 link.onState = setConn;
 /* The phone is the device standing next to the machine, so it is the one that
    should make the noise. Same cues, driven off the same frames. */
-// Local to this device: a phone propped against the machine wants less on it
-// than a laptop does, and that is a fact about this screen rather than about the
-// shot, so it does not come down the link.
-const CLEAN_KEY = 'brewkit.view.clean';
-let viewClean = false;
-try { viewClean = localStorage.getItem(CLEAN_KEY) === 'on'; } catch { /* ignore */ }
-function paintClean() {
-  document.body.classList.toggle('clean', viewClean);
-  $('clean').textContent = viewClean ? 'Full' : 'Clean';
-  $('clean').setAttribute('aria-pressed', String(viewClean));
+// The same mode the rest of the app uses. It stays per-device without any extra
+// machinery — preferences live in this browser's storage, and the phone is a
+// different browser — so a laptop set to full and a phone set to simple is the
+// ordinary case rather than a special one.
+function paintMode() {
+  const simple = currentMode() === 'simple';
+  $('clean').textContent = simple ? 'Full' : 'Simple';
+  $('clean').setAttribute('aria-pressed', String(simple));
   if (last) drawCurve(last);
 }
 $('clean').addEventListener('click', () => {
-  viewClean = !viewClean;
-  try { localStorage.setItem(CLEAN_KEY, viewClean ? 'on' : 'off'); } catch { /* ignore */ }
-  paintClean();
+  setMode(currentMode() === 'simple' ? 'full' : 'simple');
 });
-paintClean();
+document.addEventListener('brewkit:mode', paintMode);
+paintMode();
 
 const CUE_KEY = 'brewkit.view.cues';
 const gate = new cue.CueGate({ enabled: false });

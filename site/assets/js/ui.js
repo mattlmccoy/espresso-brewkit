@@ -2,6 +2,7 @@
 
 import { config as backupConfig, persist } from './core/backup.js';
 import { flowBar } from './core/method.js';
+import * as prefs from './core/prefs.js';
 
 const THEME_KEY = 'brewkit.theme';
 
@@ -15,6 +16,74 @@ const THEME_KEY = 'brewkit.theme';
  */
 export const THEMES = ['light', 'dark', 'terminal', 'glass'];
 const LABEL = { light: 'Light', dark: 'Dark', terminal: 'Terminal', glass: 'Glass' };
+
+/* ------------------------------------------------------------------- view mode */
+// SIMPLE OR FULL, and why it is a mode rather than a switch on one panel.
+//
+// This began as a button that hid four things on the Live page while a shot ran,
+// which is a declutter, not a view. What it should be is the same choice a
+// camera offers between auto and manual: not "show me less of this screen" but
+// "how much apparatus do you want between you and the result" — and that answer
+// does not change when you navigate to another page.
+//
+// So it lives in the nav, on every page, and it is one class on <body> that any
+// page can hang rules off. Nothing is measured, derived or stored differently in
+// either: the difference is entirely what is on screen.
+
+export const MODES = ['simple', 'full'];
+
+/** Which view is on, defaulting to full for anyone who has never chosen. */
+export function currentMode() {
+  const m = prefs.prefs().mode;
+  return MODES.includes(m) ? m : 'full';
+}
+
+/** Put it on <body>, which is what every page's rules key off. */
+export function applyMode(mode = currentMode()) {
+  const m = MODES.includes(mode) ? mode : 'full';
+  // Module scripts are deferred so body is normally there; a page that calls
+  // this from <head> would otherwise fail silently and look like the mode not
+  // working rather than like an ordering mistake.
+  if (!document.body) {
+    addEventListener('DOMContentLoaded', () => applyMode(m), { once: true });
+    return m;
+  }
+  document.body.classList.toggle('simple', m === 'simple');
+  document.body.classList.toggle('full', m === 'full');
+  document.dispatchEvent(new CustomEvent('brewkit:mode', { detail: m }));
+  return m;
+}
+
+export function setMode(mode) {
+  prefs.set({ mode: MODES.includes(mode) ? mode : 'full' });
+  return applyMode(mode);
+}
+
+/**
+ * The control, in the nav beside the theme button.
+ *
+ * Named for where it takes you rather than where you are, exactly like the
+ * theme button beside it — a button labelled with the state you are already in
+ * is a button you have to think about.
+ */
+export function mountMode() {
+  const nav = document.querySelector('.nav');
+  if (!nav || nav.querySelector('[data-mode-toggle]')) return;
+  const btn = el('button', { class: 'theme-btn', type: 'button', 'data-mode-toggle': '' });
+  const paint = () => {
+    const next = currentMode() === 'simple' ? 'full' : 'simple';
+    btn.textContent = next === 'simple' ? 'Simple' : 'Full';
+    btn.setAttribute('aria-label', `Switch to the ${next} view`);
+    btn.title = next === 'simple'
+      ? 'Show the shot and the few numbers you act on'
+      : 'Show everything the app can derive';
+  };
+  btn.addEventListener('click', () => { setMode(currentMode() === 'simple' ? 'full' : 'simple'); });
+  document.addEventListener('brewkit:mode', paint);
+  prefs.subscribe?.(paint);
+  nav.insertBefore(btn, nav.querySelector('[data-theme-toggle]'));
+  paint();
+}
 
 /** What is on screen right now, whether or not it was chosen. */
 export function currentTheme() {
@@ -45,6 +114,10 @@ export function applyTheme(name, { remember = false } = {}) {
 }
 
 export function initTheme() {
+  // The class first, and on every page that boots at all — the phone viewer
+  // calls this directly rather than going through boot(), and it wants the mode
+  // as much as any other screen.
+  applyMode();
   let saved = null;
   try { saved = localStorage.getItem(THEME_KEY); } catch { /* blocked storage */ }
   if (THEMES.includes(saved)) document.documentElement.setAttribute('data-theme', saved);
@@ -152,6 +225,7 @@ function mountBackup() {
 
 export function boot() {
   initTheme();
+  mountMode();
   mountBackup();
   markNav();
   // Ask once, in the background: a granted persistent bucket is the difference

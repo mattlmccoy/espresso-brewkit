@@ -479,19 +479,19 @@
      is climbing towards the one you have to stop at.
      Nothing is computed differently. It is the same shot with less of it
      showing, and the switch is one press. */
-  body.clean #ladder,
-  body.clean .mini,
-  body.clean #pour-legend,
-  body.clean .pour-sum,
-  body.clean #live-warn,
-  body.clean #b-summary,
+  body.simple #ladder,
+  body.simple .mini,
+  body.simple #pour-legend,
+  body.simple .pour-sum,
+  body.simple #live-warn,
+  body.simple #b-summary,
   /* Named rather than swept by class: Target is the dotted line already drawn
      across the chart, and "lands at" is a projection of a projection once the
      stop weight is on screen. Flow stays — it is the one live number that says
      whether the shot is running right, and hiding it would be tidying away the
      reading rather than the clutter. */
-  body.clean #pn-target,
-  body.clean #pn-lands { display:none !important; }
+  body.simple #pn-target,
+  body.simple #pn-lands { display:none !important; }
   .pour-sum { display:none; }
   body.pouring .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
     align-items:baseline; margin:0 0 8px; padding:8px 12px;
@@ -751,11 +751,11 @@
           <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
         </div>
 
-        <p class="note" id="driver-note" hidden data-notice="driver-note"></p>
+        <p class="note pro-only" id="driver-note" hidden data-notice="driver-note"></p>
 
         <!-- Escape hatches. Needed, and needed rarely: folded away so they are
              not five buttons of chrome between the readout and the notes. -->
-        <details class="manual">
+        <details class="manual pro-only">
           <summary>Manual controls</summary>
           <div class="btn-row tight">
             <button class="ghost" id="tare" type="button">Tare</button>
@@ -771,7 +771,7 @@
           </div>
           <p class="msg" id="trace-note" style="margin:4px 0 0"></p>
         </details>
-        <p class="msg" id="decoder-note" style="margin:8px 0 0"></p>
+        <p class="msg pro-only" id="decoder-note" style="margin:8px 0 0"></p>
         <p class="msg" id="scale-msg"></p>
         <p class="msg" id="live-msg"></p>
         <p class="msg" id="lag-note" hidden></p>
@@ -796,14 +796,10 @@
       <section class="bx cell" id="cell-pour" style="--d:70ms">
         <div class="cell-head" id="pour-head">
           <span class="tag" id="mid-tag">The pour</span>
-          <span class="legend" id="pour-legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow
+          <span class="legend pro-only" id="pour-legend"><i class="sw-w"></i>weight <i class="sw-f"></i>flow
             <i class="sw-g"></i>
             <select id="ghost-pick" aria-label="Reference shot"></select></span>
           <span class="msg" id="p-target" style="margin:0 0 0 auto"></span>
-          <!-- Two ways to watch the same shot. Nothing is computed differently
-               in either; what changes is how much of it is on screen at once. -->
-          <button class="ghost" id="clean" type="button" aria-pressed="false"
-                  style="padding:5px 10px;box-shadow:none;font-size:11px">Clean view</button>
         </div>
 
         <div class="slides" id="slides">
@@ -984,7 +980,7 @@
   </div>
 
   <!-- Settings: out of the way, but always reachable. -->
-  <details class="bx panel" id="advanced" style="display:none;margin-top:22px">
+  <details class="bx panel pro-only" id="advanced" style="display:none;margin-top:22px">
     <summary style="cursor:pointer;font:700 11px/1 var(--sans);letter-spacing:.14em;
                     text-transform:uppercase;color:var(--ink-mute)">Device settings</summary>
     <div style="margin-top:16px">
@@ -3597,21 +3593,12 @@ mountCoach();
 prefs.subscribe?.(mountCoach);
 
 /* ------------------------------------------------------- how much is on screen */
-// The switch is on the page rather than only in settings: it is a decision you
-// make about the shot in front of you, not a preference you set once — some
-// mornings you want the whole instrument and some you want a number.
-function paintClean() {
-  const on = prefs.prefs().clean === true;
-  document.body.classList.toggle('clean', on);
-  $('clean').textContent = on ? 'Full view' : 'Clean view';
-  $('clean').setAttribute('aria-pressed', String(on));
-}
-$('clean').addEventListener('click', () => {
-  prefs.set({ clean: !(prefs.prefs().clean === true) });
-  paintClean();
+// The control is in the nav, shared by every page — this only has to redraw the
+// things whose SIZE changes with it, since the chart is drawn to the pixels of
+// a panel that just got bigger.
+document.addEventListener('brewkit:mode', () => {
+  if (brew.curve.length > 1) drawCurve();
 });
-prefs.subscribe?.(paintClean);
-paintClean();
 
 /**
  * Offer the weighing steps to the coach, which will usually decline to comment.
