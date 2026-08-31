@@ -95,7 +95,6 @@ import { compareToBest } from './assets/js/core/compare.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { download } from './assets/js/core/csv.js';
 import { median, mad, mean, sd, clean } from './assets/js/core/stats.js';
-import { mountReplay } from './assets/js/core/replayview.js';
 import * as replay from './assets/js/core/replay.js';
 boot();
 
@@ -217,14 +216,7 @@ function comparison(shot, all) {
   return rows.length ? rows : null;
 }
 
-// One at a time. Selecting another shot while a replay is playing used to be
-// the only way to get two frame loops running at once, both painting into
-// elements that no longer exist.
-let player = null;
-
 function renderDetail() {
-  player?.destroy();
-  player = null;
   const holder = $('detail');
   holder.replaceChildren();
   const all = store.all();
@@ -276,29 +268,22 @@ function renderDetail() {
   // ones you have after watching it. Only for shots that were kept: a replay is
   // an opt-in recording, and a button on every row promising something most of
   // them cannot give would be worse than no button.
-  const kept = replay.load(shot.shot_id);
-  if (kept) {
-    const box = el('div', { style: 'margin-top:18px' });
-    const row = el('div', { class: 'replay-row' },
-      el('button', { class: 'ghost', type: 'button',
-        onclick: () => {
-          player?.destroy();
-          player = mountReplay(box, {
-            shot, curve: kept, autoplay: true,
-            onClose: () => { player = null; box.replaceChildren(); render(); },
-          });
-          box.focus();
-        } }, 'Watch this shot'),
+  // A KEPT REPLAY OPENS ON THE BREWING SCREEN, not here. Watching a shot back
+  // means watching the screen you watched it on — the dial, the bands, the
+  // stop-at weight, the warning arriving when it arrived — and that screen is
+  // Live. Building a second one on this page would be a second rendering of a
+  // shot, and two renderings of one thing disagree eventually.
+  if (replay.has(shot.shot_id)) {
+    holder.appendChild(el('div', { class: 'replay-row', style: 'margin-top:18px' },
+      el('a', { class: 'btn-link', href: `./live.html#replay=${shot.shot_id}` },
+        'Watch this shot again'),
       el('button', { class: 'danger ghost', type: 'button',
         style: 'padding:5px 10px;box-shadow:none',
         onclick: () => {
           if (!confirm(`Remove the kept replay of ${shot.shot_id}? The shot stays.`)) return;
-          player?.destroy(); player = null;
           replay.drop(shot.shot_id);
           render();
-        } }, 'Remove the replay'));
-    holder.appendChild(row);
-    holder.appendChild(box);
+        } }, 'Remove the replay')));
   }
 
   // The curve, and the flow derived from it — the shape is the whole point of

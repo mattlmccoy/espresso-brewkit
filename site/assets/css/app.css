@@ -1341,79 +1341,48 @@ body.full .simple-only { display: none !important; }
 }
 
 /* ------------------------------------------------------------------ replay */
-/* A recording, and it has to look like one. The numbers here move the way the
-   live ones do, so without a standing signal that this is a playback the panel
-   is a shot in progress that is not in progress — the one genuinely bad outcome
-   in this feature. The hatched rule along the top is that signal: it is present
-   the whole time, costs no vertical space worth counting, and is not a caption
-   anyone can stop reading. */
-.replay {
-  border: var(--bw) solid var(--ink); border-radius: var(--radius);
-  background: var(--panel); padding: 0 0 var(--s3);
-  box-shadow: var(--sh, 5px) var(--sh, 5px) 0 var(--ink);
-  overflow: hidden;
-}
-.replay::before {
-  content: ''; display: block; height: 6px;
-  background: repeating-linear-gradient(-45deg,
-    var(--ink) 0 6px, transparent 6px 12px);
-  opacity: .5;
-}
-.replay-head {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: var(--s3) var(--s3) 0;
-}
-.replay-head .tag { margin: 0; }
-.replay-of { font: 700 12px/1.3 var(--sans); opacity: .8; }
-.replay-x { margin-left: auto; padding: 5px 10px; box-shadow: none; }
+/* A recording, and the screen has to say so continuously. Every number on the
+   brew panel is moving exactly as it moves during a shot — that is the whole
+   point — so without a standing signal this is a pour in progress that is not
+   in progress, which is the one genuinely bad outcome here. The hatched rule
+   along the top of the panel is that signal: present the whole time, costing no
+   height worth counting, and not a caption anyone can stop reading. */
+/* An outline rather than a pseudo-element strip: the pour panel sits inside a
+   scrolling column, and the strip was drawn outside the scroller's box and
+   clipped away — a marker that is only there when the column happens to be
+   scrolled to the top is worse than none, because it teaches you it is there.
+   An inset outline follows the panel wherever it is. */
+body.replaying #cell-pour { outline: 3px solid var(--accent); outline-offset: -3px; }
+/* The chart is given its room by body.pouring and body.rating, and a replay is
+   neither — so the curve, which is the thing you came to watch, collapsed to
+   its minimum while the panel around it stayed full size. */
+body.replaying .fillchart { flex: 1 1 auto; min-height: 200px; }
+/* One way out, not two. The bar carries Done; the row above it was still
+   offering "Stop watching" for the same thing. */
+body.replaying #replay-row,
+/* And nothing that talks. Pip reads a shot as it happens; on a recording there
+   is nothing for him to say that he did not say the first time. */
+body.replaying #pip, body.replaying #pip-stub { display: none !important; }
+/* The controls that only make sense while a shot is happening. A replay cannot
+   be stopped, and a stop button over a recording is a button that lies. */
+body.replaying #stop, body.replaying #reset, body.replaying #replay-keep { display: none; }
 
-.replay-stage {
-  display: grid; grid-template-columns: minmax(180px, 1fr) minmax(0, 1.6fr);
-  gap: var(--s3); align-items: start; padding: var(--s3) var(--s3) 0;
-}
-.replay-left { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.replay-right { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.replay-n { font-family: var(--disp); line-height: .9; letter-spacing: -.03em; }
-.replay-n b { font-size: clamp(38px, 7vw, 62px); }
-.replay-n i { font-style: normal; font-size: 16px; opacity: .6; margin-left: 3px; }
-.replay-dial { width: 100%; max-width: 240px; }
-.replay-dial svg { width: 100%; height: auto; display: block; }
-.replay-nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.replay-stat { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.replay-k {
-  font: 700 10px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--ink-mute);
-}
-.replay-v {
-  font: 800 15px/1 var(--sans); font-variant-numeric: tabular-nums;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-/* The plot is given a height rather than left to the curve, so the panel does
-   not resize itself every frame as the trace grows into it. */
-.replay-plot { height: clamp(190px, 26vh, 280px); }
-.replay-plot svg { width: 100%; height: 100%; display: block; }
-
-.replay-ladder { display: flex; flex-wrap: wrap; gap: 6px; }
-.replay-rung {
-  display: inline-flex; flex-direction: column; gap: 1px;
-  border: 1px solid var(--hair); border-radius: 8px; padding: 5px 9px;
-  transition: background .18s ease, border-color .18s ease, color .18s ease;
-}
-.replay-rung b {
-  font: 700 10.5px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase;
-}
-.replay-rung i { font: 700 11px/1 var(--mono); font-style: normal; opacity: .7; }
-.replay-rung.past { opacity: .45; }
-.replay-rung.here {
-  background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
-}
-.replay-rung.here i { opacity: .85; }
-
+.replay-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+/* PINNED TO THE BOTTOM OF THE COLUMN IT IS IN. The pour panel scrolls, and the
+   transport was below the chart — so on any screen where the chart filled the
+   column, the play button and the scrub had scrolled out of reach and the only
+   way to pause was the space bar nobody knows about. */
 .replay-bar {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: var(--s3) var(--s3) 0;
+  position: sticky; bottom: 0; z-index: 3;
+  margin-top: 12px; padding: 12px 0 2px;
+  border-top: var(--bw) solid var(--ink); background: var(--panel);
 }
-.replay-play { min-width: 84px; }
+.replay-bar .primary { min-width: 84px; }
+.replay-clock { font: 700 12px/1 var(--mono); opacity: .8; white-space: nowrap; }
+.replay-speeds { display: flex; gap: 4px; }
+.replay-speeds button { padding: 5px 8px; box-shadow: none; font-size: 11px; min-width: 38px; }
+.replay-speeds button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 /* The scrub takes the room left over: it is the control you reach for most, and
    a short one is a shot you cannot land on the second you want. */
 .replay-scrub {
@@ -1425,12 +1394,10 @@ body.full .simple-only { display: none !important; }
   box-shadow: none; cursor: pointer;
 }
 .replay-scrub::-webkit-slider-runnable-track {
-  height: 6px; border-radius: 3px;
-  background: var(--hair); border: 1px solid var(--ink);
+  height: 6px; border-radius: 3px; background: var(--hair); border: 1px solid var(--ink);
 }
 .replay-scrub::-moz-range-track {
-  height: 6px; border-radius: 3px;
-  background: var(--hair); border: 1px solid var(--ink);
+  height: 6px; border-radius: 3px; background: var(--hair); border: 1px solid var(--ink);
 }
 .replay-scrub::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none;
@@ -1442,21 +1409,6 @@ body.full .simple-only { display: none !important; }
   background: var(--accent); border: 2px solid var(--ink);
 }
 .replay-scrub:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-.replay-clock { font: 700 12px/1 var(--mono); opacity: .8; white-space: nowrap; }
-.replay-speeds { display: flex; gap: 4px; }
-.replay-speed { padding: 5px 8px; box-shadow: none; font-size: 11px; min-width: 38px; }
-.replay-speed[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
-
 @media (max-width: 720px) {
-  .replay-stage { grid-template-columns: 1fr; }
-  .replay-dial { max-width: 200px; margin: 0 auto; }
-  /* The clock goes under the scrub rather than squeezing it to nothing. */
   .replay-scrub { flex: 1 1 100%; order: -1; }
 }
-/* While a replay is playing the static chart and the projections step aside.
-   Two charts of the same shot on one panel, one moving and one not, is a screen
-   you have to read twice to find out which is the answer. */
-#slide-pour.replaying .pour-top,
-#slide-pour.replaying #curve { display: none; }
-.replay-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-#replay-panel { margin-top: 12px; }
