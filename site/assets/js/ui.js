@@ -59,32 +59,6 @@ export function setMode(mode) {
   return applyMode(mode);
 }
 
-/**
- * The control, in the nav beside the theme button.
- *
- * Named for where it takes you rather than where you are, exactly like the
- * theme button beside it — a button labelled with the state you are already in
- * is a button you have to think about.
- */
-export function mountMode() {
-  const nav = document.querySelector('.nav');
-  if (!nav || nav.querySelector('[data-mode-toggle]')) return;
-  const btn = el('button', { class: 'theme-btn', type: 'button', 'data-mode-toggle': '' });
-  const paint = () => {
-    const next = currentMode() === 'simple' ? 'full' : 'simple';
-    btn.textContent = next === 'simple' ? 'Simple' : 'Full';
-    btn.setAttribute('aria-label', `Switch to the ${next} view`);
-    btn.title = next === 'simple'
-      ? 'Show the shot and the few numbers you act on'
-      : 'Show everything the app can derive';
-  };
-  btn.addEventListener('click', () => { setMode(currentMode() === 'simple' ? 'full' : 'simple'); });
-  document.addEventListener('brewkit:mode', paint);
-  prefs.subscribe?.(paint);
-  nav.insertBefore(btn, nav.querySelector('[data-theme-toggle]'));
-  paint();
-}
-
 /** What is on screen right now, whether or not it was chosen. */
 export function currentTheme() {
   const explicit = document.documentElement.getAttribute('data-theme');
@@ -210,24 +184,125 @@ export function paintBackup(root = document) {
   return st;
 }
 
-/** The link itself, so no page has to remember to put it in its own markup. */
-function mountBackup() {
+/* ------------------------------------------------------------------ the menu */
+// ONE BIN FOR EVERYTHING THAT IS NOT A PLACE YOU WORK.
+//
+// The bar had grown to nine items — 739 px, three quarters of the header on a
+// laptop — and it had grown by accretion: six links in each page's markup, a
+// Backup link appended by one function, a view toggle appended by another. No
+// single file showed you the whole thing.
+//
+// Count was not really the problem. The bar was mixing three kinds of thing and
+// styling them as nine peers: five places you work, two pages about your setup,
+// and two controls that are not places at all — they change how the page you are
+// already on looks. "Dark" sitting beside "Lab", in the same box at the same
+// weight, says those are the same kind of thing, and they are not.
+//
+// So the row is destinations now, and everything else is in here, in two named
+// groups. Assembled in one place rather than appended from three, which is the
+// other half of the fix.
+function mountMenu() {
   const nav = document.querySelector('.nav');
-  if (!nav || nav.querySelector('[data-backup]')) return;
-  const link = el('a', { class: 'backup-link', href: './backup.html', 'data-backup': '' },
-    'Backup', el('span', { class: 'dot', 'aria-hidden': 'true' }));
-  nav.insertBefore(link, nav.querySelector('[data-theme-toggle]'));
+  if (!nav || nav.querySelector('.menu')) return;
+
+  // A `details`, not a bespoke popover: this app already folds things away that
+  // way — Manual controls, Device settings — and one control is a poor reason
+  // to introduce a second disclosure vocabulary.
+  const menu = el('details', { class: 'menu' });
+  const btn = el('summary', { class: 'menu-btn' }, 'Options',
+    el('span', { class: 'dot', 'data-backup': '', 'aria-hidden': 'true' }));
+  const panel = el('div', { class: 'menu-panel' });
+  menu.append(btn, panel);
+
+  const group = (name) => {
+    const g = el('div', { class: 'menu-group' }, el('div', { class: 'menu-k' }, name));
+    panel.append(g);
+    return g;
+  };
+
+  // ---- this screen: the two that are not places ----------------------------
+  const screen = group('This screen');
+  const viewRow = el('div', { class: 'menu-row' }, el('span', {}, 'View'));
+  const viewBtn = el('button', { class: 'menu-pick', type: 'button' });
+  const paintView = () => {
+    const next = currentMode() === 'simple' ? 'full' : 'simple';
+    viewBtn.textContent = next === 'simple' ? 'Simple' : 'Full';
+    viewBtn.setAttribute('aria-label', `Switch to the ${next} view`);
+  };
+  viewBtn.addEventListener('click', () => setMode(currentMode() === 'simple' ? 'full' : 'simple'));
+  document.addEventListener('brewkit:mode', paintView);
+  viewRow.append(viewBtn);
+
+  // FOUR NAMED SWATCHES, not the cycling button this replaces. Cycling was only
+  // ever a concession to a bar with no room for four: it takes up to three
+  // presses to reach the theme you want, and every intermediate one repaints the
+  // whole app. A panel has the room, and the settings page already names them.
+  const themeRow = el('div', { class: 'menu-row menu-themes' }, el('span', {}, 'Theme'));
+  const swatches = THEMES.map((t) => {
+    const b = el('button', { class: 'menu-swatch', type: 'button', 'data-theme': t }, LABEL[t]);
+    b.addEventListener('click', () => applyTheme(t, { remember: true }));
+    return b;
+  });
+  const paintTheme = () => {
+    const now = currentTheme();
+    for (const b of swatches) b.setAttribute('aria-pressed', String(b.dataset.theme === now));
+  };
+  themeRow.append(el('span', { class: 'menu-swatches' }, ...swatches));
+  screen.append(viewRow, themeRow);
+
+  // ---- your setup: the two that are places, just not places you work -------
+  const setup = group('Your setup');
+  // Moved rather than rebuilt, so the link a page wrote stays the link that
+  // renders — and a page whose script never runs still has it in the bar.
+  const settings = nav.querySelector('a[href$="settings.html"]');
+  if (settings) setup.append(settings);
+  setup.append(el('a', { class: 'backup-link', href: './backup.html', 'data-backup': '' },
+    'Backup', el('span', { class: 'dot', 'aria-hidden': 'true' })));
+
+  nav.append(menu);
+  paintView();
+  paintTheme();
   paintBackup();
+  document.addEventListener('brewkit:theme', paintTheme);
+  prefs.subscribe?.(paintView);
   addEventListener('storage', (e) => {
     if (!e.key || e.key === 'brewkit.backup.v1' || e.key === 'brewkit.shots.v1') paintBackup();
+  });
+
+  // The nav becomes a horizontally scrolling strip below 900px, so an absolutely
+  // positioned panel inside it is clipped by that overflow. Fixed, placed from
+  // the summary's own box, escapes every such context.
+  const place = () => {
+    if (!menu.open) return;
+    const r = btn.getBoundingClientRect();
+    // Clamped to the viewport, because the anchor is not always inside it: below
+    // 900px the nav is a horizontally scrolling strip, so the summary's right
+    // edge can sit past the right of the screen, and aligning to it put a
+    // 239 px panel 121 px off the side of a phone.
+    const w = panel.offsetWidth || 232;
+    const right = Math.min(Math.max(innerWidth - r.right, 8), Math.max(8, innerWidth - w - 8));
+    panel.style.top = `${Math.round(Math.min(r.bottom + 6, Math.max(8, innerHeight - 40)))}px`;
+    panel.style.right = `${Math.round(right)}px`;
+  };
+  menu.addEventListener('toggle', place);
+  addEventListener('resize', place);
+  addEventListener('scroll', place, { passive: true });
+  // Closing: anywhere outside, or Escape. Choosing a theme deliberately does NOT
+  // close it — trying four of them should not cost four trips through the menu.
+  document.addEventListener('click', (e) => {
+    if (menu.open && !menu.contains(e.target)) menu.open = false;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menu.open) { menu.open = false; btn.focus(); }
   });
 }
 
 export function boot() {
   initTheme();
-  mountMode();
-  mountBackup();
   markNav();
+  // After markNav, which reads the nav as the page wrote it — the menu moves the
+  // settings link, and "am I the current page" has to be answered before that.
+  mountMenu();
   // Ask once, in the background: a granted persistent bucket is the difference
   // between a log that survives a full disk and one that quietly does not.
   persist().catch(() => {});
