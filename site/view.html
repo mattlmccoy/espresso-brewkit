@@ -618,6 +618,7 @@ import { scan as scanQr } from './assets/js/core/qrscan.js';
 import { CamScan, codeFrom } from './assets/js/core/camscan.js';
 import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
+import { flowSeries } from './assets/js/core/diagnose.js';
 import { ladder as shotLadder, ladderScale, styleOf }
   from './assets/js/core/styles.js';
 import { shotDial, shotVolume } from './assets/js/core/dial.js';
@@ -1011,8 +1012,17 @@ function drawCurve(f) {
   const box = $('plot');
   const w = Math.max(320, Math.round(box.clientWidth));
   const h = Math.max(180, Math.round(box.clientHeight));
+  // FLOW IS DERIVED, NOT SENT.
+  // The frame carries [t, w] and nothing else, and for a while that was taken
+  // as the reason the phone drew only the yield — but the laptop does not
+  // receive a flow trace either. It differentiates the same array it is
+  // plotting. So does this: the shape of the pour, which is the half of the
+  // chart you actually read while it is running, cost nothing on the wire and
+  // was missing because nobody asked for it.
+  const fs = pts.length > 4 ? flowSeries(pts, 0.8) : [];
   livePlot(box, {
     weight: pts,
+    flow: pts.map(([t], i) => [t, fs[i]]).filter((q) => Number.isFinite(q[1])),
     target: Number.isFinite(f.target) ? f.target : NaN,
     width: w, height: h,
   });
