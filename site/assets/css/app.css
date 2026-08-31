@@ -1035,92 +1035,102 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .source button[aria-pressed="true"] { background: var(--ink); color: var(--tag-fg); }
 
 /* ------------------------------------------------------------------- Pip
-   The coach, built as a terminal pane rather than a drawn character. Four
-   directions were compared and this is the typographic one; see core/pip.js for
-   why building it changed its shape from avatar-plus-bubble into one shell.
-
-   There is nothing here that is not type and a border, which is the point: it
-   inherits every theme without a palette of its own, and it is native to the
-   terminal theme instead of tolerated by it. */
+   A little terminal with a face in it, and what he says spawning off him.
+   See core/pip.js for how the shape got here; the short version is that a box
+   holding a paragraph is a container, and a box holding a seven-character face
+   is a character. Splitting them is what lets him blink without the text
+   jumping. Nothing here is a drawing — it is all type and borders, so he
+   inherits every theme and is native to the terminal one. */
 .pip {
-  /* A LITTLE WINDOW, AND A FIXED ONE.
-     Stretched to the column it was a banner, not a window — what makes a
-     terminal read as a terminal is being a small object sitting on a surface
-     rather than a bar spanning one.
-     Sizing it to its content was the first fix and the wrong one: every
-     message gave a different width, so the window resized on every line, which
-     no terminal does and which reads as jitter. A window has a size and the
-     text wraps inside it. Idle, that leaves a small pane holding one short
-     line, which is exactly what an idle terminal looks like. */
-  width: min(320px, 100%);
+  display: flex; align-items: flex-start; gap: 9px;
+  font-family: var(--mono);
+}
+
+/* ---- him ---------------------------------------------------------------- */
+.pip-box {
+  flex: none;
   border: var(--bw) solid var(--ink);
   border-radius: var(--radius);
   background: var(--panel);
   overflow: hidden;
-  font-family: var(--mono);
 }
-
 .pip-bar {
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 6px;
   background: var(--ink); color: var(--tag-fg);
-  padding: 2px 2px 2px 7px;
-  font: 700 8.5px/1.7 var(--mono); letter-spacing: .09em;
+  padding: 1px 1px 1px 6px;
+  font: 700 8px/1.7 var(--mono); letter-spacing: .12em; text-transform: uppercase;
 }
-.pip-who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* The state word is the colour signal. Nothing else in the pane ever takes a
-   hue, so when this one does, it means something. */
-.pip-state {
-  margin-left: auto; opacity: .72; text-transform: uppercase; white-space: nowrap;
-}
-.pip[data-tone="warn"] .pip-state { color: var(--flag); opacity: 1; }
-.pip[data-tone="good"] .pip-state { color: var(--tag-fg); opacity: 1; }
+.pip-who { opacity: .85; }
 .pip-x {
-  flex: none; width: 15px; height: 15px; padding: 0;
+  flex: none; width: 14px; height: 14px; padding: 0; margin-left: auto;
   font: 700 11px/1 var(--mono);
-  background: none; border: 0; box-shadow: none;
-  color: var(--tag-fg); opacity: .7; cursor: pointer; border-radius: 0;
+  background: none; border: 0; box-shadow: none; border-radius: 0;
+  color: var(--tag-fg); opacity: .65; cursor: pointer;
 }
 .pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--tag-fg) 22%, transparent); }
 
-.pip-line {
-  display: flex; align-items: baseline; gap: 7px;
-  padding: 6px 8px 7px;
-  min-width: 0;
+.pip-screen {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 8px 6px;
 }
-/* The face never wraps and never shrinks — a face broken across two lines is
-   not a face. */
+/* white-space:pre so the spaces a glance shifts him by are kept, and the seven
+   cells stay seven cells. */
 .pip-face {
-  flex: none; font: 700 12.5px/1.35 var(--mono);
-  letter-spacing: .02em; white-space: pre;
+  font: 700 12.5px/1.3 var(--mono); white-space: pre; letter-spacing: .01em;
 }
 .pip[data-tone="warn"] .pip-face { color: var(--warn); }
-.pip-text {
-  margin: 0; flex: 0 1 auto; min-width: 0;
-  font: 400 11px/1.4 var(--mono); color: var(--ink);
-}
-.pip-say:not(:empty) { margin-right: .45em; }
-
-/* The caret is the whole of "still here" — it is what says Pip is watching a
-   shot he has nothing to say about yet. Inline, so it trails the last character
-   of the message and wraps with it. */
 .pip-caret {
-  display: inline-block; vertical-align: -.14em;
-  width: .55em; height: 1.05em;
+  flex: none; width: .5em; height: 1em;
   background: var(--ink);
+  font-size: 12.5px;
 }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }
 
-/* Arriving, rather than appearing. One line of height, so nothing below it
-   moves when Pip finds something to say. */
-/* Opacity only, and deliberately NOT display:inline-block.
-   Making the message an inline-block so a transform would bite turned it into
-   an atomic box: the caret was pushed onto a line of its own, and the
-   paragraph's baseline became the box's LAST line, which dropped the face below
-   the first line of what it was saying. Both went away with the transform. */
-@keyframes pip-in { from { opacity: 0; } }
-.pip.is-talking .pip-say { animation: pip-in .2s ease-out; }
+/* ---- what he says ------------------------------------------------------- */
+.pip-bubble {
+  position: relative;
+  max-width: 30ch;
+  margin-top: 6px;
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 6px 9px 7px;
+}
+.pip-bubble[hidden] { display: none; }
+/* The tail, pointing back at him. Two triangles: the outer one is the border,
+   the inner one covers it with the panel so the outline reads as continuous. */
+.pip-bubble::before,
+.pip-bubble::after {
+  content: ''; position: absolute; top: 9px;
+  width: 0; height: 0; border-style: solid;
+}
+.pip-bubble::before {
+  left: calc(-8px - var(--bw));
+  border-width: 7px 8px 7px 0;
+  border-color: transparent var(--ink) transparent transparent;
+}
+.pip-bubble::after {
+  left: -8px;
+  border-width: 6px 7px 6px 0;
+  border-color: transparent var(--panel) transparent transparent;
+}
+.pip-say {
+  margin: 0; font: 400 11px/1.45 var(--mono); color: var(--ink);
+  /* Reserves the line while it types, so the bubble does not grow a row
+     mid-sentence and nudge whatever is under it. */
+  min-height: 1.45em;
+}
+/* The live region carries the whole line for a screen reader; the visible copy
+   is typed, and announcing that would spell it out letter by letter. */
+.pip-live {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+@keyframes pip-pop { from { opacity: 0; transform: translateX(-4px); } }
+.pip-bubble { animation: pip-pop .16s ease-out; }
 
 @media (prefers-reduced-motion: reduce) {
-  .pip-caret, .pip.is-talking .pip-say { animation: none; }
+  .pip-caret, .pip-bubble { animation: none; }
 }

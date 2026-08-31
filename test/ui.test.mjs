@@ -1290,11 +1290,19 @@ try {
     const adv = (ch) => { probe.textContent = ch; return probe.getBoundingClientRect().width; };
     const unit = adv('o');
     const missing = [];
-    for (const face of Object.values(FACES)) {
-      for (const ch of [...face]) {
-        if (ch === ' ') continue;
-        if (Math.abs(adv(ch) - unit) > 0.02) {
-          missing.push(ch + ' U+' + ch.codePointAt(0).toString(16).padStart(4, '0'));
+    const wrongWidth = [];
+    for (const [mood, set] of Object.entries(FACES)) {
+      const all = [set.open, set.blink, ...(set.glance || [])].filter(Boolean);
+      for (const face of all) {
+        // Every variant has to be the same LENGTH as the open face as well as
+        // being in the font: a blink that is one cell wider shoves the box
+        // sideways every time he blinks.
+        if ([...face].length !== [...set.open].length) wrongWidth.push(`${mood}:${face}`);
+        for (const ch of [...face]) {
+          if (ch === ' ') continue;
+          if (Math.abs(adv(ch) - unit) > 0.02) {
+            missing.push(ch + ' U+' + ch.codePointAt(0).toString(16).padStart(4, '0'));
+          }
         }
       }
     }
@@ -1303,10 +1311,16 @@ try {
       hidden: host.hidden,
       bar: !!host.querySelector('.pip-who'),
       face: (host.querySelector('.pip-face') || {}).textContent || '',
-      // The caret belongs inside the line of text, which is what makes it
-      // trail the message rather than sit at the far edge of the pane.
-      caretInline: !!host.querySelector('.pip-text .pip-caret'),
+      // The caret lives in HIS box, beside the face — it is what says he is
+      // still there when he has nothing to say.
+      caretOnHim: !!host.querySelector('.pip-box .pip-caret'),
+      // And what he says is NOT in the box. That separation is the whole
+      // reason he can blink: nothing else is in there to be disturbed.
+      sayOutside: !!host.querySelector('.pip-bubble .pip-say')
+        && !host.querySelector('.pip-box .pip-say'),
       missing,
+      wrongWidth,
+      faces: FACES,
       unit: +unit.toFixed(2),
     };
     // Dismissing is not "hide this message" — it is being told to go away.
@@ -1331,28 +1345,58 @@ try {
     host.hidden = false;
     const pip = mountPip(host);
     const col = host.parentElement.getBoundingClientRect().width;
-    const w = () => host.getBoundingClientRect().width;
+    const him = () => host.querySelector('.pip-box').getBoundingClientRect();
+    const row = () => host.getBoundingClientRect().width;
     pip.mood('idle');
-    const quiet = w();
+    const quiet = { w: him().width, h: him().height, row: row() };
     pip.say('Flow jumped.', { mood: 'alert' });
-    const short = w();
+    const short = { w: him().width, h: him().height, row: row() };
     pip.say('Your last six shots on this setting ranged 21 to 39 s. That spread '
       + 'is the puck, not the grind.', { mood: 'think' });
-    const long = w();
-    return { col: Math.round(col), quiet: Math.round(quiet),
-      short: Math.round(short), long: Math.round(long) };
+    const long = { w: him().width, h: him().height, row: row() };
+    return { col: Math.round(col),
+      quiet: { w: Math.round(quiet.w), h: Math.round(quiet.h), row: Math.round(quiet.row) },
+      short: { w: Math.round(short.w), h: Math.round(short.h), row: Math.round(short.row) },
+      long: { w: Math.round(long.w), h: Math.round(long.h), row: Math.round(long.row) } };
   });
-  t('pip: is a little window, not a bar stretched across the column',
-    pipBox.quiet > 0 && pipBox.quiet < pipBox.col * 0.6,
-    `${pipBox.quiet} px in a ${pipBox.col} px column`);
-  t('pip: keeps one size whatever it is saying, the way a window does',
-    pipBox.quiet === pipBox.short && pipBox.short === pipBox.long,
-    `idle ${pipBox.quiet}, short ${pipBox.short}, long ${pipBox.long}`);
+  t('pip: he is a small box, not a bar stretched across the column',
+    pipBox.quiet.w > 0 && pipBox.quiet.w < 120 && pipBox.quiet.row < pipBox.col * 0.25,
+    `${pipBox.quiet.w}\u00d7${pipBox.quiet.h} px, taking ${pipBox.quiet.row} of a `
+    + `${pipBox.col} px column when silent`);
+  // HE never changes size — only the bubble beside him comes and goes. This is
+  // the contract that stops a blink or a new line from nudging the layout, and
+  // it is why the message had to leave the box.
+  t('pip: stays exactly the same size whatever he says',
+    pipBox.quiet.w === pipBox.short.w && pipBox.short.w === pipBox.long.w
+    && pipBox.quiet.h === pipBox.short.h && pipBox.short.h === pipBox.long.h,
+    `${pipBox.quiet.w}\u00d7${pipBox.quiet.h} idle, ${pipBox.short.w}\u00d7${pipBox.short.h} `
+    + `short, ${pipBox.long.w}\u00d7${pipBox.long.h} long`);
 
-  t('pip: is on the page as a prompt, with a face and a caret that trails it',
+  t('pip: every face variant is the same width, so a blink cannot move the box',
+    pipWire.before.wrongWidth.length === 0,
+    pipWire.before.wrongWidth.join(', ') || 'all variants the same cell count');
+  t('pip: is a little terminal with a face and a caret, and speaks outside it',
     pipWire.before.bar && /\[.+\]/.test(pipWire.before.face)
-    && pipWire.before.caretInline && !pipWire.before.hidden,
-    `${pipWire.before.face}, caret in the line ${pipWire.before.caretInline}`);
+    && pipWire.before.caretOnHim && pipWire.before.sayOutside && !pipWire.before.hidden,
+    `${pipWire.before.face}, caret on him ${pipWire.before.caretOnHim}, `
+    + `speech outside ${pipWire.before.sayOutside}`);
+  // He has to have somewhere to go. The timers themselves are ordinary
+  // setTimeout; what could actually be wrong is the variants, so those are what
+  // is checked — each present mood needs a shut-eyed face or somewhere to look
+  // that is not where he is already looking.
+  {
+    const f = pipWire.before.faces;
+    const alive = ['idle', 'watch', 'think'].every((m) => f[m].blink
+      && f[m].blink !== f[m].open
+      && f[m].glance.length >= 2
+      && f[m].glance.every((g) => g !== f[m].open));
+    // And the three that should hold still: staring, smiling, already shut.
+    const still = ['alert', 'pleased', 'flat'].every((m) => !f[m].blink && !f[m].glance.length);
+    t('pip: blinks and glances when he is watching, and holds still when he is not',
+      alive && still,
+      `${f.watch.open} \u2192 ${f.watch.blink} \u2192 ${f.watch.glance.join(' ')}; `
+      + `alert holds ${f.alert.open}`);
+  }
   t('pip: dismissing him turns him off for good, not just for now',
     pipWire.after.hidden && pipWire.after.pref === false,
     `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
@@ -1377,8 +1421,17 @@ try {
     window.__view.paint({ ...base, pip: null });
     const before = { hidden: host.hidden, mounted: !!host.querySelector('.pip-face') };
     window.__view.paint({ ...base, pip: { text: 'Flow jumped.', mood: 'alert' } });
-    await new Promise((r) => setTimeout(r, 40));
+    // The visible line is TYPED, so reading it straight away catches it
+    // mid-word — the first version of this test read "Flo". The hidden live
+    // region gets the whole line at once, which is the contract that matters
+    // for a screen reader; the visible copy is waited for.
+    const early = (host.querySelector('.pip-live') || {}).textContent;
+    for (let i = 0; i < 60; i++) {
+      if ((host.querySelector('.pip-say') || {}).textContent === 'Flow jumped.') break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
     const on = { hidden: host.hidden, mood: host.dataset.mood,
+      early,
       says: (host.querySelector('.pip-say') || {}).textContent,
       face: (host.querySelector('.pip-face') || {}).textContent };
     // And when the laptop stops saying anything the pane goes quiet rather than
@@ -1396,6 +1449,9 @@ try {
     !phoneCoach.on.hidden && phoneCoach.on.says === 'Flow jumped.'
     && phoneCoach.on.mood === 'alert' && /\[.+\]/.test(phoneCoach.on.face),
     `${phoneCoach.on.face} ${phoneCoach.on.mood}: ${phoneCoach.on.says}`);
+  t('phone: a screen reader gets the whole line at once, not one letter at a time',
+    phoneCoach.on.early === 'Flow jumped.',
+    `live region had "${phoneCoach.on.early}" while the visible copy was still typing`);
   t('phone: goes quiet without vanishing when the laptop stops',
     !phoneCoach.quiet.hidden && phoneCoach.quiet.says === '' && phoneCoach.quiet.caret,
     `pane kept, caret still there: ${phoneCoach.quiet.caret}`);
@@ -6184,10 +6240,11 @@ try {
   t('palette: muted text clears AA, since it carries the instructions',
     themes.every((th) => palette[th].mute >= 4.5),
     `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
-  // Pip is type now, not a drawing, so the pairs worth checking are the ones
-  // the pane actually paints: the title bar's text on the bar, the message on
-  // the panel, and the face when a mood gives it a colour. Measured off the
-  // mounted component rather than off tokens, so a cascade problem counts too.
+  // Pip is type, not a drawing, so the pairs worth checking are the ones he
+  // actually paints: his title bar's text on the bar, his face on his screen,
+  // and the message on the bubble. Measured off the mounted component rather
+  // than off tokens, so a cascade problem counts too — and he has to be made to
+  // SAY something first, because the bubble does not exist while he is quiet.
   await page.goto(B + '/live.html?mock=lefu&noshot=1');
   await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
   const pip = await page.evaluate(async () => {
@@ -6196,8 +6253,11 @@ try {
     prefs.set({ coach: true });
     const root = document.documentElement;
     const had = root.getAttribute('data-theme');
+    const { mountPip } = await import('./assets/js/core/pip.js');
     const host = document.getElementById('pip');
     host.hidden = false;
+    const pip = mountPip(host);
+    pip.say('Flow jumped.', { mood: 'alert' });
     const rgb = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
     const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
@@ -6208,13 +6268,14 @@ try {
       host.dataset.tone = 'warn';
       const bar = getComputedStyle(host.querySelector('.pip-bar'));
       const who = getComputedStyle(host.querySelector('.pip-who'));
-      const pane = getComputedStyle(host);
-      const txt = getComputedStyle(host.querySelector('.pip-text'));
+      const boxBg = getComputedStyle(host.querySelector('.pip-box'));
+      const bubble = getComputedStyle(host.querySelector('.pip-bubble'));
+      const txt = getComputedStyle(host.querySelector('.pip-say'));
       const face = getComputedStyle(host.querySelector('.pip-face'));
       out[th] = {
         bar: +ratio(rgb(who.color), rgb(bar.backgroundColor)).toFixed(2),
-        body: +ratio(rgb(txt.color), rgb(pane.backgroundColor)).toFixed(2),
-        warn: +ratio(rgb(face.color), rgb(pane.backgroundColor)).toFixed(2),
+        body: +ratio(rgb(txt.color), rgb(bubble.backgroundColor)).toFixed(2),
+        warn: +ratio(rgb(face.color), rgb(boxBg.backgroundColor)).toFixed(2),
       };
       host.dataset.tone = '';
     }
@@ -6223,7 +6284,7 @@ try {
     return out;
   });
   const pt = Object.keys(pip);
-  t('palette: Pip reads in every theme, bar and body and the mood that takes colour',
+  t('palette: Pip reads in every theme \u2014 his bar, his face, and what he says',
     pt.every((th) => pip[th].bar >= 4.5 && pip[th].body >= 4.5 && pip[th].warn >= 4.5),
     pt.map((th) => `${th} ${pip[th].bar}/${pip[th].body}/${pip[th].warn}`).join(' \u00b7 '));
 
