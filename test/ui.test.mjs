@@ -7857,6 +7857,138 @@ try {
     await yl.close();
   }
 
+  /* --------------------------- he never sits on top of a control */
+  {
+    // THE STANDING GUARD, not a fix for one collision.
+    //
+    // He is an overlay now, and an overlay's whole risk is that it covers
+    // something you need. It did: pinned to the brewing screen he landed on the
+    // history strip and hid the buttons for the shots you were comparing
+    // against. The cause was subtle enough to be worth catching by machine
+    // rather than by eye — `position: fixed` resolves against the nearest
+    // ancestor carrying a transform, and the brew panel has an entrance
+    // animation whose identity matrix never goes away, so "bottom left of the
+    // window" quietly meant "bottom left of the panel".
+    //
+    // So this asserts the property rather than the fix: wherever he is, on
+    // whatever page, in whatever state, nothing you can click is underneath
+    // him. Any future change that moves a control under him, or that wraps his
+    // slot in something animated, fails here.
+    const SEL = 'button, a[href], input, select, textarea, [role="button"],'
+      + ' [tabindex]:not([tabindex="-1"])';
+    const probe = (sel) => {
+      const dock = document.getElementById('pip-dock');
+      const box = dock?.querySelector('.pip-box');
+      const p = box?.getBoundingClientRect();
+      if (!p || !p.width) return { pip: null, hits: [] };
+      // A pixel of tolerance: a shared border is a touch, not a cover.
+      const over = (r) => r.right > p.left + 1 && r.left < p.right - 1
+        && r.bottom > p.top + 1 && r.top < p.bottom - 1;
+      const hits = [];
+      for (const el of document.querySelectorAll(sel)) {
+        if (dock.contains(el)) continue;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height || r.bottom < 0 || r.top > innerHeight) continue;
+        const cs = getComputedStyle(el);
+        if (cs.visibility === 'hidden' || cs.display === 'none') continue;
+        if (over(r)) {
+          hits.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`
+            + ` "${(el.textContent || '').trim().slice(0, 20)}"`);
+        }
+      }
+      return { pip: { x: Math.round(p.left), y: Math.round(p.top) }, hits };
+    };
+
+    const covered = [];
+    for (const name of ['shots', 'advisor', 'kit', 'lab', 'settings']) {
+      const p = await ctx.newPage();
+      await p.setViewportSize({ width: 1280, height: 900 });
+      await p.goto(`${B}/${name}.html`);
+      await p.waitForTimeout(350);
+      const r = await p.evaluate(probe, SEL);
+      if (r.hits.length) covered.push(`${name}: ${r.hits.join(', ')}`);
+      await p.close();
+    }
+    t('pip: on every page he sits clear of everything you can click',
+      covered.length === 0, covered.join(' | ') || 'nothing underneath him anywhere');
+
+    // AND ON THE BREWING SCREEN, where he is pinned and cannot be moved out of
+    // the way — idle, and again in a replay, which is the state that has a
+    // transport bar and a history strip competing for the same corner.
+    const lp = await ctx.newPage();
+    await lp.setViewportSize({ width: 1280, height: 900 });
+    await lp.goto(`${B}/live.html?mock=lefu&noshot=1`);
+    await lp.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+    // A log to compare against, so the history strip is actually populated —
+    // an empty strip has no buttons and would let this pass without testing.
+    await lp.evaluate(async () => {
+      const store = await import('./assets/js/core/store.js');
+      const { encodeCurve } = await import('./assets/js/core/schema.js');
+      store.clear();
+      // With a real curve each: the strip only shows shots it can draw, so a
+      // shot without one leaves it empty and the check below passes on nothing.
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.25) {
+        const q = t < 5 ? 0.9 : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03;
+        w += q * 0.25; c.push([+t.toFixed(2), +w.toFixed(2)]);
+      }
+      const curve = encodeCurve(c);
+      for (let i = 0; i < 3; i++) {
+        store.add({ bean_name: 'Test', dose_g: 18, yield_g: 36, time_s: 27 + i,
+          grind_setting: 7.5, rating: 7, curve });
+      }
+    });
+    await lp.reload();
+    await lp.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+    await lp.waitForTimeout(400);
+    const idle = await lp.evaluate(probe, SEL);
+    const strip = await lp.evaluate(() =>
+      document.querySelectorAll('#history button').length);
+    t('pip: and on the brewing screen, over none of the shots you are comparing with',
+      idle.hits.length === 0 && strip > 0,
+      idle.hits.length ? `covers ${idle.hits.join(', ')}`
+        : `${strip} shots in the strip, none underneath him`);
+
+    // A fixed overlay is only fixed to the window when nothing above it has a
+    // transform. The brew panel animates in, and its identity matrix outlives
+    // the animation — which is exactly how he ended up inside the panel.
+    const trapped = await lp.evaluate(() => {
+      const dock = document.getElementById('pip-dock');
+      const bad = [];
+      for (let el = dock.parentElement; el && el !== document.documentElement; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.transform !== 'none' || cs.perspective !== 'none' || cs.filter !== 'none'
+          || /paint|layout|strict|content/.test(cs.contain || '')) {
+          bad.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`);
+        }
+      }
+      return bad;
+    });
+    t('pip: nothing above him captures a fixed overlay, so the window is what he is fixed to',
+      trapped.length === 0, trapped.join(', ') || 'no transformed ancestors');
+
+    await lp.evaluate(async () => {
+      const store = await import('./assets/js/core/store.js');
+      const { encodeCurve } = await import('./assets/js/core/schema.js');
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.25) {
+        const q = t < 5 ? 0.9 : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03;
+        w += q * 0.25; c.push([+t.toFixed(2), +w.toFixed(2)]);
+      }
+      const rec = store.add({ bean_name: 'Watched', dose_g: 18, yield_g: 36, time_s: 20,
+        grind_setting: 7.5, curve: encodeCurve(c) });
+      window.__replay.open(c, rec);
+    });
+    await lp.waitForTimeout(600);
+    const inReplay = await lp.evaluate(probe, SEL);
+    const isReplaying = await lp.evaluate(() => !!window.__replay.now);
+    t('pip: and in a replay, clear of the transport you drive it with',
+      isReplaying && inReplay.hits.length === 0,
+      inReplay.hits.length ? `covers ${inReplay.hits.join(', ')}`
+        : `replaying, he is at ${inReplay.pip?.x},${inReplay.pip?.y} with nothing under him`);
+    await lp.close();
+  }
+
   /* ----------------------------------------- every page still parses at all */
   {
     // `npm run check` node --check's the JS modules and cannot see the inline
