@@ -7566,6 +7566,60 @@ try {
     await real.close();
   }
 
+  /* ------------------- the other shape a failing bed makes: a steep climb */
+  {
+    // A channel is a step, and the step detector is the confident signal. But a
+    // bed can widen gradually instead of giving way at once, which leaves a
+    // climb too steep for erosion and never a discontinuity. The danger in
+    // adding this is obvious — it is a slope rule, and a slope rule is what
+    // called every healthy shot a channel in the first place — so the whole
+    // test is whether it stays quiet on shots shaped like real ones.
+    const cl = await ctx.newPage();
+    await cl.goto(`${B}/live.html`);
+    const climb = await cl.evaluate(async () => {
+      const D = await import('./assets/js/core/diagnose.js');
+      const build = (q) => {
+        const c = []; let w = 0;
+        for (let t = 0; t <= 30; t += 0.05) { w += Math.max(0, q(t)) * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]); }
+        return c;
+      };
+      const read = (curve, extra) => {
+        const m = D.curveMetrics(curve);
+        return { m, codes: D.diagnose({ ...m, time_s: m.duration_s, ...extra }).map((x) => x.code) };
+      };
+      return {
+        // Shaped like the real shots: spike, plateau, steady climb to 2.8.
+        ordinary: read(build((t) => (t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9
+          : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03)), { ratio: 2 }),
+        // 1 to 4 g/s in five seconds, smoothly — no step anywhere in it.
+        steep: read(build((t) => (t < 2 ? 0 : t < 5 ? 0.9
+          : t < 10 ? 0.9 + (t - 5) * 0.62 : t < 20 ? 4 : 0.03)), { ratio: 2 }),
+        // A real step must still be reported as a step, not as a steep climb.
+        stepped: read(build((t) => (t < 2 ? 0 : t < 5 ? (t - 2) * 0.5
+          : t < 16 ? 1.4 : t < 28 ? 2.5 : 0.04)), { ratio: 2.4 }),
+        flag: D.CLIMB_FLAG,
+      };
+    });
+    t('physics: an ordinary climb is not called a steep one',
+      !climb.ordinary.codes.includes('flow_climb'),
+      `climbed ${climb.ordinary.m.flow_climb} g/s² against a ${climb.flag} threshold`);
+    t('physics: a climb far too steep for erosion is reported, without a step in it',
+      climb.steep.codes.includes('flow_climb') && climb.steep.m.flow_step === null,
+      `climb ${climb.steep.m.flow_climb}, step ${climb.steep.m.flow_step}`);
+    // Two readings of one event would be the app talking twice about the same
+    // thing and sounding twice as sure.
+    t('physics: a step is reported as a step and not also as a climb',
+      climb.stepped.codes.includes('flow_step') && !climb.stepped.codes.includes('flow_climb'),
+      climb.stepped.codes.join(','));
+    // The steepest part of every healthy shot is the machine reaching pressure,
+    // at 5 to 7.5 s on all four real ones. Measuring from zero would find that
+    // ramp every time, which is the mistake this whole file is about.
+    t('physics: the climb is measured past the machine coming up to pressure',
+      climb.ordinary.m.flow_climb !== null && climb.ordinary.m.flow_climb_at > 5,
+      `steepest at ${climb.ordinary.m.flow_climb_at} s`);
+    await cl.close();
+  }
+
   /* --------------------------- one detector, not three that disagree */
   {
     // The same question was answered by three different implementations — the
