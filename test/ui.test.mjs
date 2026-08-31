@@ -3140,7 +3140,63 @@ try {
     overridden.after === overridden.mine && overridden.other !== overridden.mine,
     `chose ${overridden.mine}, laptop then sent ${overridden.other}, still ${overridden.after}`);
 
+  // THE PHONE DRAWS BOTH SERIES, not just the yield.
+  //
+  // It drew only the yield for a long time on the assumption that flow would
+  // have to be sent and the frame did not carry it. The laptop does not receive
+  // a flow trace either — it differentiates the [t, w] array it is already
+  // plotting, and so can the phone. The half of the chart that says whether the
+  // pour is running fast or choking was missing for nothing.
+  // [t, w] PAIRS, because that is what comes off the wire: frameOf packs the
+  // laptop's {t, w} rows into pairs before sending. A fixture in the laptop's
+  // shape tests a frame the phone never receives.
+  const realShot = Array.from({ length: 60 }, (_, i) => {
+    const t = i * 0.5;
+    return [+t.toFixed(1), +(t < 4 ? 0 : (t - 4) * 1.35).toFixed(2)];
+  });
+  const traces = async (curve) => {
+    await watch.evaluate((c) => window.__view.paint({
+      k: 'f', w: c.length ? c.at(-1)[1] : 0, q: 1.35, t: 30, st: 'extracting',
+      step: 'brew', phase: 'fill', method: 'espresso', dose: 18, target: 36,
+      tol: 1.5, lag: 1, curve: c,
+    }), curve);
+    await watch.waitForTimeout(150);
+    return watch.evaluate(() => ({
+      weight: document.querySelectorAll('#plot path.weightline').length,
+      flow: document.querySelectorAll('#plot path.flowline').length,
+      // The flow axis and its label go up together with the trace, and must not
+      // go up without it.
+      label: [...document.querySelectorAll('#plot .axis-label')]
+        .map((n) => n.textContent).join(' | '),
+      alt: document.querySelectorAll('#plot .tick-alt').length,
+    }));
+  };
+  const drawn = await traces(realShot);
+  t('viewer: the phone plots the flow of the pour, not only its weight',
+    drawn.weight === 1 && drawn.flow === 1,
+    `${drawn.weight} weight trace, ${drawn.flow} flow trace`);
+  t('viewer: and labels the axis it just drew, so the second line is readable',
+    /flow \(g\/s\)/.test(drawn.label) && drawn.alt > 0,
+    `labels: ${drawn.label} · ${drawn.alt} flow ticks`);
+  // The counterpart, which is the bug this replaces rather than repeats: a
+  // curve too short to differentiate must not put up an axis for a line that
+  // is not there.
+  const stub = await traces(realShot.slice(0, 3));
+  t('viewer: a curve too short to differentiate draws no orphan flow axis',
+    stub.flow === 0 && stub.alt === 0 && !/flow/.test(stub.label),
+    `${stub.flow} flow traces, ${stub.alt} flow ticks, labels: ${stub.label}`);
+
   // An iPad has room for the number and the dial at once.
+  //
+  // Painted explicitly rather than read off whatever the test above left on
+  // screen. It used to inherit that, which meant a test that changed the last
+  // frame — this file's flow-trace fixtures did — silently emptied the dial
+  // here and failed a check about the iPad layout for a reason that had nothing
+  // to do with the iPad.
+  await watch.evaluate(() => window.__view.paint({
+    k: 'f', w: 24, q: 1.9, t: 14.3, st: 'extracting', step: 'brew', phase: 'fill',
+    method: 'espresso', dose: 18, target: 36, tol: 1.5, lag: 1, curve: [],
+  }));
   await watch.setViewportSize({ width: 834, height: 1112 });
   await watch.waitForTimeout(150);
   const tablet = await watch.evaluate(() => {

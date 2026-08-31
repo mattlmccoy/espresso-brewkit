@@ -472,9 +472,11 @@ export function livePlot(container, {
     el('text', { x: m.l - 7, y: sy(w) + 4, class: 'tick', 'text-anchor': 'end' }, svg)
       .textContent = fmtTick(w);
   }
-  // Only when there is a flow series to scale. The viewer passes weight and a
-  // target and no flow at all, and this drew it a full g/s axis — six numbers
-  // in the flow colour, for a line that is not on the chart.
+  // Only when there is a flow series to scale — an axis for a line that is not
+  // on the chart is six numbers in the flow colour explaining nothing. The
+  // viewer used to be the standing example of that, sending weight and a target
+  // and no flow; it derives flow now, but a curve too short to differentiate
+  // still arrives here with an empty series, which is the same case.
   if (hasFlow) {
     for (const f of ticks(0, fMax, 4)) {
       el('text', { x: m.l + iw + 7, y: sf(f) + 4, class: 'tick tick-alt', 'text-anchor': 'start' }, svg)
