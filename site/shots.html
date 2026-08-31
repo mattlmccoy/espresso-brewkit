@@ -89,6 +89,7 @@
 <script type="module">
 import { boot, fmt, el } from './assets/js/ui.js';
 import { installPip } from './assets/js/core/pip.js';
+import * as coach from './assets/js/core/coach.js';
 import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
@@ -104,6 +105,10 @@ import * as replay from './assets/js/core/replay.js';
 boot();
 
 const $ = (id) => document.getElementById(id);
+
+// Installed here rather than at the foot of the module: a const is in the
+// temporal dead zone for every line above it, and these pages render on load.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 const F = (v) => (typeof v === 'number' ? v
   : v === '' || v === null || v === undefined ? NaN : Number(v));
 let selected = location.hash.slice(1) || null;
@@ -222,6 +227,8 @@ function comparison(shot, all) {
 }
 
 function renderDetail() {
+  // After the panel, so he is reading the shot that is on screen.
+  queueMicrotask(pipOnShot);
   const holder = $('detail');
   holder.replaceChildren();
   const all = store.all();
@@ -412,7 +419,23 @@ render();
 // He is on every page. The switch, the question the x asks and the way back
 // are the shared arrangement; what he says here is this page's business, and
 // on a page with nothing to add he says nothing and simply keeps you company.
-const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
+
+/**
+ * What he adds here that the page does not already say.
+ *
+ * The findings panel reads THIS shot on its own — first drip, peak flow, a step
+ * in the curve. coach.after reads it against the rest of the log, which is a
+ * different question and the one you came to the log with: was this one unusual
+ * for me, or is this just what my shots do. Repeating the findings back would
+ * be the assistant leaning in to tell you what you are already looking at.
+ */
+function pipOnShot() {
+  const shot = selected ? store.all().find((r) => r.shot_id === selected) : null;
+  if (!shot) { pip.hide(); return; }
+  const notes = coach.after(shot, store.all());
+  if (!notes.length) { pip.hide(); return; }
+  pip.say(notes[0].text, { mood: notes[0].mood, ms: 1e6 });
+}
 </script>
 </body>
 </html>

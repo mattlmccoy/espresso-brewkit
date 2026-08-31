@@ -101,6 +101,7 @@
 <script type="module">
 import { boot, fmt, el } from './assets/js/ui.js';
 import { installPip } from './assets/js/core/pip.js';
+import * as coach from './assets/js/core/coach.js';
 import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
@@ -113,6 +114,10 @@ import { recommendGrind, suggestByTaste, resistanceRows, fitResistance, finerDir
 boot();
 
 const $ = (id) => document.getElementById(id);
+
+// Installed here rather than at the foot of the module: a const is in the
+// temporal dead zone for every line above it, and these pages render on load.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
 
 function fillSelects() {
@@ -315,6 +320,9 @@ function renderDiag(shots) {
   }
 }
 
+// The bag the page is currently about, so Pip reads the same choice you made.
+let picked = null;
+
 function render() {
   fillSelects();
   const shots = store.all();
@@ -322,7 +330,7 @@ function render() {
   // only the shots pulled from that portion — so a coffee you had pulled twenty
   // shots of arrived at the model as four, five and three, and it said nothing
   // about any of them. They are the same beans.
-  const picked = $('bag').value || null;
+  picked = $('bag').value || null;
   const bagId = picked ? kit.sameBeans(picked) : null;
   const grinderId = $('grinder').value || null;
   const g = grinderId ? kit.grinder(grinderId) : null;
@@ -330,6 +338,7 @@ function render() {
   renderTaste(shots, bagId, grinderId, g);
   renderResistance(shots, bagId, grinderId);
   renderDiag(shots);
+  pipOnAdvice();
 }
 
 for (const id of ['bag','grinder','cur','t-time','t-dose','t-ratio']) {
@@ -344,7 +353,32 @@ render();
 // He is on every page. The switch, the question the x asks and the way back
 // are the shared arrangement; what he says here is this page's business, and
 // on a page with nothing to add he says nothing and simply keeps you company.
-const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
+
+/**
+ * What he adds here that the page does not already say.
+ *
+ * The page answers "what should I set the grinder to". It does not answer
+ * "where were you last time and where did that get you" — carryOver does, from
+ * the shot you rated best on this coffee against the one you actually pulled
+ * last, which is the thing you forget between sessions and cannot read off a
+ * fitted line. And when there is no such pattern, whether this coffee is even
+ * in its rest window yet, since a recommendation about grind on a three-day-old
+ * bag is answering the wrong question.
+ *
+ * If neither has anything, he says nothing. Restating the recommendation in a
+ * speech bubble beside the recommendation is exactly the assistant nobody wants.
+ */
+function pipOnAdvice() {
+  const bag = picked ? kit.bag(picked) : null;
+  const grinder = $('grinder').value ? kit.grinder($('grinder').value) : null;
+  const carry = coach.carryOver({
+    bag, grinder, history: store.all(), grindSetting: num('cur'),
+  });
+  if (carry?.say) { pip.say(carry.say, { mood: 'think', ms: 1e6 }); return; }
+  const rest = coach.restWindow(bag);
+  if (rest) { pip.say(rest, { mood: 'think', ms: 1e6 }); return; }
+  pip.hide();
+}
 </script>
 </body>
 </html>

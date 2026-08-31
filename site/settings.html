@@ -222,6 +222,10 @@ import { DEFAULTS as TAP_DEFAULTS } from './assets/js/core/tap.js';
 boot();
 const $ = (id) => document.getElementById(id);
 
+// Installed here rather than at the foot of the module: a const is in the
+// temporal dead zone for every line above it, and these pages render on load.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
+
 /* ------------------------------------------------------------------ theme */
 // Named for what it is rather than shown as a cycle button: five themes behind
 // one button meant clicking four times to see the third one.
@@ -470,7 +474,6 @@ paintPrefs();
 // He is on every page. The switch, the question the x asks and the way back
 // are the shared arrangement; what he says here is this page's business, and
 // on a page with nothing to add he says nothing and simply keeps you company.
-const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 </script>
 </body>
 </html>

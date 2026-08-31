@@ -7406,6 +7406,145 @@ try {
         : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
   }
 
+  /* ------------------------------------- a channel is a step, not a slope */
+  {
+    // THE PHYSICS. Flow CLIMBING is what an ordinary shot does: puck resistance
+    // falls as the bed saturates and erodes, so at constant pressure the flow
+    // rises through most of a healthy pour. A channel is a discontinuity — an
+    // abrupt jump — not a gentle rise.
+    //
+    // diagnose() and coach.live() were both corrected to that reading and the
+    // live banner was left behind, still firing on a least-squares slope at
+    // 0.05 g/s² and telling people an intact puck should be sagging by now. So
+    // the app held two opinions about the same physics and showed the wrong one
+    // during the shot, which is the one you act on.
+    const phys = await ctx.newPage();
+    await phys.goto(`${B}/live.html`);
+    const read = await phys.evaluate(async () => {
+      const R = await import('./assets/js/core/replay.js');
+      const C = await import('./assets/js/core/coach.js');
+      const build = (q) => {
+        const pts = []; let w = 0;
+        for (let i = 0; i <= 140; i++) {
+          const tt = +(i * 0.25).toFixed(2);
+          w += Math.max(0, q(tt)) * 0.25;
+          pts.push([tt, +w.toFixed(3)]);
+        }
+        return R.prepare(pts);
+      };
+      // A healthy shot: flow rises steadily all the way through, 0.9 to 2.5.
+      const healthy = build((t) => (t < 5 ? 0 : 0.9 + (t - 5) * 0.055));
+      // A channel: the same opening, then an abrupt jump at 14 s.
+      const channel = build((t) => (t < 5 ? 0 : t < 14 ? 0.9 + (t - 5) * 0.05 : 2.9));
+      const said = (d) => R.saidDuring(d, C.live, { target: 36 })
+        .filter((l) => /jump|channel/i.test(l.text));
+      return { healthy: said(healthy), channel: said(channel) };
+    });
+    await phys.close();
+    t('physics: a shot whose flow climbs all the way through is not called a channel',
+      read.healthy.length === 0,
+      read.healthy.length
+        ? `warned on a healthy rise: "${read.healthy[0].text}"`
+        : 'silent through a 0.9 to 2.5 g/s climb');
+    t('physics: and an abrupt jump in the flow is',
+      read.channel.length === 1 && Math.abs(read.channel[0].at - 14) < 2.5,
+      read.channel.length
+        ? `"${read.channel[0].text}" at ${read.channel[0].at} s`
+        : 'said nothing about a 90% jump');
+  }
+
+  /* ----------------------------------------- every page still parses at all */
+  {
+    // `npm run check` node --check's the JS modules and cannot see the inline
+    // module script in each page — which is where most of this app lives. A
+    // stray edit inside a multi-line import took a page down to a blank screen
+    // and every existing test still passed, because they all ran against other
+    // pages. This is the cheapest possible guard against that whole class.
+    const scan = await ctx.newPage();
+    const broken = [];
+    for (const name of ['index', 'live', 'shots', 'advisor', 'kit', 'lab',
+                        'settings', 'backup', 'logger', 'view']) {
+      const errs = [];
+      const onErr = (e) => errs.push(`${name}: ${String(e).split('\n')[0]}`);
+      scan.on('pageerror', onErr);
+      await scan.goto(`${B}/${name}.html`);
+      await scan.waitForTimeout(220);
+      scan.off('pageerror', onErr);
+      broken.push(...errs);
+    }
+    await scan.close();
+    t('pages: every page loads without throwing',
+      broken.length === 0, broken.slice(0, 3).join('  |  ') || '10 pages, no errors');
+  }
+
+  /* ------------------------------------------- what he says away from Live */
+  {
+    const cp = await ctx.newPage();
+    await cp.setViewportSize({ width: 1400, height: 950 });
+    await cp.goto(`${B}/shots.html`);
+    // A coffee, a grinder, and shots that make a pattern worth naming.
+    await cp.evaluate(() => {
+      localStorage.setItem('brewkit.bags.v1', JSON.stringify([{
+        id: 'bag-1', bean_name: 'Guji', roaster: 'Onyx', roast_date: '2026-08-18',
+        roast_level: 'Medium', archived: false }]));
+      localStorage.setItem('brewkit.grinders.v1', JSON.stringify([{
+        id: 'g-1', name: 'Mignon', dial_min: 0, dial_max: 40, step: 0.1 }]));
+      const base = { bag_id: 'bag-1', grinder_id: 'g-1', dose_g: 18, yield_g: 36,
+        method: 'espresso', steady_flow_gs: 1.6, peak_flow_gs: 2.0,
+        t_first_drip_s: 5, days_off_roast: 6 };
+      localStorage.setItem('brewkit.shots.v1', JSON.stringify([
+        // The one you liked, at 28 s.
+        { ...base, shot_id: 'shot-0', timestamp: '2026-08-27 09:00:00',
+          time_s: 28, grind_setting: 2.4, rating: 8, ratio: 2 },
+        // Then two that both ran fast, which is a pattern and not a stray.
+        { ...base, shot_id: 'shot-1', timestamp: '2026-08-28 09:00:00',
+          time_s: 19, grind_setting: 3.0, rating: 4, ratio: 2 },
+        // And one that went wrong, with a step in the curve: flow jumps 90% in
+        // half a second at 14 s, which is a channel's shape rather than the
+        // ordinary climb every healthy shot has.
+        { ...base, shot_id: 'shot-2', timestamp: '2026-08-29 09:00:00',
+          time_s: 20, grind_setting: 3.0, rating: 3, ratio: 2,
+          flow_step: 0.9, flow_step_at: 14, peak_flow_gs: 3.4,
+          curve: Array.from({ length: 80 }, (_, i) => {
+            const tt = +(i * 0.25).toFixed(2);
+            const q = tt < 5 ? 0 : (tt < 14 ? 0.9 + (tt - 5) * 0.05 : 2.9);
+            return `${tt}:${Math.max(0, (tt < 5 ? 0 : (tt - 5) * q)).toFixed(2)}`;
+          }).join('|') },
+      ]));
+    });
+
+    // SHOTS: the page reads this shot on its own; he reads it against the log.
+    await cp.goto(`${B}/shots.html#shot-2`);
+    await cp.waitForSelector('.shot-row');
+    await cp.waitForTimeout(400);
+    const onShot = await cp.evaluate(() => ({
+      says: document.querySelector('#pip-dock .pip-say')?.textContent?.trim() ?? '',
+      // What the panel already says, which he must not simply repeat.
+      panel: document.getElementById('detail')?.textContent ?? '',
+    }));
+    t('pip: on the log he reads the shot you are looking at',
+      onShot.says.length > 0 && !onShot.panel.includes(onShot.says),
+      onShot.says || 'said nothing about a shot rated 4 with a faster time');
+
+    // ADVISOR: the page says what to set; he says where you were when it was
+    // good, which is the thing you forget between sessions.
+    await cp.goto(`${B}/advisor.html`);
+    await cp.waitForTimeout(400);
+    await cp.evaluate(() => {
+      document.getElementById('bag').value = 'bag-1';
+      document.getElementById('bag').dispatchEvent(new Event('change'));
+      document.getElementById('grinder').value = 'g-1';
+      document.getElementById('grinder').dispatchEvent(new Event('change'));
+    });
+    await cp.waitForTimeout(500);
+    const onAdvice = await cp.evaluate(() =>
+      document.querySelector('#pip-dock .pip-say')?.textContent?.trim() ?? '');
+    t('pip: on the advisor he says where you were when it was good',
+      onAdvice.length > 0,
+      onAdvice || 'said nothing with a best shot at 28 s and a last one at 20 s');
+    await cp.close();
+  }
+
   /* ------------------------------------------------------- him, everywhere */
   {
     // A coach who exists only while coffee is coming out is a readout, not a

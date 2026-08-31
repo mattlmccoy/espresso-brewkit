@@ -87,6 +87,11 @@ import { installPip } from './assets/js/core/pip.js';
 import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 boot();
+
+// Installed here rather than at the foot of the module: a const is in the
+// temporal dead zone for every line above it, and these pages render on load.
+const pip = installPip(document.getElementById('pip-dock'), prefs,
+  { quietLabel: 'for now' });
 initNotices();
 const rows = store.all();
 const withBrix = rows.filter((r) => Number.isFinite(Number(r.brix)) && r.brix !== '' && r.brix !== null);
@@ -100,8 +105,6 @@ document.getElementById('summary').textContent = rows.length
 // He is on every page. The switch, the question the x asks and the way back
 // are the shared arrangement; what he says here is this page's business, and
 // on a page with nothing to add he says nothing and simply keeps you company.
-const pip = installPip(document.getElementById('pip-dock'), prefs,
-  { quietLabel: 'for now' });
 </script>
 </body>
 </html>

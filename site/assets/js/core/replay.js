@@ -319,3 +319,93 @@ export function saved() { return Object.keys(readAll()); }
 export function bytes() {
   try { return (localStorage.getItem(KEY) || '').length; } catch { return 0; }
 }
+
+/* ------------------------------------------------- what he said, and when */
+//
+// WATCHING IT BACK MEANS WATCHING WHAT HE SAW.
+//
+// Pip speaks a handful of times during a pour and each line disappears after a
+// few seconds, which is exactly when your hands are busy — so the lines you most
+// want are the ones you are least likely to have read. A replay that showed the
+// numbers again but not the reading of them would be replaying the half you
+// could already reconstruct from the chart.
+//
+// COMPUTED, NOT RECORDED. Nothing is stored: `coach.live` is a pure function of
+// what the shot was doing, and everything it needs — elapsed, weight, flow, the
+// step — comes off the curve. So the timeline is derived the same way the chart
+// and the dial are, and it works on shots pulled long before any of this
+// existed. Recording his lines would also have meant they could drift out of
+// step with the coach that produced them, which is the bug this avoids by
+// construction.
+//
+// The `said` set is what makes it a timeline rather than a repeat: the coach
+// says nothing twice in a shot, so walking the curve forward once and keeping
+// the set is exactly the sequence that happened live.
+
+/**
+ * The step in the flow at `t` — a jump, not a slope.
+ *
+ * A channel is a discontinuity. Flow CLIMBING is what an ordinary shot does:
+ * puck resistance falls as the bed saturates and erodes, so at constant
+ * pressure the flow rises through most of a healthy pour. Reading that rise as
+ * a fault is the mistake this window exists to avoid, and the same one the live
+ * banner made for a long time.
+ *
+ * The windows match live.html's: the last second against a second ending two
+ * before it, with the gap in the middle being where the smoothing lives.
+ */
+function stepAt(pts, t) {
+  const mean = (a, b) => {
+    const v = [];
+    for (let i = 1; i < pts.length; i++) {
+      const [t1, w1] = pts[i];
+      if (t1 > b) break;
+      if (t1 < a) continue;
+      const dt = t1 - pts[i - 1][0];
+      if (dt > 0) v.push((w1 - pts[i - 1][1]) / dt);
+    }
+    return v.length >= 4 ? v.reduce((x, y) => x + y, 0) / v.length : NaN;
+  };
+  const after = mean(t - 1.0, t);
+  const before = mean(t - 3.2, t - 2.2);
+  if (!(before > 0.25) || !Number.isFinite(after)) return NaN;
+  return (after - before) / before;
+}
+
+/**
+ * Everything he said during this shot, with the second he said it.
+ *
+ * @param prepared  a prepared curve
+ * @param live      coach.live, injected so this module stays free of the coach
+ * @param o         target and the machine's drip lag, as the coach wants them
+ * @returns [{ at, until, text, mood, id }]
+ */
+export function saidDuring(prepared, live, { target = NaN, hz = 4 } = {}) {
+  const said = new Set();
+  const out = [];
+  const step = 1 / hz;
+  for (let t = step; t <= prepared.duration + 1e-6; t += step) {
+    const s = sample(prepared, t);
+    const line = live({
+      running: true, elapsed: s.t, net: s.w, flow: s.flow,
+      trend: stepAt(prepared.pts, s.t), target,
+    }, said);
+    if (line) {
+      out.push({ at: +s.t.toFixed(2), until: +(s.t + (line.ms ?? 7000) / 1000).toFixed(2),
+                 text: line.text, mood: line.mood, id: line.id });
+    }
+  }
+  return out;
+}
+
+/** Which line, if any, was on screen at `t`. */
+export function sayingAt(timeline, t) {
+  // The last one that had started and had not yet timed out. Last rather than
+  // first because a second line lands on top of the one still showing, which is
+  // what happens live.
+  let hit = null;
+  for (const line of timeline) {
+    if (line.at <= t && t < line.until) hit = line;
+  }
+  return hit;
+}
