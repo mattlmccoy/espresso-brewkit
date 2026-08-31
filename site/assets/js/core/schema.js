@@ -56,6 +56,11 @@ export const FIELDS = [
   // running. A channel is a step rather than a slope, so this is the field that
   // carries the signal the late slope was wrongly asked to carry.
   { key: 'flow_step', label: 'Biggest flow step', type: 'number', group: 'result' },
+  // The steepest sustained climb in the flow, past the pressure ramp. A step is
+  // the confident channel signal; this is the other shape a failing bed makes —
+  // widening gradually rather than giving way at once — and it is deliberately
+  // held to a much weaker claim, because a slow pressure ramp looks the same.
+  { key: 'flow_climb', label: 'Steepest climb', unit: 'g/s²', type: 'number', group: 'result' },
 
   // refractometry
   { key: 'brix',          label: 'Brix',           unit: '°Bx', type: 'number', group: 'result', measured: true, step: 0.01 },

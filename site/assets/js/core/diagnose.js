@@ -72,7 +72,29 @@ export const STEP_FLAG = 0.20;
  * "measured and found nothing" apart from "never measured", which are the same
  * absent field otherwise.
  */
-export const METRICS_V = 2;
+export const METRICS_V = 3;
+
+/**
+ * How fast flow may climb before the climb itself is worth remarking on.
+ *
+ * A channel is a step, and the step detector is the confident signal. But a bed
+ * can also fail gradually — widening rather than opening all at once — and that
+ * leaves a climb too steep for erosion without ever being a discontinuity.
+ *
+ * Measured, like everything else here. Across four real healthy shots the
+ * steepest sustained four-second climb was 0.304 g/s², and a deliberately
+ * pathological smooth ramp (1 to 4 g/s in five seconds) scores 0.621. The line
+ * goes at 0.50 — above every healthy reading by a margin of two thirds, and
+ * still well under the pathological one.
+ *
+ * This is weaker evidence than a step and says so when it speaks. Four shots
+ * from one machine is a thin basis for a universal number, which is exactly why
+ * the threshold sits far above the observed ceiling rather than just past it:
+ * the cost of missing a gradual failure is a shot you taste anyway, and the
+ * cost of a false alarm is the app crying channel at healthy coffee, which is
+ * the failure this whole reading is being rebuilt to avoid.
+ */
+export const CLIMB_FLAG = 0.50;
 
 /**
  * The curve-shape fields, and only those.
@@ -82,7 +104,7 @@ export const METRICS_V = 2;
  * recomputation that quietly overwrote a yield with a number re-derived from a
  * downsampled curve would be destroying data to fix a reading.
  */
-export const SHAPE_FIELDS = ['flow_step', 'flow_step_at', 'peak_flow_gs'];
+export const SHAPE_FIELDS = ['flow_step', 'flow_step_at', 'flow_climb', 'flow_climb_at', 'peak_flow_gs'];
 
 /**
  * Bring one record's curve reading up to date, from the curve it stored.
@@ -230,6 +252,22 @@ export function stepAt(curve, tau, opts = {}) {
  * ever has the shot so far, replay so that it reproduces live exactly. This is
  * the whole-curve version, for reading a shot that is over.
  */
+export function climbOf(t, flow, from, end, win = 4) {
+  let best = -Infinity, at = null;
+  for (let i = 0; i <= end; i++) {
+    const a = t[i], b = a + win;
+    if (!(a >= from) || b > t[end]) continue;
+    const ts = [], fs = [];
+    for (let j = i; j <= end && t[j] <= b; j++) {
+      if (Number.isFinite(flow[j])) { ts.push(t[j]); fs.push(flow[j]); }
+    }
+    if (ts.length < 6) continue;
+    const g = slope(ts, fs);
+    if (Number.isFinite(g) && g > best) { best = g; at = +a.toFixed(2); }
+  }
+  return Number.isFinite(best) ? { climb: +best.toFixed(3), at } : { climb: null, at: null };
+}
+
 export function flowStep(curve, opts = {}) {
   if (!Array.isArray(curve) || curve.length < 8) return { step: null, at: null };
   let best = NaN, bestAt = null;
@@ -310,11 +348,21 @@ export function curveMetrics(curve) {
   // what let this be wrong in three places at once.
   const { step: flow_step, at: flow_step_at } = flowStep(curve);
 
+  // The other shape a failing bed makes: not a step, but a climb too steep for
+  // erosion. Measured past the point the opening transient settles, because
+  // every healthy shot's steepest climb is the machine coming up to pressure —
+  // on all four real shots it lands between 5 and 7.5 s — and reading the
+  // pressure ramp as a fault is the exact mistake being corrected here.
+  const { climb: flow_climb, at: flow_climb_at } =
+    climbOf(t, flow, Number.isFinite(settled) ? settled + 4 : 4, end);
+
   return {
     metrics_v: METRICS_V,
     t_first_drip_s,
     flow_step,
     flow_step_at,
+    flow_climb,
+    flow_climb_at,
     peak_flow_gs: Number.isFinite(peak_flow_gs) ? +peak_flow_gs.toFixed(3) : null,
     steady_flow_gs: Number.isFinite(steady_flow_gs) ? +steady_flow_gs.toFixed(3) : null,
     flow_slope_late: Number.isFinite(flow_slope_late) ? +flow_slope_late.toFixed(4) : null,
@@ -359,6 +407,8 @@ export function diagnose(shot) {
   // establish.
   const step = F(shot.flow_step);
   const stepAt = F(shot.flow_step_at);
+  const climb = F(shot.flow_climb);
+  const climbAt = F(shot.flow_climb_at);
   // 0.20 sits in a measured gap rather than being a round number. Across
   // synthetic curves with known shapes, the steepest ordinary rise scored
   // 0.099 and the smallest deliberate step 0.267; a flat shot scored -0.011
@@ -374,6 +424,19 @@ export function diagnose(shot) {
         + 'appear if the machine ramped or the cup was nudged.',
       action: 'If it repeats across shots at the same setting, it is the puck — stir the '
         + 'grounds deeply and tamp level. If it does not repeat, it was this one shot.',
+    });
+  } else if (Number.isFinite(climb) && climb > CLIMB_FLAG) {
+    out.push({
+      code: 'flow_climb', severity: 'low', title: 'Flow climbed faster than a bed usually erodes',
+      detail: `Flow gained ${climb.toFixed(2)} g/s every second at its steepest`
+        + `${Number.isFinite(climbAt) ? `, around ${climbAt.toFixed(0)} s` : ''} — against about `
+        + '0.3 for an ordinary shot. Rising flow is normal and is not on its own a fault; this is '
+        + 'the rate of the rise, not the rise. A bed widening gradually rather than giving way '
+        + 'all at once can look like this. So can a machine with a slow pressure ramp, and a '
+        + 'scale cannot tell those apart, so this is a weaker signal than a step and is offered '
+        + 'as something to watch across shots rather than a diagnosis of this one.',
+      action: 'If it shows up on most of your shots it is the machine, and it is not telling you '
+        + 'anything. If it is unusual for you, note whether the cup is thin or drying.',
     });
   } else if (Number.isFinite(late) && late < -0.09 && Number.isFinite(steady) && steady > 0.2) {
     out.push({
