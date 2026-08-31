@@ -61,6 +61,10 @@ export const FIELDS = [
   // widening gradually rather than giving way at once — and it is deliberately
   // held to a much weaker claim, because a slow pressure ramp looks the same.
   { key: 'flow_climb', label: 'Steepest climb', unit: 'g/s²', type: 'number', group: 'result' },
+  // What the stored curve itself reached, kept beside the recorded yield so the
+  // two can be compared. A record whose yield disagrees with its own curve is
+  // the one kind of bad number the app can catch by itself.
+  { key: 'curve_yield_g', label: 'Yield from curve', unit: 'g', type: 'number', group: 'result' },
 
   // refractometry
   { key: 'brix',          label: 'Brix',           unit: '°Bx', type: 'number', group: 'result', measured: true, step: 0.01 },

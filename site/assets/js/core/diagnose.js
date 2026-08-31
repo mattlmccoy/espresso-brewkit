@@ -72,7 +72,7 @@ export const STEP_FLAG = 0.20;
  * "measured and found nothing" apart from "never measured", which are the same
  * absent field otherwise.
  */
-export const METRICS_V = 3;
+export const METRICS_V = 4;
 
 /**
  * How fast flow may climb before the climb itself is worth remarking on.
@@ -104,7 +104,8 @@ export const CLIMB_FLAG = 0.50;
  * recomputation that quietly overwrote a yield with a number re-derived from a
  * downsampled curve would be destroying data to fix a reading.
  */
-export const SHAPE_FIELDS = ['flow_step', 'flow_step_at', 'flow_climb', 'flow_climb_at', 'peak_flow_gs'];
+export const SHAPE_FIELDS = ['flow_step', 'flow_step_at', 'flow_climb', 'flow_climb_at',
+  'peak_flow_gs', 'curve_yield_g'];
 
 /**
  * Bring one record's curve reading up to date, from the curve it stored.
@@ -367,6 +368,12 @@ export function curveMetrics(curve) {
     steady_flow_gs: Number.isFinite(steady_flow_gs) ? +steady_flow_gs.toFixed(3) : null,
     flow_slope_late: Number.isFinite(flow_slope_late) ? +flow_slope_late.toFixed(4) : null,
     duration_s: +dur.toFixed(2),
+    // WHAT THE CURVE SAYS CAME OUT, kept beside what the record says came out.
+    // They are the same number when nothing went wrong, and when they disagree
+    // one of them is a measurement and the other is a mistake. Storing only one
+    // of them left a shot in the log claiming a yield of -2.5 g while its own
+    // curve ran cleanly to 40, with nothing in the app able to notice.
+    curve_yield_g: +Math.max(...w.slice(0, end + 1)).toFixed(2),
     // The most the cup ever held, not the last sample. Weight into a cup only
     // goes up, so a lower final reading means the cup moved — lifted off the
     // platter, or knocked — and the last sample is then a measurement of the
@@ -444,6 +451,38 @@ export function diagnose(shot) {
       detail: `Flow dropped ${Math.abs(late).toFixed(3)} g/s² late. Some sag is normal; this much `
         + 'usually means fines migrating down and blocking the basket as the shot runs.',
       action: 'A coarser grind or a lower dose both reduce it. If the taste is good, it is not a problem.',
+    });
+  }
+
+  // A YIELD THAT IS NOT A WEIGHT.
+  // Checked before anything else because everything else is downstream of it:
+  // the ratio, the extraction yield and every regression that reads this shot
+  // are all computed from a number that, here, is not a measurement of coffee.
+  // A scale reads negative when the cup is lifted off mid-shot and the tare
+  // goes with it — the pour was fine, the record of it is not.
+  const yieldG = F(shot.yield_g);
+  const curveYield = F(shot.curve_yield_g);
+  if (Number.isFinite(yieldG) && yieldG <= 0) {
+    out.push({
+      code: 'yield_impossible', severity: 'high', title: `Recorded yield of ${yieldG.toFixed(1)} g`,
+      detail: 'No shot produces zero or less. A scale reads this way when the cup comes off the '
+        + 'platter before the shot is filed, so the tare goes with it'
+        + `${Number.isFinite(curveYield) && curveYield > 1
+          ? ` — this shot's own curve runs cleanly to ${curveYield.toFixed(1)} g` : ''}. `
+        + 'Everything derived from the yield is wrong until it is corrected: the ratio, the '
+        + 'extraction yield, and this shot\'s contribution to every comparison.',
+      action: 'Put the real yield in with Edit. The curve is intact and is not touched by it.',
+    });
+  } else if (Number.isFinite(yieldG) && Number.isFinite(curveYield) && curveYield > 1
+    && Math.abs(yieldG - curveYield) > Math.max(3, curveYield * 0.25)) {
+    out.push({
+      code: 'yield_disagrees', severity: 'medium',
+      title: `Recorded ${yieldG.toFixed(1)} g, curve reached ${curveYield.toFixed(1)} g`,
+      detail: 'The weight written down and the weight the scale actually traced are far enough '
+        + 'apart that one of them is not a measurement of this shot. A cup nudged or lifted does '
+        + 'this, and so does a yield typed from memory afterwards.',
+      action: 'Whichever you trust, make them agree with Edit — the log is only worth what its '
+        + 'numbers are.',
     });
   }
 

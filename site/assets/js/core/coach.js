@@ -389,6 +389,25 @@ export function after(shot, history = [], opts = {}) {
     });
   }
 
+  // ---- and when there is genuinely nothing to report ----
+  // SILENCE WAS THE HONEST ANSWER AND IT READ AS A BROKEN CHARACTER.
+  // Three of the four shots in the first real log produced no line at all, so
+  // the panel that exists to say what the curve says said nothing, and he
+  // hid — which looks like a fault rather than a verdict. A clean curve IS a
+  // finding, and the one that means carry on doing that. It is worth a
+  // sentence.
+  // Distinct from the line above, which needs a rating to fire: this one is
+  // about the curve alone, and most shots never get rated.
+  if (!out.length) {
+    out.push({
+      id: 'clean', mood: 'idle', order: 3,
+      text: 'Clean curve — no jumps, no stalls. That is the boring kind of good.',
+      why: 'Nothing in the shot matched any of the shapes worth flagging: flow rose the way a '
+        + 'bed eroding does, held, and stopped when you stopped it.',
+      confidence: 'practice',
+    });
+  }
+
   return out.sort((a, b) => a.order - b.order).slice(0, 4);
 }
 
