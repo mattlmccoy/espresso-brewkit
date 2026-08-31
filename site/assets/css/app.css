@@ -81,14 +81,6 @@
      component drawing its own surface reads them instead of hardcoding a square
      corner — hardcoding is what left the state strip a hard rectangle in the
      middle of a page of rounded ones. */
-  /* Pip's roast, and the ink his face is drawn in. A PAIR, stated together and
-     overridden together, because the face is features cut out of the bean: if
-     one is themed and the other is not, an eye goes the colour of the bean it
-     sits in. --pip-ink is never --panel for that reason — a dark theme's panel
-     on a dark roast is an invisible face. Tested for contrast like the rest. */
-  --pip-skin: #5a3520;
-  --pip-ink:  #fff6e9;
-
   --radius: 0px;      /* a surface: panel, strip, bar */
   --radius-sm: 0px;   /* a control inside one */
   --seam: 0px;        /* extra air between stacked surfaces, where no border separates them */
@@ -127,7 +119,6 @@
     --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
     --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
-  --pip-skin:#c08552; --pip-ink:#2a1608;
     --fit-ink:#100f0d;
     --control:#26251d;
     --band-a:.09;
@@ -139,7 +130,6 @@
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
   --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
-  --pip-skin:#c08552; --pip-ink:#2a1608;
   --fit-ink:#100f0d;
   --control:#26251d;
   --band-a:.09;
@@ -160,7 +150,6 @@
      were the same colour — and a cyan hero tile on a phosphor screen is not a
      phosphor screen. */
   --accent:#9dffb8; --accent-ink:#031008; --fit:#4fe0a0; --flag:#c8ff5a;
-  --pip-skin:#264a2f; --pip-ink:#9dffb8;
   --fit-ink:#031008;
   --control:#131e15;
   --tag-fg:#031008;
@@ -243,7 +232,6 @@
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
   --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
   --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
-  --pip-skin:#a8794f; --pip-ink:#1a0f06;
   --fit-ink:#0b0e15;
   --control:#252c3b;
   --tag-fg:#0b0e15;
@@ -1047,86 +1035,82 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .source button[aria-pressed="true"] { background: var(--ink); color: var(--tag-fg); }
 
 /* ------------------------------------------------------------------- Pip
-   The character that reads your shot. Drawn as one SVG of named parts so an
-   expression is six numbers rather than an asset — see core/pip.js — which is
-   also why it wears the theme's ink like everything else instead of shipping
-   its own palette per theme.
+   The coach, built as a terminal pane rather than a drawn character. Four
+   directions were compared and this is the typographic one; see core/pip.js for
+   why building it changed its shape from avatar-plus-bubble into one shell.
 
-   Sizing is in em against the host, so the same component is a 28 px chip on a
-   phone and a 96 px figure on a laptop without a second set of rules. */
-.pip { display: flex; align-items: flex-end; gap: 10px; pointer-events: none; }
-.pip > * { pointer-events: auto; }
-.pip-fig { flex: none; width: 4.6em; height: 4.6em; }
-.pip-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+   There is nothing here that is not type and a border, which is the point: it
+   inherits every theme without a palette of its own, and it is native to the
+   terminal theme instead of tolerated by it. */
+.pip {
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+  font-family: var(--mono);
+}
 
-/* The bean, and the face cut out of it. Both come off the themed pair. */
-.pip-body { fill: var(--pip-skin); stroke: var(--ink); stroke-width: 2.5; }
-.pip-gloss { fill: color-mix(in srgb, #fff 22%, transparent); stroke: none; }
-.pip-brow {
-  fill: none; stroke: var(--pip-ink); stroke-width: 3.4; stroke-linecap: round;
-  transition: d .22s ease;
+.pip-bar {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--ink); color: var(--tag-fg);
+  padding: 4px 4px 4px 8px;
+  font: 700 10px/1.6 var(--mono); letter-spacing: .1em;
 }
-.pip-eye { fill: var(--pip-ink); transition: ry .12s ease; }
-/* The pupil is the bean showing through the white, so it is always exactly as
-   legible as the face is — one fewer colour to keep in step. */
-.pip-pupil { fill: var(--pip-skin); transition: cx .2s ease, cy .2s ease, r .12s ease; }
-.pip-mouth {
-  fill: none; stroke: var(--pip-ink); stroke-width: 3.4; stroke-linecap: round;
-  transition: d .26s ease;
+.pip-who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The state word is the colour signal. Nothing else in the pane ever takes a
+   hue, so when this one does, it means something. */
+.pip-state {
+  margin-left: auto; opacity: .72; text-transform: uppercase; white-space: nowrap;
 }
-.pip-all { transition: transform .3s cubic-bezier(.22,.68,.32,1); }
-
-/* THE BOB. A face that holds perfectly still reads as a picture of a face; a
-   very small continuous motion is what makes it read as present. Two and a half
-   pixels at four seconds is under the threshold where it competes with a
-   number that is changing ten times a second, which is the thing actually
-   being watched. */
-@keyframes pip-bob { 50% { transform: translateY(-2.5px); } }
-.pip-fig { animation: pip-bob 4s ease-in-out infinite; }
-
-/* Watching leans in and quickens. Alert is the only one that moves sharply,
-   because it is the only one that wants to be noticed mid-pour. */
-.pip[data-mood="watch"] .pip-fig { animation-duration: 2.4s; }
-@keyframes pip-shake {
-  10%, 30% { transform: translateX(-2px) rotate(-3deg); }
-  20%, 40% { transform: translateX(2px) rotate(3deg); }
-  50% { transform: none; }
-}
-.pip[data-mood="alert"] .pip-fig { animation: pip-shake 1.5s ease-in-out infinite; }
-@keyframes pip-hop {
-  20% { transform: translateY(-7px) scale(1.04, .96); }
-  40% { transform: translateY(0) scale(.97, 1.03); }
-  55% { transform: none; }
-}
-.pip[data-mood="pleased"] .pip-fig { animation: pip-hop 1.9s ease-out 2; }
-.pip[data-mood="flat"] .pip-fig { animation: none; transform: translateY(3px); }
-
-/* The bubble. It is a panel like any other panel, so it picks up the borderless
-   themes' radius and the bordered themes' edge without a per-theme rule. */
-.pip-bubble {
-  position: relative; flex: 1 1 auto; min-width: 0; max-width: 42ch;
-  border: var(--bw) solid var(--ink); border-radius: var(--radius);
-  background: var(--panel); color: var(--ink);
-  padding: 9px 30px 9px 11px;
-}
-.pip-bubble[hidden] { display: none; }
-.pip-text { margin: 0; font: 600 12.5px/1.45 var(--sans); }
+.pip[data-tone="warn"] .pip-state { color: var(--flag); opacity: 1; }
+.pip[data-tone="good"] .pip-state { color: var(--tag-fg); opacity: 1; }
 .pip-x {
-  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px;
-  padding: 0; box-shadow: none; font-size: 15px; line-height: 1;
-  border-radius: var(--radius-sm);
+  flex: none; width: 20px; height: 20px; padding: 0;
+  font: 700 14px/1 var(--mono);
+  background: none; border: 0; box-shadow: none;
+  color: var(--tag-fg); opacity: .7; cursor: pointer; border-radius: 0;
 }
-/* Arriving, rather than appearing. A bubble that pops into existence at full
-   size beside a shot in progress reads as an error dialog. */
-@keyframes pip-in {
-  from { opacity: 0; transform: translateY(4px) scale(.97); }
-}
-.pip.is-talking .pip-bubble { animation: pip-in .2s ease-out; transform-origin: 0 100%; }
+.pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--tag-fg) 22%, transparent); }
 
-/* Motion is the decoration here, not the message: every state is legible from
-   the six shapes alone, so switching all of it off loses nothing. */
+.pip-line {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 9px 10px 10px;
+  min-width: 0;
+}
+/* The face never wraps and never shrinks — a face broken across two lines is
+   not a face. */
+.pip-face {
+  flex: none; font: 700 15px/1.3 var(--mono);
+  letter-spacing: .04em; white-space: pre;
+}
+.pip[data-tone="warn"] .pip-face { color: var(--warn); }
+.pip-text {
+  margin: 0; flex: 1 1 auto; min-width: 0;
+  font: 400 12.5px/1.45 var(--mono); color: var(--ink);
+}
+.pip-say:not(:empty) { margin-right: .45em; }
+
+/* The caret is the whole of "still here" — it is what says Pip is watching a
+   shot he has nothing to say about yet. Inline, so it trails the last character
+   of the message and wraps with it. */
+.pip-caret {
+  display: inline-block; vertical-align: -.14em;
+  width: .55em; height: 1.05em;
+  background: var(--ink);
+}
+@keyframes pip-blink { 50% { opacity: 0; } }
+.pip-caret { animation: pip-blink 1.06s step-end infinite; }
+
+/* Arriving, rather than appearing. One line of height, so nothing below it
+   moves when Pip finds something to say. */
+/* Opacity only, and deliberately NOT display:inline-block.
+   Making the message an inline-block so a transform would bite turned it into
+   an atomic box: the caret was pushed onto a line of its own, and the
+   paragraph's baseline became the box's LAST line, which dropped the face below
+   the first line of what it was saying. Both went away with the transform. */
+@keyframes pip-in { from { opacity: 0; } }
+.pip.is-talking .pip-say { animation: pip-in .2s ease-out; }
+
 @media (prefers-reduced-motion: reduce) {
-  .pip-fig, .pip[data-mood="alert"] .pip-fig, .pip[data-mood="pleased"] .pip-fig,
-  .pip.is-talking .pip-bubble { animation: none; }
-  .pip-all, .pip-brow, .pip-eye, .pip-mouth { transition: none; }
+  .pip-caret, .pip.is-talking .pip-say { animation: none; }
 }

@@ -328,7 +328,7 @@ export class LiveLink {
  * every frame is the whole picture, which is what lets the channel be lossy.
  */
 export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, theme,
-                          dose = undefined }) {
+                          dose = undefined, pip = null }) {
   // The dose the laptop is *using*, not only the one it has weighed.
   //
   // `sess.dose` is null until the dose step captures, and plenty of real shots
@@ -354,6 +354,12 @@ export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, 
     method: sess?.method ?? 'espresso',
     milk: sess?.milk ?? null,
     hint: sess?.hint ?? null,
+    // WHAT THE COACH SAID, rather than enough for the phone to work it out.
+    // The phone sees frames, not the shot log, so a coach running here would be
+    // a second and weaker one — and two devices disagreeing about your shot is
+    // worse than one of them staying quiet. The laptop has the curve, the
+    // history and the session, so it decides, and the phone repeats it.
+    pip: pip && pip.text ? { text: pip.text, mood: pip.mood ?? 'idle' } : null,
     dose: effective,
     // Whether that dose was weighed or assumed. A ladder built on an assumed
     // dose is a plan rather than a measurement, and the phone should be able

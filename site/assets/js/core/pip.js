@@ -16,197 +16,156 @@
 // decided in coach.js, which has no DOM and is tested on its own. Splitting
 // them means the judgement can be argued with in a test rather than through a
 // screenshot.
+//
+// WHY IT IS TYPE AND NOT A DRAWING
+// Four directions were drawn and compared — an instrument, an object, a
+// typeface and a liquid — and building the chosen one for real changed its
+// shape. As a pitch it was an avatar sitting beside a speech bubble, like the
+// other three. But a terminal already HAS somewhere for a face and somewhere
+// for output, in the same shell; the avatar-plus-bubble arrangement was a habit
+// carried over from characters that need it. So Pip is one small pane: a title
+// bar saying whose process this is, and a line with the face, what it has to
+// say, and a caret.
+//
+// Everything else follows. No SVG, no viewBox, no second palette: it is text,
+// so it scales with font-size, inherits the theme's ink like any other element,
+// and is native to the terminal theme rather than tolerated by it.
 
-const NS = 'http://www.w3.org/2000/svg';
-const el = (tag, cls, attrs = {}) => {
-  const n = document.createElementNS(NS, tag);
-  if (cls) n.setAttribute('class', cls);
-  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
-  return n;
+/**
+ * The faces, and why these characters rather than better-looking ones.
+ *
+ * The app self-hosts a LATIN-ONLY SUBSET of Space Mono. A character outside it
+ * still renders — the browser falls back to a system monospace — so the failure
+ * is silent and looks very nearly right, which is the worst kind. Measured
+ * against a glyph known to be present, the real advance is 24.48 px at 40 px
+ * and the fallback's is 24.09. Every good-looking candidate for the alarmed
+ * face — U+0298, U+25A1, U+2299, U+229A — came back at 24.09, which means none
+ * of them are in the font at all.
+ *
+ * So every glyph below is confirmed present by measurement, and a test holds
+ * the line by comparing advances against a reference glyph rather than by
+ * asking whether the result is monospace — which the fallback also is, and
+ * which is exactly how this would have shipped broken.
+ */
+export const FACES = {
+  idle:    '[ ·_· ]',
+  watch:   '[ o_o ]',
+  alert:   '[ °_° ]',
+  pleased: '[ ^_^ ]',
+  think:   '[ ·~· ]',
+  flat:    '[ -_- ]',
 };
 
 /**
- * The moods, and what each one is FOR. A character with six expressions and no
- * rule about which is which ends up using them decoratively, and then the face
- * stops carrying information — it becomes a mascot rather than an instrument.
- * Each of these maps to a class of thing the coach can conclude.
+ * What each mood is FOR. A character with six expressions and no rule about
+ * which is which uses them decoratively, and then the face stops carrying
+ * information. `tone` is the only thing that ever takes colour, so the pane
+ * stays monochrome until something is genuinely worth a colour.
  */
 export const MOODS = {
-  // Nothing happening. The resting state, and where it returns to. `wave` is
-  // how much of the bean's own crease survives in the mouth — at rest it is the
-  // full S, which is what keeps the character a coffee bean rather than a ball
-  // with a face on it.
-  idle: { brow: 0, eye: 1, mouth: 0.06, wave: 1, lean: -6, look: [0, 0] },
-  // A shot is running and being read. Leaning in, eyes down on the cup.
-  watch: { brow: -1, eye: 1.12, mouth: 0.02, wave: 0.8, lean: -2, look: [0, 1] },
-  // Something is going wrong now, and there may be time to act.
-  alert: { brow: -4, eye: 1.32, mouth: -0.2, wave: 0.15, lean: -9, look: [0, -0.3] },
-  // It went well. The only mood allowed to be cheerful — a face that is always
-  // pleased is not telling you anything.
-  pleased: { brow: 1.5, eye: 0.5, mouth: 0.44, wave: 0, lean: -4, look: [0, 0] },
-  // Working something out. Eyes up and away, which is the universal tell.
-  think: { brow: -2, eye: 0.95, mouth: 0.05, wave: 0.9, lean: -12, look: [-1, -0.8] },
-  // It went badly, and the shot is over. Not alarm; disappointment.
-  flat: { brow: 2.5, eye: 0.72, mouth: -0.28, wave: 0.2, lean: -3, look: [0, 0.5] },
+  idle:    { state: 'idle',     tone: '' },
+  watch:   { state: 'watching', tone: '' },
+  alert:   { state: 'alert',    tone: 'warn' },
+  pleased: { state: 'good',     tone: 'good' },
+  think:   { state: 'reading',  tone: '' },
+  flat:    { state: 'under',    tone: '' },
 };
 
 /**
  * Draw Pip into `host` and return the handle the page drives.
  *
- * The character is one SVG with named parts rather than a sprite sheet or a
- * canvas: every expression is the same six shapes at different values, so a
- * mood is an interpolation and not an asset, and it inherits the theme's ink
- * like everything else on the page.
+ * The API is the one the drawn version had, so nothing that mounts it needs to
+ * know it stopped being a drawing.
  */
-export function mountPip(host, { onDismiss = null, name = 'Pip' } = {}) {
+export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
   host.replaceChildren();
   host.classList.add('pip');
 
-  const fig = document.createElement('div');
-  fig.className = 'pip-fig';
-
-  const svg = el('svg', 'pip-svg', { viewBox: '0 0 100 100', role: 'img' });
-  const title = el('title', null);
-  title.textContent = name;
-  svg.append(title);
-
-  // A bean lying on its side, and the proportion is the whole recognition: at
-  // 39x33 this was a ball with a face on it. A roasted arabica bean is about
-  // 1.4 times as long as it is wide, and it is the silhouette plus the crease
-  // that say "coffee" before anything else is read.
-  const body = el('ellipse', 'pip-body', { cx: 50, cy: 52, rx: 42, ry: 30 });
-  const gloss = el('ellipse', 'pip-gloss', {
-    cx: 34, cy: 34, rx: 14, ry: 7, transform: 'rotate(-20 34 34)' });
-
-  const brows = el('g', 'pip-brows');
-  const browL = el('path', 'pip-brow', {});
-  const browR = el('path', 'pip-brow', {});
-  brows.append(browL, browR);
-
-  // Whites and pupils, not dots. A pupil that can move is most of what makes a
-  // face look like it is attending to something — the character watches the cup
-  // while it fills and looks away while it is working something out, and that
-  // costs two attributes rather than a second set of drawings.
-  const eyes = el('g', 'pip-eyes');
-  const eyeL = el('ellipse', 'pip-eye', { cx: 35, cy: 44, rx: 6.2, ry: 7 });
-  const eyeR = el('ellipse', 'pip-eye', { cx: 65, cy: 44, rx: 6.2, ry: 7 });
-  const pupL = el('circle', 'pip-pupil', { cx: 35, cy: 44, r: 3 });
-  const pupR = el('circle', 'pip-pupil', { cx: 65, cy: 44, r: 3 });
-  eyes.append(eyeL, eyeR, pupL, pupR);
-
-  // THE CREASE, WHICH IS ALSO THE MOUTH.
-  // A real bean's crease is a soft S down its long axis, not a straight line.
-  // Drawn as one it is simultaneously the bean's defining feature and a wry
-  // mouth, so the character does not need both — and as an expression grows the
-  // S flattens into a plain smile or frown, because a wavy grin reads as noise.
-  const mouth = el('path', 'pip-mouth', {});
-
-  const g = el('g', 'pip-all');
-  g.append(body, gloss, brows, eyes, mouth);
-  svg.append(g);
-  fig.append(svg);
-
-  const bubble = document.createElement('div');
-  bubble.className = 'pip-bubble';
-  bubble.hidden = true;
-  const text = document.createElement('p');
-  text.className = 'pip-text';
-  // Announced politely: this is commentary, and a screen reader should not have
-  // it cut across whatever the user is actually doing.
-  bubble.setAttribute('role', 'status');
-  bubble.setAttribute('aria-live', 'polite');
+  const bar = document.createElement('div');
+  bar.className = 'pip-bar';
+  const who = document.createElement('span');
+  who.className = 'pip-who';
+  who.textContent = name + '@brewkit';
+  const state = document.createElement('span');
+  state.className = 'pip-state';
   const close = document.createElement('button');
   close.type = 'button';
-  close.className = 'pip-x ghost';
-  close.setAttribute('aria-label', `Dismiss ${name}`);
+  close.className = 'pip-x';
+  close.setAttribute('aria-label', 'Turn the coach off');
   close.textContent = '×';
   close.addEventListener('click', () => { hide(); onDismiss?.(); });
-  bubble.append(text, close);
+  bar.append(who, state, close);
 
-  // The figure first, then what he says. A speech bubble that arrives before
-  // the speaker reads as a system message with a mascot stuck on the end.
-  host.append(fig, bubble);
+  const line = document.createElement('div');
+  line.className = 'pip-line';
+  const face = document.createElement('span');
+  face.className = 'pip-face';
+  // The face is decoration over information the state word and the message
+  // already carry, so a screen reader is not made to spell out punctuation.
+  face.setAttribute('aria-hidden', 'true');
+  // The caret lives INSIDE the line of text, not beside it, because that is the
+  // grammar of a prompt: a caret follows what was typed. As a sibling it was
+  // pushed to the far right of the pane by the flex row, which reads as a
+  // status lamp rather than a cursor — and on a message long enough to wrap it
+  // would have sat against the first line while the text ran on below it.
+  const text = document.createElement('p');
+  text.className = 'pip-text';
+  const msg = document.createElement('span');
+  msg.className = 'pip-say';
+  msg.setAttribute('role', 'status');
+  msg.setAttribute('aria-live', 'polite');
+  const caret = document.createElement('span');
+  caret.className = 'pip-caret';
+  caret.setAttribute('aria-hidden', 'true');
+  text.append(msg, caret);
+  line.append(face, text);
+
+  host.append(bar, line);
 
   let mood = 'idle';
-  let blinkTimer = null;
   let holdTimer = null;
 
-  /** Set every shape from one mood. No mood owns a drawing; they own numbers. */
   function wear(m) {
     const v = MOODS[m] ?? MOODS.idle;
     mood = m;
-    // Brows are arcs, not bars: a straight line above an eye reads as a
-    // floating rectangle, and the curve is what attaches it to the face. The
-    // inner end drops as `brow` goes negative, which is the whole of a frown.
-    for (const [b, cx, sign] of [[browL, 35, 1], [browR, 65, -1]]) {
-      const inner = cx + 9 * sign;
-      const outer = cx - 9 * sign;
-      b.setAttribute('d', `M${outer} ${(32 - v.brow * 0.5).toFixed(1)} `
-        + `Q${cx} ${(28 - v.brow * 0.4).toFixed(1)} ${inner} ${(32 + v.brow).toFixed(1)}`);
-    }
-    for (const e of [eyeL, eyeR]) e.setAttribute('ry', (7 * v.eye).toFixed(2));
-    // The pupil stays inside its own white, so `look` is a fraction of the room
-    // there is rather than a pixel offset that would slide off a squinting eye.
-    const [lx, ly] = v.look;
-    for (const [p, cx] of [[pupL, 35], [pupR, 65]]) {
-      p.setAttribute('cx', (cx + lx * 2.4).toFixed(2));
-      p.setAttribute('cy', (44 + ly * 2.6 * v.eye).toFixed(2));
-      p.setAttribute('r', (3 * Math.min(1, v.eye)).toFixed(2));
-    }
-    // Two control points: the S at rest, collapsing toward one curve as the
-    // expression takes over. Both ends stay pinned to the bean, so only the
-    // middle ever moves.
-    const sag = v.mouth * 26;
-    const w = v.wave * 4.5;
-    mouth.setAttribute('d', `M23 60 C33 ${(60 + sag + w).toFixed(1)} `
-      + `41 ${(60 + sag - w).toFixed(1)} 50 ${(60 + sag * 0.9).toFixed(1)} `
-      + `C59 ${(60 + sag + w).toFixed(1)} 67 ${(60 + sag - w).toFixed(1)} 77 60`);
-    g.setAttribute('transform', `rotate(${v.lean} 50 52)`);
+    face.textContent = FACES[m] ?? FACES.idle;
+    state.textContent = v.state;
     host.dataset.mood = m;
-  }
-
-  function blink() {
-    for (const e of [eyeL, eyeR]) e.setAttribute('ry', '0.9');
-    for (const p of [pupL, pupR]) p.setAttribute('r', '0');
-    setTimeout(() => {
-      const v = MOODS[mood] ?? MOODS.idle;
-      for (const e of [eyeL, eyeR]) e.setAttribute('ry', (7 * v.eye).toFixed(2));
-      for (const p of [pupL, pupR]) p.setAttribute('r', (3 * Math.min(1, v.eye)).toFixed(2));
-    }, 110);
-  }
-
-  // Irregular, because a blink on a fixed interval reads as a machine and is
-  // the thing that makes an animated face feel dead.
-  function scheduleBlink() {
-    clearTimeout(blinkTimer);
-    blinkTimer = setTimeout(() => { blink(); scheduleBlink(); }, 2200 + Math.random() * 4200);
+    host.dataset.tone = v.tone;
   }
 
   function say(message, { mood: m = 'idle', ms = 0 } = {}) {
     clearTimeout(holdTimer);
-    text.textContent = message;
-    bubble.hidden = false;
+    msg.textContent = message;
     host.classList.add('is-talking');
     wear(m);
     if (ms > 0) holdTimer = setTimeout(() => hide(), ms);
   }
 
+  /**
+   * Stop talking — but the pane stays.
+   *
+   * A prompt with nothing to say is still a prompt, and its blinking caret is
+   * the whole of "still watching". The drawn version had to disappear when it
+   * had nothing to say, because a face with an empty speech bubble beside it
+   * looks broken. This one does not.
+   */
   function hide() {
     clearTimeout(holdTimer);
-    bubble.hidden = true;
+    msg.textContent = '';
     host.classList.remove('is-talking');
     wear(mood === 'alert' || mood === 'pleased' || mood === 'flat' ? mood : 'idle');
   }
 
   function destroy() {
-    clearTimeout(blinkTimer);
     clearTimeout(holdTimer);
     host.replaceChildren();
     host.classList.remove('pip', 'is-talking');
+    delete host.dataset.mood;
+    delete host.dataset.tone;
   }
 
   wear('idle');
-  scheduleBlink();
 
   return {
     say,
@@ -214,7 +173,7 @@ export function mountPip(host, { onDismiss = null, name = 'Pip' } = {}) {
     destroy,
     mood: wear,
     get current() { return mood; },
-    get talking() { return !bubble.hidden; },
-    get text() { return text.textContent; },
+    get talking() { return host.classList.contains('is-talking'); },
+    get text() { return msg.textContent; },
   };
 }

@@ -429,12 +429,16 @@
      arriving mid-pour cannot push the curve or land on the stop button. The
      min-height is reserved whether or not he is talking: a chart that jumps
      4 mm every time he speaks is worse than a little unused space. */
-  #pip { margin-top:10px; font-size:13px; min-height:0; align-items:center; }
+  /* Pip is a pane, not a figure beside a bubble, so it takes the column's full
+     width and needs no avatar gutter. Its row is reserved whether or not it has
+     anything to say: the caret alone is "still watching", and a chart that
+     jumps 4 mm every time it speaks is worse than a little unused space. */
+  /* flex:none, or the pane is squeezed to its title bar and the face vanishes.
+     #pip is a child of a flex column whose content already overflows, so a
+     default flex-shrink of 1 lets it be compressed to nothing — which is
+     exactly what happened: 35 px of pane, all of it chrome. */
+  #pip { margin-top:10px; flex:none; }
   #pip[hidden] { display:none; }
-  body.pouring #pip, body.rating #pip { min-height:56px; }
-  /* One line while it pours. The panel is the constraint and the constraint is
-     correct — there is no reading three lines with a cup filling. */
-  body.pouring #pip .pip-bubble { max-width:none; }
   /* Ten buttons at 44 px do not fit a 340 px column, and wrapping them 7-and-3
      makes the scale look like it stops at seven. */
   body.rating .rate { display:grid; grid-template-columns:repeat(5, 1fr); }
@@ -1169,6 +1173,8 @@ let draft = blankDraft();
 // rather than returning undefined.
 let pip = null;
 let pipSaid = new Set();
+// The line currently on Pip's pane, kept so the phone can be sent the same one.
+let pipSaying = null;
 // The row this shot already occupies in the log, once it has one. Null until
 // the pump stops, and null again after the shot is thrown away.
 let savedId = null;
@@ -2941,6 +2947,9 @@ function broadcast(snap) {
     theme: currentTheme(),
     // What this page is using for its own dial, so the phone draws the same one.
     dose: targetDose(),
+    // And whatever the coach is currently saying, so the phone shows the same
+    // line rather than reasoning separately from less information.
+    pip: pipSaying,
   }));
 }
 
@@ -3363,6 +3372,7 @@ $('tare').addEventListener('click', () => {
 $('arm').addEventListener('click', () => {
   est.reset(lastRaw); brew.arm(); sess.goto('brew');
   pipSaid = new Set();
+  pipSaying = null;
   draft.time_s = null; draft.yield_g = null; draft.curve = []; draft.metrics = {};
   stopArmed = false; stopSeen = null;
   $('live-msg').textContent = ''; $('b-summary').replaceChildren();
@@ -3499,7 +3509,10 @@ function pipLive(s) {
     trend: liveStep(),
     target: targetYield(),
   }, pipSaid);
-  if (said) pip.say(said.text, { mood: said.mood, ms: said.ms });
+  if (said) {
+    pip.say(said.text, { mood: said.mood, ms: said.ms });
+    pipSaying = { text: said.text, mood: said.mood };
+  }
 }
 
 /**

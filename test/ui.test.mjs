@@ -1272,15 +1272,43 @@ try {
   await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
   const pipWire = await page.evaluate(async () => {
     const prefs = await import('./assets/js/core/prefs.js');
+    const { FACES } = await import('./assets/js/core/pip.js');
     prefs.set({ coach: true });
     const host = document.getElementById('pip');
-    const drawn = () => ({
-      bean: !!host.querySelector('.pip-body'),
-      eyes: host.querySelectorAll('.pip-eye').length,
-      // The crease doubles as the mouth, so one path is both.
-      mouth: !!host.querySelector('.pip-mouth'),
-    });
-    const before = { hidden: host.hidden, ...drawn() };
+    await document.fonts.ready;
+    // EVERY FACE GLYPH HAS TO BE IN THE FONT WE SHIP.
+    // The app self-hosts a latin-only subset of Space Mono. A character outside
+    // it still renders, from a system monospace, so the failure is silent and
+    // looks nearly right. Asking "is the result monospace" does not catch it —
+    // the fallback is monospace too, which is how U+0298 and U+25A1 nearly
+    // shipped. The discriminator is the advance width against a glyph known to
+    // be present: 24.48 px for the real font at 40 px, 24.09 for the fallback.
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;'
+      + 'font:700 40px "Space Mono", monospace';
+    document.body.appendChild(probe);
+    const adv = (ch) => { probe.textContent = ch; return probe.getBoundingClientRect().width; };
+    const unit = adv('o');
+    const missing = [];
+    for (const face of Object.values(FACES)) {
+      for (const ch of [...face]) {
+        if (ch === ' ') continue;
+        if (Math.abs(adv(ch) - unit) > 0.02) {
+          missing.push(ch + ' U+' + ch.codePointAt(0).toString(16).padStart(4, '0'));
+        }
+      }
+    }
+    probe.remove();
+    const before = {
+      hidden: host.hidden,
+      bar: !!host.querySelector('.pip-who'),
+      face: (host.querySelector('.pip-face') || {}).textContent || '',
+      // The caret belongs inside the line of text, which is what makes it
+      // trail the message rather than sit at the far edge of the pane.
+      caretInline: !!host.querySelector('.pip-text .pip-caret'),
+      missing,
+      unit: +unit.toFixed(2),
+    };
     // Dismissing is not "hide this message" — it is being told to go away.
     host.querySelector('.pip-x')?.click();
     await new Promise((r) => setTimeout(r, 60));
@@ -1289,15 +1317,60 @@ try {
     await new Promise((r) => setTimeout(r, 60));
     return { before, after, back: !document.getElementById('pip').hidden };
   });
-  t('pip: is on the page and drawn from parts, not an image',
-    pipWire.before.bean && pipWire.before.eyes === 2 && pipWire.before.mouth
-    && !pipWire.before.hidden,
-    `bean ${pipWire.before.bean}, ${pipWire.before.eyes} eyes, crease ${pipWire.before.mouth}`);
+  t('pip: every glyph in every face is in the font this app actually ships',
+    pipWire.before.missing.length === 0,
+    pipWire.before.missing.join(', ')
+      || `all present, advance ${pipWire.before.unit} px`);
+  t('pip: is on the page as a prompt, with a face and a caret that trails it',
+    pipWire.before.bar && /\[.+\]/.test(pipWire.before.face)
+    && pipWire.before.caretInline && !pipWire.before.hidden,
+    `${pipWire.before.face}, caret in the line ${pipWire.before.caretInline}`);
   t('pip: dismissing him turns him off for good, not just for now',
     pipWire.after.hidden && pipWire.after.pref === false,
     `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
   t('pip: and turning him back on brings him back',
     pipWire.back, 'remounted');
+
+  // THE PHONE REPEATS, IT DOES NOT REASON.
+  // The viewer sees frames, not the shot log, so a coach running there would be
+  // a second and weaker one — and two screens disagreeing about your shot is
+  // worse than one staying quiet. The laptop decides and sends the line.
+  await page.goto(B + '/view.html');
+  await page.waitForFunction(() => window.__view, null, { timeout: 8000 });
+  const phoneCoach = await page.evaluate(async () => {
+    document.getElementById('pairing').hidden = true;
+    document.getElementById('watching').hidden = false;
+    const base = { method: 'espresso', dose: 18, doseSet: true, target: 36, tol: 1.5,
+      lag: 1, coffee: 'Guji', hint: '', k: 'f', w: 24, q: 1.9, t: 14,
+      st: 'extracting', step: 'brew', phase: 'fill', curve: [[0, 0], [14, 24]] };
+    const host = document.getElementById('pip');
+    // No line yet: nothing is drawn at all, so a phone that never sees a
+    // coached shot never grows a pane.
+    window.__view.paint({ ...base, pip: null });
+    const before = { hidden: host.hidden, mounted: !!host.querySelector('.pip-face') };
+    window.__view.paint({ ...base, pip: { text: 'Flow jumped.', mood: 'alert' } });
+    await new Promise((r) => setTimeout(r, 40));
+    const on = { hidden: host.hidden, mood: host.dataset.mood,
+      says: (host.querySelector('.pip-say') || {}).textContent,
+      face: (host.querySelector('.pip-face') || {}).textContent };
+    // And when the laptop stops saying anything the pane goes quiet rather than
+    // disappearing — a prompt with nothing to say is still a prompt.
+    window.__view.paint({ ...base, pip: null });
+    await new Promise((r) => setTimeout(r, 40));
+    const quiet = { hidden: host.hidden,
+      says: (host.querySelector('.pip-say') || {}).textContent,
+      caret: !!host.querySelector('.pip-caret') };
+    return { before, on, quiet };
+  });
+  t('phone: no pane at all until the laptop has something to say',
+    phoneCoach.before.hidden && !phoneCoach.before.mounted, 'nothing drawn');
+  t('phone: repeats the laptop\u2019s line and mood rather than working out its own',
+    !phoneCoach.on.hidden && phoneCoach.on.says === 'Flow jumped.'
+    && phoneCoach.on.mood === 'alert' && /\[.+\]/.test(phoneCoach.on.face),
+    `${phoneCoach.on.face} ${phoneCoach.on.mood}: ${phoneCoach.on.says}`);
+  t('phone: goes quiet without vanishing when the laptop stops',
+    !phoneCoach.quiet.hidden && phoneCoach.quiet.says === '' && phoneCoach.quiet.caret,
+    `pane kept, caret still there: ${phoneCoach.quiet.caret}`);
 
   // THE COACH. The half that decides whether to speak at all.
   // The failure mode being tested for is not "says the wrong thing" but "says
@@ -6083,41 +6156,48 @@ try {
   t('palette: muted text clears AA, since it carries the instructions',
     themes.every((th) => palette[th].mute >= 4.5),
     `worst ${worst('mute')} at ${palette[worst('mute')].mute}:1`);
-  // Pip is features cut out of a bean, so his face is one pair: if the roast is
-  // themed and the ink is not, an eye goes the colour of the bean it sits in.
+  // Pip is type now, not a drawing, so the pairs worth checking are the ones
+  // the pane actually paints: the title bar's text on the bar, the message on
+  // the panel, and the face when a mood gives it a colour. Measured off the
+  // mounted component rather than off tokens, so a cascade problem counts too.
+  await page.goto(B + '/live.html?mock=lefu&noshot=1');
+  await page.waitForFunction(() => window.__sess, null, { timeout: 8000 });
   const pip = await page.evaluate(async () => {
     const { THEMES } = await import('./assets/js/ui.js');
+    const prefs = await import('./assets/js/core/prefs.js');
+    prefs.set({ coach: true });
     const root = document.documentElement;
     const had = root.getAttribute('data-theme');
-    const probe = document.createElement('div');
-    document.body.appendChild(probe);
+    const host = document.getElementById('pip');
+    host.hidden = false;
+    const rgb = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
     const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
     const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
     const out = {};
     for (const th of THEMES) {
       root.setAttribute('data-theme', th);
-      const cs = getComputedStyle(root);
-      const px = (n) => { const v = cs.getPropertyValue(n).trim();
-        probe.style.color = v; const c = getComputedStyle(probe).color;
-        return (c.match(/[\d.]+/g) || []).slice(0, 3).map(Number); };
-      const skin = px('--pip-skin');
+      host.dataset.tone = 'warn';
+      const bar = getComputedStyle(host.querySelector('.pip-bar'));
+      const who = getComputedStyle(host.querySelector('.pip-who'));
+      const pane = getComputedStyle(host);
+      const txt = getComputedStyle(host.querySelector('.pip-text'));
+      const face = getComputedStyle(host.querySelector('.pip-face'));
       out[th] = {
-        // The face against the bean, which is the pair that can go invisible.
-        face: +ratio(px('--pip-ink'), skin).toFixed(2),
-        // And the bean against the panel it sits on, or he is a hole.
-        onPanel: +ratio(skin, px('--panel')).toFixed(2),
+        bar: +ratio(rgb(who.color), rgb(bar.backgroundColor)).toFixed(2),
+        body: +ratio(rgb(txt.color), rgb(pane.backgroundColor)).toFixed(2),
+        warn: +ratio(rgb(face.color), rgb(pane.backgroundColor)).toFixed(2),
       };
+      host.dataset.tone = '';
     }
     if (had === null) root.removeAttribute('data-theme');
     else root.setAttribute('data-theme', had);
-    probe.remove();
     return out;
   });
   const pt = Object.keys(pip);
-  t('palette: Pip has a face, in every theme',
-    pt.every((th) => pip[th].face >= 4.5 && pip[th].onPanel >= 1.6),
-    pt.map((th) => `${th} ${pip[th].face}/${pip[th].onPanel}`).join(' \u00b7 '));
+  t('palette: Pip reads in every theme, bar and body and the mood that takes colour',
+    pt.every((th) => pip[th].bar >= 4.5 && pip[th].body >= 4.5 && pip[th].warn >= 4.5),
+    pt.map((th) => `${th} ${pip[th].bar}/${pip[th].body}/${pip[th].warn}`).join(' \u00b7 '));
 
   t('palette: the four dark themes tell the browser they are dark',
     ['dark', 'terminal', 'glass'].every((th) => palette[th].scheme === 'dark')
