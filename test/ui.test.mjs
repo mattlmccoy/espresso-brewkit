@@ -67,8 +67,8 @@ try {
     seeded.added === 15, `${seeded.added} rows`);
   t('index: but the page no longer offers to pour them into your log',
     (await page.locator('#load-sample').count()) === 0
-    && /different equipment/i.test(await page.innerText('body')),
-    'the loader is gone, and the page says why');
+    && /skew the grind model/i.test(await page.innerText('body')),
+    'no loader, and the page says why the log starts empty');
 
   // ---- the walkthrough on the home page ----
   // It is the first thing anyone sees, and it is animated, which means it is
@@ -1323,13 +1323,37 @@ try {
       faces: FACES,
       unit: +unit.toFixed(2),
     };
-    // Dismissing is not "hide this message" — it is being told to go away.
+    // Dismissing is not "hide this message" — it is being told to go away. But
+    // "go away" is two different instructions, and the x used to guess: it
+    // wrote the preference off, and the only route back was a toggle on another
+    // page. So it asks, in his own bubble, and both answers leave a way back.
     host.querySelector('.pip-x')?.click();
-    await new Promise((r) => setTimeout(r, 60));
-    const after = { hidden: host.hidden, pref: prefs.prefs().coach };
-    prefs.set({ coach: true });
-    await new Promise((r) => setTimeout(r, 60));
-    return { before, after, back: !document.getElementById('pip').hidden };
+    await new Promise((r) => setTimeout(r, 80));
+    const asked = {
+      choices: [...host.querySelectorAll('.pip-choice')].map((b) => b.textContent.trim()),
+      stillPref: prefs.prefs().coach,
+    };
+    // The softer answer: quiet now, preference untouched, and a stub in his
+    // place saying where he went.
+    [...host.querySelectorAll('.pip-choice')][0]?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    const shot = { hidden: host.hidden, pref: prefs.prefs().coach,
+                   stub: !document.getElementById('pip-stub').hidden,
+                   why: document.querySelector('#pip-stub .stub-why').textContent };
+    document.getElementById('pip-wake').click();
+    await new Promise((r) => setTimeout(r, 80));
+    const woke = { hidden: host.hidden, stub: !document.getElementById('pip-stub').hidden };
+    // And the hard answer, which does write the preference.
+    host.querySelector('.pip-x')?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    [...host.querySelectorAll('.pip-choice')][1]?.click();
+    await new Promise((r) => setTimeout(r, 80));
+    const after = { hidden: host.hidden, pref: prefs.prefs().coach,
+                    stub: !document.getElementById('pip-stub').hidden };
+    document.getElementById('pip-wake').click();
+    await new Promise((r) => setTimeout(r, 80));
+    return { before, asked, shot, woke, after,
+             back: !document.getElementById('pip').hidden && prefs.prefs().coach !== false };
   });
   t('pip: every glyph in every face is in the font this app actually ships',
     pipWire.before.missing.length === 0,
@@ -1397,11 +1421,25 @@ try {
       `${f.watch.open} \u2192 ${f.watch.blink} \u2192 ${f.watch.glance.join(' ')}; `
       + `alert holds ${f.alert.open}`);
   }
-  t('pip: dismissing him turns him off for good, not just for now',
-    pipWire.after.hidden && pipWire.after.pref === false,
-    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}`);
-  t('pip: and turning him back on brings him back',
-    pipWire.back, 'remounted');
+  // The x used to write "off for good" on a single tap and leave no trace of
+  // where he went — which made an impatient press mid-shot effectively
+  // permanent. It asks now, and asking is the behaviour worth protecting.
+  t('pip: closing him asks which kind of go away it was',
+    pipWire.asked.choices.length === 2 && pipWire.asked.stillPref !== false,
+    `offered ${pipWire.asked.choices.join(' / ') || 'nothing'}, `
+    + `preference still ${pipWire.asked.stillPref}`);
+  t('pip: quiet for this shot leaves the setting alone and says where he went',
+    pipWire.shot.hidden && pipWire.shot.pref !== false && pipWire.shot.stub
+    && /quiet/i.test(pipWire.shot.why),
+    `hidden ${pipWire.shot.hidden}, preference ${pipWire.shot.pref}, `
+    + `stub ${pipWire.shot.stub} — "${pipWire.shot.why}"`);
+  t('pip: off for good does turn him off, and still leaves a way back',
+    pipWire.after.hidden && pipWire.after.pref === false && pipWire.after.stub,
+    `hidden ${pipWire.after.hidden}, preference now ${pipWire.after.pref}, `
+    + `stub ${pipWire.after.stub}`);
+  t('pip: and the stub in his place is the one tap that brings him back',
+    pipWire.woke.hidden === false && pipWire.woke.stub === false && pipWire.back,
+    `after "this shot" ${!pipWire.woke.hidden}, after "off" ${pipWire.back}`);
 
   // THE PHONE REPEATS, IT DOES NOT REASON.
   // The viewer sees frames, not the shot log, so a coach running there would be
@@ -1529,6 +1567,208 @@ try {
   t('coach: and refuses to invent steps for a conical, where there is no honest number',
     coach.conical && !coach.conical.steps && /conical/.test(coach.conical.say),
     coach.conical ? coach.conical.say : 'nothing');
+
+  // BEFORE THE POUR, which is the only part of making a shot where anything can
+  // still be changed. Same rule as during it: silence is the common answer, and
+  // nothing is said that cannot be acted on in the next minute.
+  const atGrinder = await page.evaluate(async () => {
+    const c = await import('./assets/js/core/coach.js');
+    const bag = { id: 'b', roast_level: 'Medium', roast_date: '' };
+    const grinder = { id: 'df64', feed: 'single' };
+    const one = (state) => {
+      const r = c.prep(state, new Set());
+      return r ? r.id : null;
+    };
+    const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+    // A settled routine: same bag, same setting, times inside a second of each
+    // other, and the last one is the best one. Nothing to say.
+    const settled = [27.4, 27.9, 27.6, 28.0, 27.7].map((t, i) => ({
+      shot_id: `s${i}`, bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+      dose_g: 18, time_s: t, rating: 8,
+    }));
+    // The same routine, drifting: the last TWO both ran long. One long shot is
+    // usually one bad puck, and must not move the grinder.
+    const drifted = [...settled,
+      { shot_id: 'l1', bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+        dose_g: 18, time_s: 35, rating: 5 },
+      { shot_id: 'l2', bag_id: 'b', grinder_id: 'df64', grind_setting: 12,
+        dose_g: 18, time_s: 37, rating: 4 }];
+    // And one long shot on its own, which is the case that must stay quiet.
+    const oneOff = [...settled, { shot_id: 'l1', bag_id: 'b', grinder_id: 'df64',
+      grind_setting: 12, dose_g: 18, time_s: 37, rating: 4 }];
+    return {
+      // Weighing, nothing unusual: quiet.
+      quiet: one({ step: 'dose', bag, grinder, history: settled }),
+      // Weighing after a shot that ran long: the move, now, at the grinder.
+      carry: one({ step: 'dose', bag, grinder, history: drifted }),
+      carryText: (c.prep({ step: 'dose', bag, grinder, history: drifted }, new Set()) || {}).text,
+      // One shot off on its own is a puck, not a setting.
+      noise: one({ step: 'dose', bag, grinder, history: oneOff }),
+      // Grinding, and 0.9 g never came out.
+      retention: one({ step: 'grind', dose: 18.2, grounds: 17.3, bag, grinder,
+        history: settled }),
+      // The same weights on a hopper grinder, where holding coffee back is the job.
+      hopper: one({ step: 'grind', dose: 18.2, grounds: 17.3, bag,
+        grinder: { id: 'df64', feed: 'hopper' }, history: settled }),
+      // Three days off roast on a medium, which wants seven to fourteen.
+      young: one({ step: 'dose', bag: { ...bag, roast_date: day(3) }, grinder,
+        history: settled }),
+      youngText: (c.prep({ step: 'dose', bag: { ...bag, roast_date: day(3) }, grinder,
+        history: settled }, new Set()) || {}).text,
+      // Comfortably inside the window: nothing worth saying about the date.
+      rested: one({ step: 'dose', bag: { ...bag, roast_date: day(10) }, grinder,
+        history: settled }),
+      // A bag with nothing pulled on it yet.
+      fresh: one({ step: 'dose', bag: { id: 'new' }, grinder, history: settled }),
+      // And it says nothing at all once the pump is the thing that matters.
+      brewing: one({ step: 'brew', dose: 18, bag, grinder, history: drifted }),
+    };
+  });
+  t('coach: says nothing at the grinder when the routine is running fine',
+    atGrinder.quiet === null && atGrinder.rested === null,
+    `settled ${atGrinder.quiet}, rested coffee ${atGrinder.rested}`);
+  // The bad habit this whole file argues against, in the one place it would be
+  // easiest to encourage: moving the grinder because of a single bad puck.
+  t('coach: will not move the grinder for one shot out of six',
+    atGrinder.noise === null, `one long shot produced ${atGrinder.noise}`);
+  // The reading is made on the rating screen and the move it implies can only
+  // be made here, before anything is ground — and in between is a night's sleep.
+  t('coach: carries the last shot\u2019s verdict to the grinder, where it can be acted on',
+    atGrinder.carry === 'carry' && /finer|coarser/.test(atGrinder.carryText || ''),
+    atGrinder.carryText || `nothing (${atGrinder.carry})`);
+  t('coach: reads retention on a single-doser, and not on a hopper',
+    atGrinder.retention === 'retention' && atGrinder.hopper === null,
+    `single-dose ${atGrinder.retention}, hopper ${atGrinder.hopper}`);
+  t('coach: says when a coffee is too young to judge, so it is not chased at the dial',
+    atGrinder.young === 'rest' && /do not chase/.test(atGrinder.youngText || ''),
+    atGrinder.youngText || 'nothing');
+  t('coach: marks the first shot on a bag as a reference rather than a verdict',
+    atGrinder.fresh === 'new_bag', String(atGrinder.fresh));
+  t('coach: and stands down entirely once the pump is running',
+    atGrinder.brewing === null, String(atGrinder.brewing));
+
+  // ---- landing on the target rather than past it ----
+  // Aim for 36, stop the pump at 36, and the cup settles at 38: the puck does
+  // not stop when the pump does. What is still in flight is the flow times how
+  // long that machine drips, so the correction has to move with the flow — a
+  // fixed "stop 2 g early" is wrong at both ends and worst at the fast end,
+  // where the overshoot is biggest and the time to react is shortest.
+  const stopping = await page.evaluate(async () => {
+    const { cutPoint, LEAD_S } = await import('./assets/js/core/cutoff.js');
+    const at = (flow, lag = 1.4, net = 0) => cutPoint({ target: 36, flow, lag, net });
+    return {
+      slow: at(1.2).at,
+      fast: at(2.6).at,
+      lead: LEAD_S,
+      // A hand on the platter briefly reads as an enormous flow. Uncapped that
+      // says "stop at 4 g" in the middle of a normal shot, which is a worse
+      // failure than the one being fixed.
+      spike: at(40).at,
+      // No flow yet is not "stop immediately", it is "there is nothing to time".
+      still: at(0, 1.4, 10).eta,
+      // Where the cup is heading if nothing changes.
+      lands: at(2.0, 1.4, 30).lands,
+      // The stop is at 33.2 g here, and the pour is 2 g/s — so a second is two
+      // grams. Sixteen grams short is eight seconds out and far too early to
+      // say anything; six grams short is three seconds out and is the warning.
+      early: at(2.0, 1.4, 33.2 - 16).ready,
+      warn: at(2.0, 1.4, 33.2 - 6).ready,
+      due: at(2.0, 1.4, 33.0).due,
+      none: cutPoint({ target: 0, flow: 2 }),
+    };
+  });
+  t('stop: the cut moves with the flow, so a fast shot is called earlier',
+    Math.abs(stopping.slow - 34.32) < 0.02 && Math.abs(stopping.fast - 32.36) < 0.02,
+    `1.2 g/s stops at ${stopping.slow} g, 2.6 g/s at ${stopping.fast} g`);
+  t('stop: a knock cannot tell you to stop in the middle of the shot',
+    stopping.spike >= 27, `a 40 g/s transient still says ${stopping.spike} g`);
+  t('stop: with no pour there is nothing to count down',
+    !Number.isFinite(stopping.still) && stopping.none === null,
+    `eta ${stopping.still}, no target ${stopping.none}`);
+  t('stop: warns before it is due, and stays quiet eight seconds out',
+    stopping.warn === true && stopping.early === false && stopping.due === true,
+    `8 s out ${stopping.early}, 3 s out ${stopping.warn}, at the cut ${stopping.due}`);
+
+  // AND THE SOUND COUNTS TO THE SAME PLACE THE SCREEN DOES.
+  // It did not. The screen counted down to the stop weight and the cue counted
+  // down to the target, so the one signal you use when you are NOT looking at
+  // the screen — which is the whole reason a cue exists — fired a gram and a
+  // half late on a normal shot and nearly three on a fast one, every time.
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 9000 });
+  const heard = await page.evaluate(async () => {
+    const { cutPoint } = await import('./assets/js/core/cutoff.js');
+    const fired = [];
+    const cue = await import('./assets/js/core/cue.js');
+    for (const k of ['ready', 'tick', 'stop']) {
+      const real = cue.CUES[k];
+      cue.CUES[k] = () => { fired.push(k); real?.(); };
+    }
+    // Walk a pour up to the target at a steady 2 g/s and see where it speaks.
+    const lag = 1.4, target = 36;
+    const spoke = [];
+    for (let net = 20; net <= 37; net += 0.2) {
+      const c = cutPoint({ target, flow: 2, lag, net });
+      if (c.due) { spoke.push(['stop', +net.toFixed(1)]); break; }
+      if (c.ready && !spoke.length) spoke.push(['ready', +net.toFixed(1)]);
+    }
+    return { spoke, hasReady: typeof cue.CUES.ready === 'function' };
+  });
+  const readyAt = heard.spoke.find((x) => x[0] === 'ready')?.[1];
+  const stopAt = heard.spoke.find((x) => x[0] === 'stop')?.[1];
+  t('stop: the chime is called at the stop weight, not at the target',
+    stopAt !== undefined && stopAt < 34 && stopAt > 32,
+    `stop cue at ${stopAt} g for a 36 g target at 2 g/s (the target itself is 36)`);
+  t('stop: with a run-up first, so there is time to reach the paddle',
+    readyAt !== undefined && stopAt - readyAt > 5,
+    `ready at ${readyAt} g, stop at ${stopAt} g`);
+
+  // ---- two ways to watch the same shot ----
+  // The failure mode of a "simplified" view is that it simplifies away
+  // something you needed, so what is checked is not that things disappeared
+  // but WHICH: the instrument, the curve, the flow and the stop weight all
+  // survive, and what goes is either a duplicate of one of those or a
+  // projection that the stop weight has made redundant.
+  const views = await page.evaluate(async () => {
+    const prefs = await import('./assets/js/core/prefs.js');
+    const shown = (id) => {
+      const el = document.getElementById(id);
+      return !!el && el.getBoundingClientRect().height > 0;
+    };
+    const keep = ['brew-gauge', 'curve', 'pn-cut', 'stop', 'flowrow', 'pip'];
+    const drop = ['ladder', 'pn-target', 'pn-lands', 'pour-legend'];
+    prefs.set({ clean: false });
+    await new Promise((r) => setTimeout(r, 120));
+    const full = { keep: keep.filter(shown), drop: drop.filter(shown),
+                   label: document.getElementById('clean').textContent };
+    document.getElementById('clean').click();
+    await new Promise((r) => setTimeout(r, 160));
+    const clean = { keep: keep.filter(shown), drop: drop.filter(shown),
+                    body: document.body.classList.contains('clean'),
+                    label: document.getElementById('clean').textContent,
+                    // The flow number is the one live reading that says whether
+                    // the shot is running right. Tidying it away would be
+                    // hiding the reading rather than the clutter.
+                    flow: !!document.getElementById('c-f')?.closest('.pn')
+                      ?.getBoundingClientRect().height };
+    const stored = prefs.prefs().clean;
+    document.getElementById('clean').click();
+    await new Promise((r) => setTimeout(r, 160));
+    const back = document.body.classList.contains('clean');
+    prefs.set({ clean: false });
+    return { full, clean, stored, back };
+  });
+  t('view: the clean one keeps the instrument, the curve, the flow and the stop',
+    views.clean.keep.length === views.full.keep.length && views.clean.flow === true,
+    `kept ${views.clean.keep.join(', ')}${views.clean.flow ? ' + flow' : ' — FLOW GONE'}`);
+  t('view: and drops only the duplicates and the projections',
+    views.full.drop.length > 0 && views.clean.drop.length === 0,
+    `full showed ${views.full.drop.join(', ')}; clean shows ${views.clean.drop.join(', ') || 'none of them'}`);
+  t('view: the switch says which way it goes, and the choice is remembered',
+    views.full.label === 'Clean view' && views.clean.label === 'Full view'
+    && views.stored === true && views.back === false,
+    `"${views.full.label}" → "${views.clean.label}", stored ${views.stored}`);
 
   // THE KNOWLEDGE BANK'S OWN CONTRACTS.
   // The point of the file is that a claim carries its evidence, so the checks
@@ -4180,6 +4420,75 @@ try {
   t('qr: what is drawn reads back as the viewer URL at the size it is drawn',
     readable, 'decoded off the page at its rendered size');
 
+  // ---- and the phone can do the looking, which is the part that was missing --
+  // The URL in that square is the whole first leg of pairing for free: iOS
+  // Camera reads one natively and offers to open it. Right up until you add the
+  // viewer to the home screen — an installed web app is its own browser
+  // context, and nothing the Camera app opens can reach it. So the setup the
+  // app is best in was the one where pairing fell back to moving 87 characters
+  // between two browsers by hand.
+  //
+  // The claim under test is that a PICTURE OF THE LAPTOP'S SCREEN, decoded on
+  // the phone, yields exactly what the paste box wanted. Same square, same
+  // reader, no typing.
+  const svgSrc = await page.evaluate(() => document.querySelector('#pair-qr svg').outerHTML);
+  const offerOnLaptop = await page.inputValue('#pair-offer');
+  const byCamera = await phone.evaluate(async ({ markup, side }) => {
+    const S = await import('./assets/js/core/qrscan.js');
+    const { codeFrom } = await import('./assets/js/core/camscan.js');
+    const raw = await new Promise((res) => {
+      const bail = setTimeout(() => res(null), 8000);
+      const done = (v) => { clearTimeout(bail); res(v); };
+      const url = URL.createObjectURL(new Blob([markup], { type: 'image/svg+xml' }));
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = side; c.height = side;
+        const g = c.getContext('2d');
+        g.fillStyle = '#fff'; g.fillRect(0, 0, side, side);
+        g.drawImage(img, 0, 0, side, side);
+        URL.revokeObjectURL(url);
+        done(S.scan(g.getImageData(0, 0, side, side)));
+      };
+      img.onerror = () => done(null);
+      img.src = url;
+    });
+    return { raw, code: codeFrom(raw) };
+  }, { markup: svgSrc, side: 420 });
+  t('pairing: a picture of the laptop\u2019s square gives the phone the same code the paste box wanted',
+    byCamera.code === offerOnLaptop && /view\.html#p=/.test(byCamera.raw ?? ''),
+    byCamera.code === offerOnLaptop
+      ? `${byCamera.code.length} characters, out of a URL`
+      : `got ${String(byCamera.code).slice(0, 24)}\u2026`);
+  // The unwrapping, and its refusal. A camera pointed at a kitchen sees a great
+  // many things that are not a pairing code.
+  const unwrap = await phone.evaluate(async () => {
+    const { codeFrom } = await import('./assets/js/core/camscan.js');
+    return {
+      bare: codeFrom('2~abc~def'),
+      url: codeFrom('https://box.local/view.html#p=2~abc~def'),
+      encoded: codeFrom('https://box.local/view.html#p=2~abc%7Edef'),
+      other: codeFrom('https://example.com/'),
+      words: codeFrom('WIFI:S=kitchen;'),
+      empty: codeFrom(''),
+    };
+  });
+  t('pairing: a scanned code is taken bare or out of a URL, and nothing else is taken at all',
+    unwrap.bare === '2~abc~def' && unwrap.url === '2~abc~def' && unwrap.encoded === '2~abc~def'
+    && unwrap.other === null && unwrap.words === null && unwrap.empty === null,
+    `bare ${unwrap.bare}, url ${unwrap.url}, a wifi code ${unwrap.words}`);
+  const phoneScan = await phone.evaluate(() => ({
+    offered: !document.getElementById('scan-row').hidden,
+    folded: !document.getElementById('paste-fold').open,
+    label: document.getElementById('scan').textContent,
+  }));
+  // The paste is the path that always works, so it stays — as the fallback it
+  // now is rather than as the route.
+  t('pairing: the phone leads with its own camera and keeps the paste behind it',
+    phoneScan.offered && /scan/i.test(phoneScan.label),
+    `button "${phoneScan.label}", paste folded ${phoneScan.folded}`);
+
+  await phone.evaluate(() => { document.getElementById('paste-fold').open = true; });
   await phone.fill('#offer', offer);
   await phone.click('#link');
   await phone.waitForFunction(
@@ -4571,6 +4880,7 @@ try {
     await page.click('#watch-phone');
     await page.waitForFunction(
       () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await drop.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await drop.fill('#offer', await page.inputValue('#pair-offer'));
     await drop.click('#link');
     await drop.waitForFunction(
@@ -4610,6 +4920,7 @@ try {
       `dropped ${onPhone.dropped}, box "${onPhone.offer}", reply shown ${onPhone.replyShown}`);
 
     // And the new code works, which is the whole point.
+    await drop.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await drop.fill('#offer', await page.inputValue('#pair-offer'));
     await drop.click('#link');
     await drop.waitForFunction(
@@ -4637,6 +4948,7 @@ try {
     await page.click('#watch-phone');
     await page.waitForFunction(
       () => document.getElementById('pair-offer').value.length > 40, { timeout: 15000 });
+    await bye.evaluate(() => { document.getElementById('paste-fold').open = true; });
     await bye.fill('#offer', await page.inputValue('#pair-offer'));
     await bye.click('#link');
     await bye.waitForFunction(
@@ -4697,6 +5009,7 @@ try {
       t('link: and the packed code still fits the QR budget with them in it',
         shape.fits, `${code.length} chars`);
 
+      await pad.evaluate(() => { document.getElementById('paste-fold').open = true; });
       await pad.fill('#offer', code);
       await pad.click('#link');
       await pad.waitForFunction(

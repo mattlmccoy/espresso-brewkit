@@ -140,7 +140,12 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
   live.className = 'pip-live';
   live.setAttribute('role', 'status');
   live.setAttribute('aria-live', 'polite');
-  bubble.append(say$);
+  // Where an answer goes when he has asked something. Empty and absent the
+  // rest of the time, which is nearly always.
+  const choices = document.createElement('div');
+  choices.className = 'pip-choices';
+  choices.hidden = true;
+  bubble.append(say$, choices);
 
   host.append(box, bubble, live);
 
@@ -216,10 +221,34 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
     clearTimeout(holdTimer);
     wear(m);
     bubble.hidden = false;
+    choices.hidden = true;
+    choices.replaceChildren();
     host.classList.add('is-talking');
     live.textContent = message;
     type(message);
     if (ms > 0) holdTimer = setTimeout(() => hide(), ms);
+  }
+
+  /**
+   * Say something and wait for an answer, in the bubble he already has.
+   *
+   * The one thing he is ever asked is what "go away" meant, and that question
+   * belongs to him: a modal dialog for it would be the app interrupting to ask
+   * how you would like to stop being interrupted. `options` is
+   * [{ label, act }]; answering closes the bubble and runs the act, and there
+   * is no timer on it — a question that withdraws itself was not a question.
+   */
+  function ask(message, options = []) {
+    say(message, { mood: 'think' });
+    choices.replaceChildren(...options.map((o) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pip-choice';
+      b.textContent = o.label;
+      b.addEventListener('click', () => { hide(); o.act?.(); });
+      return b;
+    }));
+    choices.hidden = options.length === 0;
   }
 
   /**
@@ -236,6 +265,8 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
     clearTimeout(typeTimer);
     bubble.hidden = true;
     say$.textContent = '';
+    choices.hidden = true;
+    choices.replaceChildren();
     live.textContent = '';
     host.classList.remove('is-talking');
     wear(mood === 'alert' || mood === 'pleased' || mood === 'flat' ? mood : 'idle');
@@ -254,6 +285,7 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
 
   return {
     say,
+    ask,
     hide,
     destroy,
     mood: wear,

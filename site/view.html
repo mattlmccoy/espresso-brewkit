@@ -32,21 +32,34 @@
      height stays indefinite, and then `container-type:size` silently fails and
      every cqmin inside falls back to the viewport — which is how a number
      meant to be 16% of the dial came out at 16% of an iPad. */
-  .big { flex:1 1 auto; position:relative; display:grid;
+  /* `minmax(0, 1fr)`, not the implicit `auto`: an auto track sizes to its
+     item, so a rig asking for a square as tall as the tile made the track as
+     wide as that square — 496 px of dial in a 331 px tile, clipped by the
+     overflow rule and silently off-centre. A capped track is what makes the
+     rig's own `max-width:100%` mean anything. */
+  .big { flex:0 0 auto; position:relative; display:grid;
+    grid-template-columns:minmax(0, 1fr);
     justify-items:center; align-items:stretch; overflow:hidden;
     border:var(--bw) solid var(--ink); border-radius:var(--radius);
-    background:var(--panel); color:var(--ink); min-height:150px; padding:10px; }
+    background:var(--panel); color:var(--ink); padding:18px 10px; }
   /* THE SQUARE THE INSTRUMENT LIVES IN.
      Without it the tile is whatever shape the page leaves over — 992x260 on a
      tablet — and a dial in that is a small ring with the number rattling
      through its labels, while a circular fill inset from the edges comes out
      a flat lens. The rig is square, centred, and everything round is measured
      from it. */
-  .rig { position:relative; display:grid; place-items:center;
-    aspect-ratio:1; height:100%; max-width:100%;
-    /* A size container, so everything inside is measured against the dial
-       rather than against the viewport. A number set in vw is the right size
-       on one screen and lies across the band labels on every other. */
+  .rig { position:relative; display:grid; place-items:center; width:100%; }
+  /* ONLY WHILE THE DIAL IS IN IT.
+     The square is for the dial: a ring in a 992x260 tile is a small circle with
+     the number rattling through its labels. But the square was unconditional,
+     and on the weighing steps there is no dial — so the tile went square
+     anyway and the readout became a small island adrift in 872 px of empty
+     panel on an iPad, 485 on a phone. That is the "off centre" bug: nothing is
+     off centre, there is simply far too much nothing around it.
+     `container-type:size` rides along here rather than above it for the same
+     reason. Only the dial's cqmin sizing needs it, and a size container with an
+     indefinite height silently resolves every cq unit against the viewport. */
+  body.has-dial .rig { aspect-ratio:1; height:100%; width:auto; max-width:100%;
     container-type:size; }
   .big-in { position:relative; z-index:3; text-align:center; }
   /* The dial, drawn around the number rather than beside it. Its own centre
@@ -55,7 +68,7 @@
     pointer-events:none; }
   /* While the dial is up it carries the label and the progress, so the tile's
      own caption and mini-bar would be a third and fourth copy inside the ring. */
-  body.brewing .big .k, body.brewing .big .fill { display:none; }
+  body.has-dial .big .k, body.has-dial .big .fill { display:none; }
   /* THE COLOUR THIS PAGE LOST.
      The tile used to be a slab of --accent with the number written on it. That
      had to go, but the reason was never "the phone should be grey": it was that
@@ -75,7 +88,7 @@
   /* The dial's own bands name the three drinks, and the ladder underneath
      gives their weights. Ruled lines across the disc saying it a third time
      is what made the middle of the instrument unreadable. */
-  body.brewing .vol-marks { display:none; }
+  body.has-dial .vol-marks { display:none; }
   #gauge[hidden] { display:none; }
   #gauge svg { width:auto; height:100%; max-width:100%; display:block; grid-area:1/1; }
   #gauge .g-read { display:none; }
@@ -86,16 +99,26 @@
      shown on one device. The tile still owns the number while weighing, where
      there is no dial. Once the dial is up it is the readout, and all three
      screens say the same four things because they come from the same code. */
-  body.brewing .big-in { display:none; }
-  body.brewing #gauge .g-read { display:block; }
+  /* WHILE THE DIAL IS UP — not merely while the step says brew.
+     These two were keyed to the step, and the dial is keyed to the pour: it
+     needs a weight, a dose and a running pump before there is an arc to draw.
+     So every shot passed through a state where the readout had stepped aside
+     for an instrument that was not there yet, and the largest thing on the
+     screen was an empty panel — measured at 412 px tall with not one character
+     in it. It cleared the moment the pump ran, which is why it read as "blank
+     until it reaches the ristretto range".
+     A pour with no dose weighed does the same thing permanently: no dose, no
+     ratio, no dial, and the weight had nowhere to be shown. */
+  body.has-dial .big-in { display:none; }
+  body.has-dial #gauge .g-read { display:block; }
   /* Measured, not guessed: at 20cqmin the number spanned 0.789 of the clear
      bore inside the ring, which is why it sat against it. The bore is
      2 x 0.72r of a 220-unit box — gauge.js publishes it as --g-bore — and a
      number wants about two thirds of that, leaving the rest as air. */
-  body.brewing #gauge .g-n { font-size:16.5cqmin; line-height:1; }
-  body.brewing #gauge .g-u { font-size:5.5cqmin; }
-  body.brewing #gauge .g-sub { font-size:3.6cqmin; letter-spacing:.18em; margin-top:2.2cqmin; }
-  body.brewing #gauge .g-gap { font-size:3.5cqmin; margin-top:1.4cqmin; }
+  body.has-dial #gauge .g-n { font-size:16.5cqmin; line-height:1; }
+  body.has-dial #gauge .g-u { font-size:5.5cqmin; }
+  body.has-dial #gauge .g-sub { font-size:3.6cqmin; letter-spacing:.18em; margin-top:2.2cqmin; }
+  body.has-dial #gauge .g-gap { font-size:3.5cqmin; margin-top:1.4cqmin; }
 
   /* THE CUP FILLING. The bar underneath says how far along the pour is; this
      says it in the shape of the thing itself, rising from the bottom of the
@@ -123,7 +146,7 @@
      system with a different centre, so its radius visibly did not match the
      ring it sat in. The tile's own rectangle fill still does the weighing
      step, where there is no dial. */
-  body.brewing .vol { display:none; }
+  body.has-dial .vol { display:none; }
   .vol-fill { position:absolute; left:0; right:0; bottom:0; height:0;
     background:linear-gradient(180deg,
       color-mix(in srgb, var(--accent) 34%, transparent),
@@ -170,6 +193,16 @@
      itself straight through the drink name. */
 
   .big .u { font:700 clamp(15px, 4vw, 22px)/1 var(--sans); opacity:.75; margin-left:4px; }
+  /* CENTRED ON THE DIGITS, not on the digits plus the unit.
+     `text-align:center` centres the whole line, so a 150 px number with a
+     22 px "g" after it sits half the unit's width left of everything stacked
+     under it — the caption, the bar, the tile. Small in a number, plainly
+     visible against a bar 5 px away, and the second half of what reads as the
+     readout being off centre.
+     The unit keeps its place in the line and gives up its width, so it hangs
+     off the number rather than shoving it. */
+  .wline { display:flex; align-items:baseline; justify-content:center; }
+  .wline .u { width:0; white-space:nowrap; }
   .big .k { font:700 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase;
     opacity:.8; margin-bottom:8px; text-align:center; }
   .strip { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
@@ -179,10 +212,17 @@
     color:var(--ink-mute); }
   .strip .v { font:800 clamp(19px, 6vw, 27px)/1.1 var(--sans); font-variant-numeric:tabular-nums; }
   .strip .v small { font-size:.5em; font-weight:700; opacity:.6; }
+  /* The last few seconds, on the screen that is actually being looked at from
+     across the room. */
+  .strip .c.is-due { border-color:var(--accent); }
+  .strip .c.is-due .k, .strip .c.is-due .v { color:var(--accent); }
   .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .head .who { font:700 13px/1.2 var(--sans); }
   .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
     min-height:0; overflow:hidden; border-radius:var(--radius); }
+  /* The chart is drawn to the panel's pixels (see drawCurve), so it should
+     take the panel's height rather than deriving one from a fixed ratio. */
+  .plot > .chart { height:100%; }
   .plot[hidden] { display:none !important; }
   #hint { font:600 13px/1.45 var(--sans); color:var(--ink-dim); margin:0; }
   /* The same bar as the laptop, inheriting the tile's colour so it reads on
@@ -197,6 +237,14 @@
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
+  /* The preview, only while it is looking. Square-ish and capped, because a
+     portrait phone camera at full height pushes everything else off screen. */
+  #cam { width:100%; max-height:46vh; object-fit:cover; background:var(--panel-2);
+    border:var(--bw) solid var(--ink); border-radius:var(--radius); display:block; }
+  #cam[hidden] { display:none; }
+  #paste-fold { font:600 12px/1.4 var(--sans); }
+  #paste-fold summary { cursor:pointer; padding:6px 0; color:var(--ink-dim); }
+  #paste-fold[open] summary { margin-bottom:6px; }
   .reply-qr { background:#fff; padding:8px; border:var(--bw) solid var(--ink); width:220px;
     border-radius:var(--radius);
     max-width:100%; margin:0 auto 10px; }
@@ -213,8 +261,26 @@
      grows a fourth cell rather than everything simply getting bigger. */
   @media (min-width: 700px) {
     .watch { padding:16px 16px calc(16px + env(safe-area-inset-bottom)); gap:14px; }
-    body.brewing .stage { flex-direction:column; }
-    body.brewing .stage .big { flex:1 1 auto; min-height:300px; }
+    /* THE SIDE BY SIDE THIS BREAKPOINT WAS FOR.
+       It has always said an iPad is not a large phone, and then stacked
+       everything in one column anyway — which is how the curve ended up past
+       the bottom edge. The dial keeps its square and the curve takes the rest
+       of the width, and the whole shot fits on the screen at once. */
+    /* The tile takes a share of the WIDTH and the rig makes the square inside
+       it. Sizing the tile itself by aspect-ratio looks equivalent and is not:
+       a flex item whose height comes from stretch has no width to back the
+       ratio out of, so it collapsed to its padding — 24 px of tile with a
+       774 px dial hanging out of it. */
+    body.brewing .stage { --deck:min(50vh, 46vw); flex-direction:row;
+      align-items:stretch; flex:0 1 auto; height:var(--deck); }
+    /* ONE MEASURE FOR BOTH SIDES OF THE TILE, rather than a height from the
+       row and a width from a percentage that then have to agree. Given a share
+       of the width instead, the tile came out 362 x 377 and the rig inside it
+       338 x 353 — its `max-width:100%` capping the width while `height:100%`
+       held the height, so the square quietly stopped being one and every cq
+       unit in the dial was measured against a rectangle. */
+    body.brewing .stage .big { flex:0 0 var(--deck); min-height:0; }
+    body.brewing .stage .plot { flex:1 1 0; min-height:0; }
     body.brewing .stage .gauge { flex:1 1 42%; display:flex; flex-direction:column;
       justify-content:center; }
     .gauge svg { max-height:none; }
@@ -260,6 +326,19 @@
   /* Pip sits in the flow, full width, and only exists once there is something
      to repeat. font-size drives the whole pane, so this is all the sizing it
      needs on a phone. */
+  /* THE CLEAN VIEW, on the screen most likely to be read at arm's length while
+     both hands are busy. The ladder repeats the bands the dial already draws,
+     and several of the seven cells are projections; what is left is the weight,
+     the time, the flow and where to stop. */
+  body.clean #ladder,
+  body.clean #c-ratio,
+  body.clean #c-lands,
+  body.clean #c-dose,
+  body.clean #hint { display:none !important; }
+  body.clean.brewing .strip { grid-template-columns:repeat(2, 1fr); }
+  @media (min-width: 700px) {
+    body.clean.brewing .strip { grid-template-columns:repeat(4, 1fr); }
+  }
   #pip { font-size:12px; margin:0 0 2px; }
   #pip[hidden] { display:none; }
 
@@ -300,7 +379,7 @@
   .fill.is-over { color:var(--flag); }
   [hidden] { display:none !important; }
   /* Brewing: the curve is the thing, so it takes the room the number had. */
-  body.brewing .big { flex:1 1 auto; min-height:240px; }
+  body.has-dial .big { flex:1 1 auto; min-height:240px; padding:10px; }
   /* Measured against the dial, not the viewport. The dial's usable middle is
      not the whole rig — the bands sit at r=86 of a 110 radius and their names
      ride just inside that — so a number past roughly 55% of the width crosses
@@ -309,11 +388,15 @@
      This is the rule that wins: an earlier `body.brewing .big .n` up in the
      rig block has the same specificity and loses on order, so the size lives
      here, once, rather than in two places disagreeing. */
-  body.brewing .big .n { font-size:16.5cqmin; }
-  body.brewing .plot { flex:1 1 auto; min-height:34vh; }
-  /* Done: no live number left to watch, so neither the readout nor the curve
-     needs to shout — the summary does. */
-  body.done .big, body.done .strip, body.done .plot { display:none; }
+  body.has-dial .big .n { font-size:16.5cqmin; }
+  body.brewing .plot { flex:1 1 auto; min-height:min(34vh, 260px); }
+  /* Done: no live number left to watch, so the readout stands down — but the
+     CURVE IS THE SHOT, and this is the one screen that exists to look back at
+     it. Hiding it here left the phone reviewing a shot with four numbers and a
+     rating, and no picture of the thing being rated. */
+  body.done .big, body.done .strip { display:none; }
+  body.done .stage { flex:1 1 auto; min-height:0; }
+  body.done .plot { flex:1 1 auto; min-height:min(30vh, 240px); }
   #v-done { flex:1 1 auto; display:flex; flex-direction:column; gap:10px; min-height:0; }
   .grid4 { display:grid; grid-template-columns:repeat(2, 1fr); gap:9px; }
   .grid4 .span2 { grid-column:1 / -1; }
@@ -343,6 +426,8 @@
     <!-- This page had no way to change its own theme, and no way to follow the
          laptop's either, so a dark laptop beside a light phone was the normal
          case. The button is the local override; without it the frame decides. -->
+    <button class="ghost" id="clean" type="button" aria-pressed="false" hidden
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Clean</button>
     <button class="ghost" data-theme-toggle id="theme" type="button"
             style="padding:6px 10px;box-shadow:none;font-size:11px">Theme</button>
     <button class="ghost" id="unpair" type="button" hidden
@@ -374,27 +459,45 @@
          worth saying here is where to look. -->
     <div id="pair-dropped" hidden>
       <p class="msg" style="margin:0 0 8px"><strong>The laptop stopped sending.</strong>
-      It has already put a new square on its screen — point this camera at it, or press
-      <strong>Reconnect phone</strong> on the laptop if it hasn&rsquo;t.</p>
+      A pairing is good for one connection, so this needs a new code. The laptop has
+      probably already put a fresh square on its screen &mdash; scan it below. If it
+      hasn&rsquo;t, press <strong>Reconnect phone</strong> over there first.</p>
     </div>
     <div id="pair-intro">
       <p class="msg" style="margin:0">An iPhone or iPad cannot talk to a Bluetooth scale — no iOS
       browser has Web Bluetooth. So the laptop does the weighing and sends the pour straight here,
-      peer to peer, with no account and nothing in between. Same Wi-Fi, and it takes two pastes.</p>
+      peer to peer, with no account and nothing in between. Same Wi-Fi, and it is two squares
+      held up to two cameras.</p>
       <ol class="msg" style="margin:0;padding-left:20px">
-        <li>On the laptop’s Live page, press <strong>Watch on phone</strong> and copy the code.</li>
-        <li>Paste it below and press <strong>Link</strong>.</li>
-        <li>Copy the reply this gives you, and paste it back on the laptop.</li>
+        <li>On the laptop’s Live page, press <strong>Watch on phone</strong>.</li>
+        <li>Press <strong>Scan the laptop’s code</strong> below and point this at its screen.</li>
+        <li>Hold the square this gives you back up to the laptop’s camera.</li>
       </ol>
     </div>
     <p class="msg" id="pair-again" hidden style="margin:0">Press <strong>Reconnect phone</strong> on
-    the laptop, then paste its code here. A pairing is good for one connection only, so this is the
-    short version of the same two pastes.
+    the laptop, then scan its new square. A pairing is good for one connection only, so this is the
+    short version of the same two steps.
     <button class="ghost" id="pair-how" type="button"
             style="margin-left:6px;padding:3px 8px;box-shadow:none;font-size:11px">Remind me</button></p>
-    <textarea id="offer" placeholder="Paste the laptop’s code here"
-              autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-    <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
+    <!-- THE FIRST LEG, FROM THIS DEVICE.
+         Scanning the laptop's square with the iOS Camera app opens the code in
+         SAFARI — which is the whole first leg for free, right up until you add
+         this page to the home screen. An installed web app is its own browser
+         context, and nothing the Camera app opens can reach it, so the one
+         setup the app is best in was the one where pairing fell back to
+         copying 87 characters between two browsers. Its own camera does not
+         care which context it is in. -->
+    <div class="btn-row" id="scan-row" hidden>
+      <button class="primary" id="scan" type="button">Scan the laptop’s code</button>
+    </div>
+    <video id="cam" playsinline muted hidden></video>
+    <p class="msg" id="scan-msg" style="margin:0"></p>
+    <details id="paste-fold">
+      <summary>Paste it instead</summary>
+      <textarea id="offer" placeholder="Paste the laptop’s code here"
+                autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <div class="btn-row"><button class="primary" id="link" type="button">Link</button></div>
+    </details>
     <p class="msg" id="pair-msg" style="margin:0"></p>
     <div id="reply-wrap" hidden>
       <p class="msg" style="margin:10px 0 6px"><strong>Last step: get this back to the laptop.</strong>
@@ -417,6 +520,12 @@
          curve and the ladder are, and a pane that appears down there pushes
          them. Up here it takes the room the hint line already reserves. -->
     <div id="pip" hidden></div>
+    <!-- The way back, where he was. -->
+    <div id="pip-stub" class="pip-stub" hidden>
+      <span class="stub-face" aria-hidden="true">[ -_- ]</span>
+      <span class="stub-why">pip is off on this device</span>
+      <button class="ghost" id="pip-wake" type="button">Wake him</button>
+    </div>
 
     <div class="stage" id="stage">
       <!-- ONE OBJECT, ONE NUMBER.
@@ -436,7 +545,7 @@
         <div id="gauge" hidden></div>
         <div class="big-in">
           <div class="k" id="big-k">Weight</div>
-          <div style="text-align:center"><span class="n" id="w">0.0</span><span class="u">g</span></div>
+          <div class="wline"><span class="n" id="w">0.0</span><span class="u">g</span></div>
           <div style="text-align:center"><span class="now-style" id="now-style" hidden>—</span></div>
           <div class="fill" id="fill" hidden>
             <div class="fill-track">
@@ -449,6 +558,13 @@
         </div>
        </div>
       </div>
+      <!-- The curve lives IN the stage rather than at the bottom of the page.
+           It was the last element in a column that is taller than an iPad, so
+           on an 820-high screen 341 px of a 481 px plot were below the fold and
+           the answer to "where is the chart" was "scroll". In here it is the
+           instrument's other half: stacked under the dial on a phone, beside it
+           on anything with the width. -->
+      <div class="plot" id="plot"></div>
     </div>
 
     <!-- The same numbers the laptop's middle panel carries, because this is the
@@ -465,7 +581,7 @@
         <div class="v" id="ratio">—</div></div>
       <div class="c brew-only" id="c-lands"><div class="k">Lands at</div>
         <div class="v" id="lands">—</div></div>
-      <div class="c brew-only" id="c-cut"><div class="k">Cut in</div>
+      <div class="c brew-only" id="c-cut"><div class="k">Stop at</div>
         <div class="v" id="cut">—</div></div>
     </div>
     <!-- The reason this device exists is that it is the one across the room
@@ -479,7 +595,6 @@
       <div class="ladder-track"><span class="ladder-now" id="ladder-now"></span></div>
       <div class="ladder-row" id="ladder-row"></div>
     </div>
-    <div class="plot" id="plot"></div>
 
     <!-- The verdict. By the numbers, then the only question left. -->
     <section id="v-done" hidden>
@@ -495,8 +610,11 @@
 import { initTheme, paintFlow, applyTheme, themeChosen, currentTheme } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
+import { cutPoint } from './assets/js/core/cutoff.js';
 import * as cue from './assets/js/core/cue.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
+import { scan as scanQr } from './assets/js/core/qrscan.js';
+import { CamScan, codeFrom } from './assets/js/core/camscan.js';
 import * as backup from './assets/js/core/backup.js';
 import { livePlot } from './assets/js/core/chart.js';
 import { ladder as shotLadder, ladderScale, styleOf }
@@ -535,7 +653,14 @@ function setConn(state) {
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
   $('cues').hidden = !live;
-  if (state === 'open') wasOpen = true;
+  $('clean').hidden = !live;
+  if (state === 'open') {
+    wasOpen = true;
+    // Nothing to look for any more, and a camera left running behind a live
+    // shot is a hot phone and a lit privacy indicator for no reason.
+    if (cam.running) { cam.stop(); $('scan').textContent = 'Scan the laptop\u2019s code'; }
+    $('scan-msg').textContent = '';
+  }
 
   // Dropped after watching, rather than never linked. The old code in the box
   // is dead — a pairing is good for exactly one connection — so leaving it
@@ -552,6 +677,12 @@ function setConn(state) {
     $('pair-title').textContent = 'Reconnect';
     $('link').textContent = 'Reconnect';
     $('pair-msg').textContent = '';
+    // Reconnecting is the same two legs as pairing and used to read like a
+    // different procedure. It is one button: the laptop has already put a new
+    // square up, so point this at it.
+    $('scan').textContent = 'Scan the laptop\u2019s new code';
+    $('scan-msg').textContent = '';
+    $('paste-fold').open = false;
   }
   if (state === 'failed') {
     $('pair-msg').textContent = 'No route to the laptop. Both devices have to be on the same '
@@ -593,18 +724,19 @@ function paintStrip(f, brewing) {
   $('ratio').innerHTML = known && Number.isFinite(w) && w > 0
     ? `1:<b>${(w / dose).toFixed(2)}</b>` : '—';
 
+  // The same module the laptop stops by, so the two screens cannot disagree
+  // about where the stop is. The lag rides along in the frame because it is
+  // learned per machine and lives over there.
   const flow = Number(f.q);
-  const lag = Number.isFinite(f.lag) ? f.lag : 1;
   const pouring = brewing && Number.isFinite(flow) && flow > 0.05;
-  const lands = pouring && Number.isFinite(w) ? w + flow * lag : NaN;
-  $('lands').innerHTML = Number.isFinite(lands)
-    ? `${lands.toFixed(1)}<small>g</small>` : '—';
-
-  const tgt = Number(f.target);
-  const eta = pouring && Number.isFinite(tgt) && Number.isFinite(w)
-    ? (tgt - flow * lag - w) / flow : NaN;
-  $('cut').innerHTML = Number.isFinite(eta) && eta > -30
-    ? `${Math.max(0, eta).toFixed(1)}<small>s</small>` : '—';
+  const cut = pouring
+    ? cutPoint({ target: f.target, flow, lag: Number.isFinite(f.lag) ? f.lag : 1, net: w })
+    : null;
+  $('lands').innerHTML = cut && Number.isFinite(cut.lands)
+    ? `${cut.lands.toFixed(1)}<small>g</small>` : '—';
+  const show = cut && Number.isFinite(cut.eta) && cut.eta > -30;
+  $('cut').innerHTML = show ? `${cut.at.toFixed(1)}<small>g</small>` : '—';
+  $('c-cut').classList.toggle('is-due', !!(cut && (cut.ready || cut.due)));
 }
 
 function paint(f) {
@@ -615,7 +747,10 @@ function paint(f) {
   $('v-done').hidden = view !== 'done';
   if (view === 'done') paintDone(f);
   const brewing = f.st === 'extracting' || f.st === 'dripping';
-  $('big-k').textContent = brewing ? 'In the cup'
+  // The caption names WHAT IS BEING WEIGHED, which the step knows and the pump
+  // does not: on Brew with the pump still off this said "Weight", as if the
+  // page had no idea what you were doing.
+  $('big-k').textContent = brewing || f.step === 'brew' ? 'In the cup'
     : f.step === 'dose' ? 'Beans' : f.step === 'grind' ? 'Grounds'
       : f.step === 'milk' ? 'Milk' : 'Weight';
   $('w').textContent = Number.isFinite(f.w) ? f.w.toFixed(1) : '—';
@@ -680,6 +815,12 @@ function paintGauge(f) {
   // cup now, so reading the fraction on the next frame instead of this one left
   // the first frame of every shot with an empty dial.
   const vol = d ? shotVolume(f.method, f.dose, { net: f.w, target: f.target }) : null;
+  // WHETHER THERE IS AN INSTRUMENT, which is not the same question as whether
+  // the step says brew. Half this page's layout steps aside for the dial, and
+  // it used to step aside for the step — so between arriving on Brew and the
+  // pump reaching flow, and for the whole of any pour with no dose weighed,
+  // it stood aside for nothing and left an empty panel.
+  document.body.classList.toggle('has-dial', !!d);
   gauge.paint(d, { fill: vol ? vol.frac : null });
   $('vol').hidden = !d;
   $('now-style').hidden = !d;
@@ -853,18 +994,54 @@ function drawCurve(f) {
   const pts = f.curve ?? [];
   // An empty framed box is worse than no box: before a shot starts there is
   // simply nothing to draw, and the number should have the room instead.
+  // Once there is a curve it stays, through the pour and through the review —
+  // the laptop keeps the captured curve in the frame until the next shot arms,
+  // so the done view is drawing the real shot rather than a leftover.
   $('plot').hidden = pts.length < 2;
   if (pts.length < 2) { $('plot').replaceChildren(); return; }
-  livePlot($('plot'), {
+  // DRAWN AT THE SIZE OF THE BOX IT IS IN.
+  // The viewBox was a fixed 720x300 and the chart preserves its aspect ratio
+  // on purpose — without that, an 11 px tick scales to 4 px on a phone. But a
+  // fixed ratio in a box that is nearly square letterboxes: on an iPad beside
+  // the dial the curve used a little over a third of its panel and floated in
+  // the middle of the rest. Matching the viewBox to the panel's own pixels
+  // means the chart fills it AND one unit stays one pixel, so the type is the
+  // size it was drawn to be on every screen.
+  const box = $('plot');
+  const w = Math.max(320, Math.round(box.clientWidth));
+  const h = Math.max(180, Math.round(box.clientHeight));
+  livePlot(box, {
     weight: pts,
     target: Number.isFinite(f.target) ? f.target : NaN,
-    width: 720, height: 300,
+    width: w, height: h,
   });
 }
+// A rotation changes the panel's shape without sending a frame, and on the done
+// view frames may have stopped entirely. Redraw the last one against the new box.
+addEventListener('resize', () => { if (last) drawCurve(last); });
 
 link.onState = setConn;
 /* The phone is the device standing next to the machine, so it is the one that
    should make the noise. Same cues, driven off the same frames. */
+// Local to this device: a phone propped against the machine wants less on it
+// than a laptop does, and that is a fact about this screen rather than about the
+// shot, so it does not come down the link.
+const CLEAN_KEY = 'brewkit.view.clean';
+let viewClean = false;
+try { viewClean = localStorage.getItem(CLEAN_KEY) === 'on'; } catch { /* ignore */ }
+function paintClean() {
+  document.body.classList.toggle('clean', viewClean);
+  $('clean').textContent = viewClean ? 'Full' : 'Clean';
+  $('clean').setAttribute('aria-pressed', String(viewClean));
+  if (last) drawCurve(last);
+}
+$('clean').addEventListener('click', () => {
+  viewClean = !viewClean;
+  try { localStorage.setItem(CLEAN_KEY, viewClean ? 'on' : 'off'); } catch { /* ignore */ }
+  paintClean();
+});
+paintClean();
+
 const CUE_KEY = 'brewkit.view.cues';
 const gate = new cue.CueGate({ enabled: false });
 try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }
@@ -930,6 +1107,46 @@ async function linkWith(code) {
 }
 
 $('link').addEventListener('click', () => linkWith($('offer').value.trim()));
+
+/* ------------------------------------------------- the camera on this device */
+// The rear one: you are pointing this at a laptop across the counter.
+const cam = new CamScan($('cam'), { facingMode: 'environment', accept: codeFrom, decode: scanQr });
+cam.onFound = (code) => {
+  $('scan').textContent = 'Scan the laptop\u2019s code';
+  $('scan-msg').textContent = 'Got it.';
+  linkWith(code);
+};
+function paintScan() {
+  $('scan-row').hidden = !CamScan.possible;
+  // The paste is the path that always works, so it stays — folded away, since
+  // it is now the fallback rather than the route.
+  $('paste-fold').open = !CamScan.possible;
+  // And when it is not on offer, say why in terms of the thing to do about it.
+  // Over plain http there is no camera to permit, at any setting, and a button
+  // that simply is not there reads as the feature being missing rather than as
+  // this page being reachable a better way.
+  $('scan-msg').textContent = CamScan.whyNot;
+}
+$('scan').addEventListener('click', async () => {
+  if (cam.running) {
+    cam.stop();
+    $('scan').textContent = 'Scan the laptop\u2019s code';
+    $('scan-msg').textContent = '';
+    return;
+  }
+  try {
+    await cam.start();
+    $('scan').textContent = 'Stop';
+    $('scan-msg').textContent = 'Point it at the square on the laptop.';
+  } catch (err) {
+    // A refusal here is nearly always the permission prompt being declined, and
+    // the useful thing to say is that there is another way rather than what the
+    // browser called it.
+    $('scan-msg').textContent = `No camera: ${err.message}. Paste the code instead.`;
+    $('paste-fold').open = true;
+  }
+});
+paintScan();
 
 /**
  * The laptop's code, arriving in the URL.
@@ -1066,15 +1283,41 @@ setConn('idle');
 // than one of them staying quiet.
 let pip = null;
 let pipLast = '';
+// Closed on THIS device. The laptop keeps its own coach setting — silencing the
+// repeat on a phone across the room says nothing about whether the person at
+// the machine wants him — so this is local, and it is remembered, and there is
+// a one-tap way back out of it rather than a settings page on another screen.
+const PIP_OFF_KEY = 'brewkit.view.pip';
+let pipOff = false;
+try { pipOff = localStorage.getItem(PIP_OFF_KEY) === 'off'; } catch { /* ignore */ }
+
+function paintPipStub() {
+  $('pip-stub').hidden = !pipOff;
+}
+$('pip-wake').addEventListener('click', () => {
+  pipOff = false;
+  try { localStorage.setItem(PIP_OFF_KEY, 'on'); } catch { /* ignore */ }
+  paintPipStub();
+  if (last) paintPip(last);
+});
+paintPipStub();
 
 function paintPip(f) {
   const host = $('pip');
   const said = f && f.pip && f.pip.text ? f.pip : null;
+  if (pipOff) { host.hidden = true; return; }
   // Mounted lazily, so a phone that never sees a coached shot never draws one.
   if (!said && !pip) { host.hidden = true; return; }
   if (!pip) {
     host.hidden = false;
-    pip = mountPip(host, { onDismiss: () => { pip.destroy(); pip = null; host.hidden = true; } });
+    pip = mountPip(host, {
+      onDismiss: () => {
+        pip.destroy(); pip = null; host.hidden = true; pipLast = '';
+        pipOff = true;
+        try { localStorage.setItem(PIP_OFF_KEY, 'off'); } catch { /* ignore */ }
+        paintPipStub();
+      },
+    });
   }
   if (!said) { if (pipLast) { pip.hide(); pipLast = ''; } return; }
   if (said.text === pipLast) return;
@@ -1082,7 +1325,7 @@ function paintPip(f) {
   pip.say(said.text, { mood: said.mood || 'idle' });
 }
 
-window.__view = { link, paint, last: () => last, viewFor };
+window.__view = { link, paint, last: () => last, viewFor, linkWith, cam, codeFrom };
 </script>
 </body>
 </html>

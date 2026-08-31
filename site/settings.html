@@ -64,9 +64,8 @@
 
   <div class="page-head">
     <h1>Settings</h1>
-    <p class="desc">Everything the app lets you change, in one place. Some of it was only
-    reachable with a scale connected and a collapsed panel expanded; some of it was a
-    constant in the source with no way to reach it at all.</p>
+    <p class="desc">Everything the app lets you change, in one place. Nothing here needs a
+    scale plugged in, and nothing here touches your shots.</p>
   </div>
 
   <section class="bx panel sect">
@@ -84,13 +83,12 @@
 
   <section class="bx panel sect">
     <h2>When the app takes a reading</h2>
-    <p class="lede">These decide when a number on the scale becomes a measurement the
-    session acts on. They were constructor options that nothing ever passed, so every shot
-    ever pulled used the values below — and they were picked by reasoning about what a
-    scale probably does, not by watching one. If the flow captures things it should not, or
-    sits waiting when it should move on, this is where to correct it.
-    <strong>Export a session's readings</strong> on the Live page first: the file shows
-    what your scale actually does, which is the only honest way to set these.</p>
+    <p class="lede">These decide when a number on the scale stops being a wobble and becomes
+    a measurement. If the session grabs a weight you were still adding to, raise the hold; if
+    it sits waiting while you stand there, lower the settle. Every scale is different, and the
+    defaults are a guess at yours.
+    <strong>Export a session's readings</strong> on the Live page first — the file shows what
+    your scale actually does, which beats guessing twice.</p>
     <div class="grid2" id="capture"></div>
     <div class="rowline" style="margin-top:16px">
       <button class="ghost" id="capture-reset" type="button">Back to defaults</button>
@@ -108,17 +106,16 @@
 
   <section class="bx panel sect">
     <h2>Refractometry</h2>
-    <p class="lede">One number, and it has been quietly governing the whole log: extraction
-    yield is derived from Brix for every shot as it is saved, using this factor. It could be
-    read by the store and written by nothing — the calculator let you change it for one
-    calculation and then threw the change away.</p>
+    <p class="lede">Extraction yield is worked out from a Brix reading using this factor,
+    for every shot as it is saved. It is the one number behind every yield in the log, so
+    changing it changes what all of them are said to have extracted.</p>
     <div class="grid2" id="brix"></div>
   </section>
 
   <section class="bx panel sect">
     <h2>Sound and taps</h2>
-    <p class="lede">Both were buttons on the Live page, and only appeared once a scale was
-    connected.</p>
+    <p class="lede">What the app does without being looked at: the noises it makes, and the
+    taps it listens for.</p>
     <div class="toggles">
       <div class="tog">
         <div><strong>Sound cues</strong>
@@ -139,6 +136,11 @@
         <button class="ghost" id="t-coach" type="button" aria-pressed="false">&mdash;</button>
       </div>
       <div class="tog">
+        <div><strong id="clean-label">Clean view</strong>
+          <p id="clean-hint"></p></div>
+        <button class="ghost" id="t-clean" type="button" aria-pressed="false">&mdash;</button>
+      </div>
+      <div class="tog">
         <div><strong>Tap sensitivity</strong>
           <p id="tap-state">How many grams of platter deflection counts as a tap.</p></div>
         <button class="ghost" id="tap-reset" type="button">Reset</button>
@@ -151,17 +153,17 @@
 
   <section class="bx panel sect">
     <h2>Drip lag, per machine</h2>
-    <p class="lede">How long each machine keeps dripping after the pump stops. It is
-    measured from your own shots and used to call the stop early, and until now there was
-    no way to see it, correct it, or start it over. Under three shots the app does not trust
-    it yet and uses one second.</p>
+    <p class="lede">How long each machine keeps dripping after the pump stops. The app
+    measures this from your own shots and uses it to call the stop early, so the cup lands on
+    target instead of past it. Under three shots there is not enough to go on and it assumes
+    one second.</p>
     <div id="lags"></div>
   </section>
 
   <section class="bx panel sect">
     <h2>Finding a scale</h2>
-    <p class="lede">These were real options on the Live page that reset every time the page
-    loaded, so a scale that needed them needed them typed in again on every visit.</p>
+    <p class="lede">Only for a scale the chooser will not show. Most scales need neither of
+    these, and both are remembered, so a scale that needs one needs it once.</p>
     <div class="check" style="margin-bottom:12px">
       <input type="checkbox" id="wide"><label for="wide" style="margin:0;letter-spacing:0;
         text-transform:none;font-weight:600">Scan the wide list of service UUIDs</label>
@@ -176,10 +178,8 @@
 
   <section class="bx panel sect">
     <h2>Explanations you have hidden</h2>
-    <p class="lede">Every explanation in the app can be dismissed for good. This brings
-    them all back — a preference you cannot reverse is a trap, and until now the one
-    control that reversed it was in the Live page footer, including for notes hidden on
-    other pages.</p>
+    <p class="lede">Every explanation in the app can be dismissed for good. This brings them
+    all back, wherever you hid them.</p>
     <div class="rowline">
       <button class="ghost" id="restore-notes" type="button">No notes hidden</button>
     </div>
@@ -352,6 +352,20 @@ toggle('t-cues', 'brewkit.cues', true, ['Sound on', 'Sound off']);
     btn.setAttribute('aria-pressed', String(on));
   };
   btn.addEventListener('click', () => { prefs.set({ coach: !(prefs.prefs().coach !== false) }); paint(); });
+  prefs.subscribe(paint);
+  paint();
+}
+{
+  const [label, , hint] = prefs.ABOUT.clean;
+  $('clean-label').textContent = label;
+  $('clean-hint').textContent = hint;
+  const btn = $('t-clean');
+  const paint = () => {
+    const on = prefs.prefs().clean === true;
+    btn.textContent = on ? 'Clean' : 'Full';
+    btn.setAttribute('aria-pressed', String(on));
+  };
+  btn.addEventListener('click', () => { prefs.set({ clean: !(prefs.prefs().clean === true) }); paint(); });
   prefs.subscribe(paint);
   paint();
 }

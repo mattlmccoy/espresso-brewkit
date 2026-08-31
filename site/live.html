@@ -13,8 +13,12 @@
   .big .v { font-size: clamp(46px, 9vw, 92px); }
   /* The one line on the page that says what the app thinks is happening. It
      changes rarely and always means something, so it earns a transition. */
+  /* It is a filled slab in a column of outlined boxes and plain text, so it
+     needs a margin of its own or it butts straight into whatever is above it —
+     the step row on most steps, the start button on 00. Every other child of
+     this column carries a top margin; this was the one that did not. */
   .state-strip { position:relative; overflow:hidden; padding:14px 18px;
-    border-radius:var(--radius);
+    margin:16px 0 0; border-radius:var(--radius);
     font:700 13px/1 var(--sans); letter-spacing:.16em; text-transform:uppercase;
     background:var(--ink); color:var(--tag-fg);
     transition:background var(--t) var(--ease-out), color var(--t) var(--ease-out); }
@@ -133,6 +137,14 @@
   .pn-k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ink-mute); }
   .pn-v { font:700 13px/1 var(--mono); color:var(--ink-dim); }
+  .pn-sub { font:700 11px/1 var(--mono); font-style:normal; color:var(--ink-mute);
+    margin-left:6px; }
+  .pn-sub b { font:800 12px/1 var(--mono) !important; color:var(--ink-mute) !important; }
+  /* The last few seconds. It is the one number with a deadline on it, so it is
+     the one allowed to change colour. */
+  .pn.is-due { color:var(--accent); }
+  .pn.is-due .pn-k, .pn.is-due .pn-v, .pn.is-due .pn-v b,
+  .pn.is-due .pn-sub, .pn.is-due .pn-sub b { color:var(--accent) !important; }
   .pn-v b { font:800 19px/1 var(--sans); font-variant-numeric:tabular-nums;
     color:var(--ink); margin-right:1px; }
   /* Only meaningful when there is a target to be cutting for. */
@@ -209,7 +221,7 @@
   }
   /* The stepper moved into the narrower left column; these are the same
      concessions the side panel used to make for it. */
-  #cell-now .steps { margin-top:2px; }
+  #cell-now .steps { margin-top:2px; margin-bottom:4px; }
   #cell-now .steps button { min-width:0; padding:6px 4px; }
   #cell-now .steps .n { font-size:9.5px; }
   #cell-now .steps .l { font-size:10.5px; margin-top:3px; }
@@ -457,6 +469,29 @@
   body.rating #cell-now .mini { display:none; }
   .saved-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
     margin:0 0 10px; }
+  /* THE CLEAN VIEW.
+     The full one answers every question about a shot at once, which is right
+     when you are working out what your machine does and too much when you are
+     just pulling a coffee. Everything hidden here is either a duplicate of
+     something still on screen — the mini tiles repeat Time, Flow and Target
+     from the row beside the dial; the ladder repeats the bands the dial already
+     draws — or a projection you do not need while the one number that matters
+     is climbing towards the one you have to stop at.
+     Nothing is computed differently. It is the same shot with less of it
+     showing, and the switch is one press. */
+  body.clean #ladder,
+  body.clean .mini,
+  body.clean #pour-legend,
+  body.clean .pour-sum,
+  body.clean #live-warn,
+  body.clean #b-summary,
+  /* Named rather than swept by class: Target is the dotted line already drawn
+     across the chart, and "lands at" is a projection of a projection once the
+     stop weight is on screen. Flow stays — it is the one live number that says
+     whether the shot is running right, and hiding it would be tidying away the
+     reading rather than the clutter. */
+  body.clean #pn-target,
+  body.clean #pn-lands { display:none !important; }
   .pour-sum { display:none; }
   body.pouring .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
     align-items:baseline; margin:0 0 8px; padding:8px 12px;
@@ -765,6 +800,10 @@
             <i class="sw-g"></i>
             <select id="ghost-pick" aria-label="Reference shot"></select></span>
           <span class="msg" id="p-target" style="margin:0 0 0 auto"></span>
+          <!-- Two ways to watch the same shot. Nothing is computed differently
+               in either; what changes is how much of it is on screen at once. -->
+          <button class="ghost" id="clean" type="button" aria-pressed="false"
+                  style="padding:5px 10px;box-shadow:none;font-size:11px">Clean view</button>
         </div>
 
         <div class="slides" id="slides">
@@ -813,14 +852,20 @@
                   <span class="pn-v"><b id="c-t">0.0</b>s</span></div>
                 <div class="pn live-only"><span class="pn-k">Flow</span>
                   <span class="pn-v"><b id="c-f">0.00</b>g/s</span></div>
-                <div class="pn live-only"><span class="pn-k">Target</span>
+                <div class="pn live-only" id="pn-target"><span class="pn-k">Target</span>
                   <span class="pn-v"><b id="c-target">—</b>g</span></div>
                 <div class="pn"><span class="pn-k">Ratio</span>
                   <span class="pn-v">1:<b id="c-ratio">—</b></span></div>
-                <div class="pn live-only"><span class="pn-k">Lands at</span>
+                <div class="pn live-only" id="pn-lands"><span class="pn-k">Lands at</span>
                   <span class="pn-v"><b id="c-lands">—</b>g</span></div>
-                <div class="pn live-only" id="pn-cut"><span class="pn-k">Cut in</span>
-                  <span class="pn-v"><b id="c-cut">—</b>s</span></div>
+                <!-- The weight to stop at, with the countdown beside it rather
+                     than instead of it. The scale is already showing the weight
+                     climbing towards this one at hero size, so a target weight
+                     is something you watch arrive; a countdown is something you
+                     have to trust. -->
+                <div class="pn live-only" id="pn-cut"><span class="pn-k">Stop at</span>
+                  <span class="pn-v"><b id="c-cut">—</b>g
+                    <i class="pn-sub">in <b id="c-cut-in">—</b>s</i></span></div>
                 <div class="pn done-only"><span class="pn-k">Peak flow</span>
                   <span class="pn-v"><b id="c-peak">—</b>g/s</span></div>
                 <div class="pn done-only"><span class="pn-k">First drip</span>
@@ -834,6 +879,12 @@
                  assistant in the way, and this panel is the one place on the
                  screen with nothing underneath it that has to be pressed. -->
             <div id="pip" hidden></div>
+            <!-- THE WAY BACK. Where he was, so it is where you look for him. -->
+            <div id="pip-stub" class="pip-stub" hidden>
+              <span class="stub-face" aria-hidden="true">[ -_- ]</span>
+              <span class="stub-why"></span>
+              <button class="ghost" id="pip-wake" type="button">Wake him</button>
+            </div>
             <div id="b-summary"></div>
             <!-- WHAT THE SHOT MEANT. This used to appear under the rating form,
                  and only after you pressed Save — so the reading of the shot
@@ -1000,8 +1051,11 @@
     </div>
     <div class="qr-said">
       <p class="msg" style="margin:0 0 6px"><strong>1 &middot; scan this with the phone</strong></p>
-      <p class="msg" style="margin:0">Open the Camera app and point it here. Tap the link it
-      offers. The viewer opens already holding this laptop&rsquo;s code.</p>
+      <p class="msg" style="margin:0">On the phone, open the viewer and press
+      <strong>Scan the laptop&rsquo;s code</strong>, then point it here.</p>
+      <p class="msg" style="margin:6px 0 0">Or point the phone&rsquo;s Camera app here and tap the
+      link it offers &mdash; which opens the viewer in Safari, so use the button above instead if
+      you keep this on the home screen.</p>
       <details style="margin-top:10px">
         <summary class="msg" style="cursor:pointer">No camera? Use the code</summary>
         <p class="msg" style="margin:8px 0 4px" id="view-url">/view.html</p>
@@ -1013,7 +1067,7 @@
   </div>
 
   <p class="msg" style="margin:14px 0 5px"><strong>2 &middot; the phone&rsquo;s reply</strong>
-  &mdash; 87 characters, so it pastes in one go</p>
+  &mdash; hold its square up to this laptop&rsquo;s camera, or paste the 87 characters</p>
   <textarea id="pair-answer" rows="2" placeholder="Paste the reply from the phone here"
             autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
   <div class="btn-row">
@@ -1050,6 +1104,7 @@ import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
+import { cutPoint, LEAD_S, TICK_FROM_S } from './assets/js/core/cutoff.js';
 import { compareToBest, bestOn } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
@@ -1068,6 +1123,7 @@ import { mountPip } from './assets/js/core/pip.js';
 import * as coach from './assets/js/core/coach.js';
 import { Trace } from './assets/js/core/trace.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
+import { CamScan, codeFrom } from './assets/js/core/camscan.js';
 import * as cue from './assets/js/core/cue.js';
 import * as backup from './assets/js/core/backup.js';
 import { TapListener, actionFor, gestureHint, thresholdFor,
@@ -1697,11 +1753,20 @@ function soundCues(snap) {
   gate.edge('tared', weighing && s.phase === 'fill' && sess._tare > 0, cue.CUES.tared);
   gate.edge('window', weighing && s.phase === 'ready', cue.CUES.target);
   const brewing = snap.state === 'extracting';
-  const eta = brewing && Number.isFinite(snap.flow) && snap.flow > 0.05
-    ? (targetYield() - snap.net) / snap.flow : NaN;
-  // The last five seconds get a tick each; the target itself gets the stop.
-  if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
-  gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
+  // COUNTING DOWN TO THE STOP, not to the target.
+  //
+  // This counted to the target while the screen counted to the stop, so the one
+  // cue you use when you are NOT looking at the screen — which is the entire
+  // point of having a cue — fired a gram and a half late on a normal shot and
+  // nearly three on a fast one. Every time, by construction.
+  const cut = brewing ? cutOf(snap) : null;
+  const eta = cut ? cut.eta : NaN;
+  // A heads-up first, then a tick a second, then the stop. The warning is timed
+  // rather than weighed: how much is left in grams is a fact about the shot,
+  // but how much notice a person needs is a fact about people.
+  gate.edge('ready', !!cut?.ready, cue.CUES.ready);
+  if (brewing && eta > 0 && eta <= TICK_FROM_S) gate.every('eta', eta, cue.CUES.tick);
+  gate.edge('stop', !!cut?.due, cue.CUES.stop);
   // Crossing from one drink into the next. Each landmark gets its own gate, so
   // passing ristretto and then espresso is two notes rather than one repeated.
   if (brewing) {
@@ -1714,6 +1779,7 @@ function soundCues(snap) {
     cue.CUES.warn);
   if (!brewing && snap.state !== 'dripping') {
     gate.state.delete('stop');
+    gate.state.delete('ready');
     gate.state.delete('channel');
     for (const k of [...gate.state.keys()]) if (k.startsWith('style:')) gate.state.delete(k);
   }
@@ -1983,9 +2049,27 @@ function paintPourTop(s, { lands, eta }) {
   setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
     ? (s.net / dose).toFixed(2) : '—');
   setText('c-lands', fmt(lands, 1), { flash: true });
-  const cut = Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : null;
-  $('pn-cut').hidden = cut === null;
-  setText('c-cut', cut ?? '—');
+  // THE WEIGHT TO STOP AT, which is the number you can actually watch arrive.
+  // A countdown asks you to trust it; a weight sits next to the one climbing
+  // towards it, and the scale is already showing that one at hero size.
+  const stopAt = armed ? cutOf(s) : null;
+  const show = stopAt && Number.isFinite(eta) && eta > -30;
+  $('pn-cut').hidden = !show;
+  setText('c-cut', show ? fmt(stopAt.at, 1) : '—');
+  setText('c-cut-in', show ? fmt(Math.max(0, eta), 1) : '—');
+  // Lit for the last few seconds, so it is the thing you notice without
+  // reading it.
+  $('pn-cut').classList.toggle('is-due', !!(stopAt && (stopAt.ready || stopAt.due)));
+}
+
+/** The stop, from wherever it is asked for, so nothing can disagree about it. */
+function cutOf(s) {
+  return cutPoint({
+    target: targetYield(),
+    flow: s.flow,
+    lag: kit.stopLag($('p-machine').value).seconds,
+    net: s.net,
+  });
 }
 
 function render(s) {
@@ -1999,13 +2083,12 @@ function render(s) {
   $('o-f').textContent = fmt(s.flow, 2);
   paintFlow($('flowrow'), s.flow, sess.method);
 
-  // What the cup will actually hold once the puck stops dripping, and how long
-  // until you should cut. Both are only meaningful while it is pouring.
-  const lag = kit.stopLag($('p-machine').value).seconds;
-  const tgt = targetYield();
-  const lands = s.running && s.flow > 0.02 ? s.net + s.flow * lag : NaN;
-  const eta = s.running && s.flow > 0.05 && Number.isFinite(tgt)
-    ? (tgt - s.flow * lag - s.net) / s.flow : NaN;
+  // Where to stop and where this is heading. One call, and the sound uses the
+  // same one — they were separate arithmetic and had drifted a gram and a half
+  // apart, in the direction that matters.
+  const cut = s.running ? cutOf(s) : null;
+  const lands = cut && s.flow > 0.02 ? cut.lands : NaN;
+  const eta = cut ? cut.eta : NaN;
   setText('o-proj', fmt(lands, 1), { flash: true });
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   setText('o-trend', fmt(s.trend, 3));
@@ -2480,6 +2563,7 @@ try { startMethod = localStorage.getItem(METHOD_KEY) || 'espresso'; } catch { /*
 // holding the scale is the one who can correct them — see Settings.
 const sess = new SessionMachine({ method: startMethod, ...prefs.sessionOptions() });
 let lastStep = null;
+let lastPrepSig = null;
 
 function fillKitSelects() {
   const st = kit.session();
@@ -2794,7 +2878,18 @@ function paintSession() {
     lastStep = s.step;
     // Entering brew arms the machine so the cup landing tares and times itself.
     if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
+    // A LINE ABOUT THE LAST STEP IS WRONG ON THIS ONE. `pipSaying` was only
+    // ever cleared between shots, so "0.32 g/s — close to choking" was still on
+    // screen, and still being sent to the phone, while you stood at the
+    // grinder weighing beans for the next one.
+    if (pip?.talking) pip.hide();
+    pipSaying = null;
   }
+  // The prep rules read the step, the dose and the grounds, so they are offered
+  // when one of those three changes and not on every scale sample — retention
+  // cannot be read until the grounds land, which is well after the step did.
+  const prepSig = `${s.step}|${s.dose}|${s.grounds}`;
+  if (prepSig !== lastPrepSig) { lastPrepSig = prepSig; pipPrep(); }
   const bm = methodOf(s.method).brew;
   $('p-target').textContent = `${fmt(targetDose(), 1)} g in → ${fmt(targetYield(), 1)} g `
     + `${bm.measures === 'in' ? 'water' : 'out'} at 1:${fmt(targetRatio(), 1)}`;
@@ -3040,7 +3135,7 @@ function offerScanning() {
   // reliably — so on the machine most likely to be the laptop the button was
   // hidden and the code got typed out by hand. core/qrscan.js reads the symbol
   // itself; the browser's own reader is kept as a fast path where it exists.
-  $('pair-scan').hidden = !navigator.mediaDevices?.getUserMedia;
+  $('pair-scan').hidden = !CamScan.possible;
 }
 
 /**
@@ -3077,67 +3172,29 @@ $('qr-big').addEventListener('click', () => {
 $('qr-full-dlg').addEventListener('click', () => $('qr-full-dlg').close());
 addEventListener('resize', () => { if ($('pair-dlg').open) sizeQr(); });
 
-let camStream = null;
+// The same reader the phone now uses, pointed the other way. It used to be
+// seventy lines here and nowhere else, which is why the phone could not do it.
+const pairCam = new CamScan($('pair-cam'), {
+  // A laptop's camera faces the person holding the phone up to it.
+  facingMode: 'user',
+  accept: codeFrom,
+  decode: scanQr,
+});
+pairCam.onFound = (value) => {
+  $('pair-answer').value = value;
+  $('pair-scan').textContent = 'Scan the phone\u2019s code';
+  $('pair-accept').click();
+};
 $('pair-scan').addEventListener('click', async () => {
-  const video = $('pair-cam');
-  if (camStream) {
-    camStream.getTracks().forEach((t) => t.stop());
-    camStream = null;
-    video.hidden = true;
+  if (pairCam.running) {
+    pairCam.stop();
     $('pair-scan').textContent = 'Scan the phone\u2019s code';
     return;
   }
   try {
-    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-    video.srcObject = camStream;
-    video.hidden = false;
-    await video.play();
+    await pairCam.start();
     $('pair-scan').textContent = 'Stop scanning';
     $('pair-msg').textContent = 'Hold the phone\u2019s code up to the camera.';
-    const detector = 'BarcodeDetector' in window
-      ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
-    const canvas = document.createElement('canvas');
-    const ctx2d = canvas.getContext('2d', { willReadFrequently: true });
-    const looksLikeAnswer = (v) => /^\d+~/.test(v ?? '');
-    const take = () => {
-      // Downscaled: a module has to be a few pixels across to be read, and it
-      // is at 640 wide, while a full-resolution frame is four times the work
-      // for nothing.
-      const w = Math.min(640, video.videoWidth || 640);
-      const h = Math.round((video.videoHeight || 480) * (w / (video.videoWidth || 640)));
-      if (!w || !h) return null;
-      canvas.width = w; canvas.height = h;
-      ctx2d.drawImage(video, 0, 0, w, h);
-      return ctx2d.getImageData(0, 0, w, h);
-    };
-    const tick = async () => {
-      if (!camStream) return;
-      let value = null;
-      try {
-        if (detector) {
-          const found = await detector.detect(video);
-          value = found.map((f) => f.rawValue).find(looksLikeAnswer) ?? null;
-        }
-        if (!value) {
-          const frame = take();
-          if (frame) {
-            const got = scanQr(frame);
-            if (looksLikeAnswer(got)) value = got;
-          }
-        }
-      } catch { /* a frame that would not decode is not an error */ }
-      if (value) {
-        $('pair-answer').value = value;
-        camStream.getTracks().forEach((t) => t.stop());
-        camStream = null;
-        video.hidden = true;
-        $('pair-scan').textContent = 'Scan the phone\u2019s code';
-        $('pair-accept').click();
-        return;
-      }
-      setTimeout(tick, 120);
-    };
-    tick();
   } catch (err) {
     $('pair-msg').textContent = `Could not open the camera: ${err.message}. Paste the code instead.`;
   }
@@ -3486,20 +3543,98 @@ function buildRateControls() {
 // in coach.js, which has no DOM and is tested on its own.
 function pipOn() { return prefs.prefs().coach !== false; }
 
+// QUIET FOR THIS SHOT, which is a different thing from turned off.
+// Closing him used to write coach:false, and from then on the only route back
+// was a toggle on another page — so an impatient tap mid-shot was, in effect,
+// permanent, and nothing on screen said where the switch had gone. Pressing the
+// x is now a question with two answers, and both of them leave a way back.
+let pipMuted = false;
+
 function mountCoach() {
   const host = $('pip');
-  if (!pipOn()) { pip?.destroy(); pip = null; host.hidden = true; return; }
+  if (!pipOn()) { pip?.destroy(); pip = null; paintPipStub(); return; }
+  paintPipStub();
+  if (pipMuted) { pip?.destroy(); pip = null; return; }
   if (pip) return;
   host.hidden = false;
-  pip = mountPip(host, {
-    // Dismissing is not "hide this one message". Someone who closes the bubble
-    // mid-shot is telling you to go away, and an assistant that comes back
-    // thirty seconds later has not listened.
-    onDismiss: () => { prefs.set({ coach: false }); mountCoach(); },
-  });
+  pip = mountPip(host, { onDismiss: askPip });
 }
+
+/**
+ * The x, answered in his own window rather than in a dialog.
+ *
+ * "Go away" is genuinely ambiguous — for the rest of this shot, or for good —
+ * and guessing wrong in either direction is bad: guess "for now" and he comes
+ * back thirty seconds after being told to leave, guess "for good" and a single
+ * tap silently buries him behind a settings page.
+ */
+function askPip() {
+  if (!pip) return;
+  pip.ask('Quiet until the next shot, or off for good?', [
+    { label: 'this shot', act: () => { pipMuted = true; mountCoach(); } },
+    { label: 'off', act: () => { prefs.set({ coach: false }); mountCoach(); } },
+  ]);
+}
+
+/** The way back, in his own place, so it is where he was. */
+function paintPipStub() {
+  const stub = $('pip-stub');
+  if (!stub) return;
+  const away = !pipOn() || pipMuted;
+  stub.hidden = !away;
+  $('pip').hidden = away;
+  if (away) {
+    stub.querySelector('.stub-why').textContent = pipOn()
+      ? 'pip is quiet until the next shot' : 'pip is off';
+  }
+}
+$('pip-wake').addEventListener('click', () => {
+  pipMuted = false;
+  if (!pipOn()) prefs.set({ coach: true });
+  mountCoach();
+});
 mountCoach();
 prefs.subscribe?.(mountCoach);
+
+/* ------------------------------------------------------- how much is on screen */
+// The switch is on the page rather than only in settings: it is a decision you
+// make about the shot in front of you, not a preference you set once — some
+// mornings you want the whole instrument and some you want a number.
+function paintClean() {
+  const on = prefs.prefs().clean === true;
+  document.body.classList.toggle('clean', on);
+  $('clean').textContent = on ? 'Full view' : 'Clean view';
+  $('clean').setAttribute('aria-pressed', String(on));
+}
+$('clean').addEventListener('click', () => {
+  prefs.set({ clean: !(prefs.prefs().clean === true) });
+  paintClean();
+});
+prefs.subscribe?.(paintClean);
+paintClean();
+
+/**
+ * Offer the weighing steps to the coach, which will usually decline to comment.
+ *
+ * Called on step changes rather than on every scale sample: nothing here is
+ * about the number moving, and running it at 10 Hz would only mean testing the
+ * same four rules six hundred times to say the same nothing.
+ */
+function pipPrep() {
+  if (!pip || !pipOn()) return;
+  const said = coach.prep({
+    step: sess.step,
+    dose: sess.dose,
+    grounds: sess.grounds,
+    bag: kit.bag($('p-bag').value),
+    grinder: kit.grinder($('p-grinder').value),
+    history: store.all(),
+  }, pipSaid);
+  if (said) {
+    pip.say(said.text, { mood: said.mood, ms: said.ms });
+    pipSaying = { text: said.text, mood: said.mood };
+  }
+}
 
 /** Offer the live state to the coach, which will usually decline to comment. */
 function pipLive(s) {
