@@ -7775,6 +7775,88 @@ try {
     await tail.close();
   }
 
+  /* -------------------- a clean shot is a result, not an absence */
+  {
+    // He hid on three of the four shots in the first real log, because nothing
+    // was wrong with any of them and silence was the honest answer. On screen
+    // that reads as a broken character rather than a verdict — the panel that
+    // exists to say what the curve says said nothing at all.
+    const cln = await ctx.newPage();
+    await cln.goto(`${B}/shots.html`);
+    const clean = await cln.evaluate(async () => {
+      const C = await import('./assets/js/core/coach.js');
+      const D = await import('./assets/js/core/diagnose.js');
+      const S = await import('./assets/js/core/schema.js');
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.05) {
+        const q = t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9 : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03;
+        w += q * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]);
+      }
+      const m = D.curveMetrics(c);
+      const base = { ...m, curve: S.encodeCurve(c), dose_g: 18, yield_g: m.curve_yield_g,
+        time_s: m.duration_s, ratio: m.curve_yield_g / 18 };
+      return {
+        findings: D.diagnose(base).map((f) => f.code),
+        unrated: C.after(base, []).map((n) => n.id),
+        // A rated keeper already had its own line; it must not gain a second.
+        rated: C.after({ ...base, rating: 9 }, []).map((n) => n.id),
+      };
+    });
+    t('shots: a clean curve is said out loud rather than met with silence',
+      clean.findings.length === 0 && clean.unrated.length === 1 && clean.unrated[0] === 'clean',
+      `findings [${clean.findings.join(',') || 'none'}], he says [${clean.unrated.join(',') || 'nothing'}]`);
+    t('shots: and a shot that already had something to say does not get it twice',
+      !clean.rated.includes('clean') && clean.rated.length >= 1,
+      `on a 9/10 he says [${clean.rated.join(',')}]`);
+    await cln.close();
+  }
+
+  /* ------------------ a yield that is not a weight of coffee */
+  {
+    // A real shot in the log records -2.5 g out and a ratio of -0.14, with a
+    // curve that runs cleanly to 40 g. The scale lost the cup and took the tare
+    // with it. Nothing in the app noticed, and every regression reading that
+    // shot was being fed a negative ratio.
+    const yl = await ctx.newPage();
+    await yl.goto(`${B}/shots.html`);
+    const bad = await yl.evaluate(async () => {
+      const D = await import('./assets/js/core/diagnose.js');
+      const S = await import('./assets/js/core/schema.js');
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.05) {
+        const q = t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9 : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03;
+        w += q * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]);
+      }
+      const m = D.curveMetrics(c);
+      const of = (patch) => D.diagnose({ ...m, dose_g: 18, ...patch });
+      const real = m.curve_yield_g;
+      return {
+        curveYield: real,
+        negative: of({ yield_g: -2.48 }).filter((f) => /yield_/.test(f.code)),
+        // Typed from memory afterwards and wrong by a lot.
+        adrift: of({ yield_g: 22 }).map((f) => f.code),
+        // The ordinary case: they agree, and nothing is said.
+        agreeing: of({ yield_g: real }).map((f) => f.code),
+        // Within a couple of grams is a scale settling, not a mistake.
+        close: of({ yield_g: real - 1.5 }).map((f) => f.code),
+        // A record with no curve to check against cannot be second-guessed.
+        noCurve: D.diagnose({ dose_g: 18, yield_g: 36 }).map((f) => f.code),
+      };
+    });
+    t('shots: a yield of -2.5 g is caught, and says what the curve actually reached',
+      bad.negative.length === 1 && bad.negative[0].severity === 'high'
+        && bad.negative[0].detail.includes(bad.curveYield.toFixed(1)),
+      bad.negative[0] ? `[${bad.negative[0].severity}] ${bad.negative[0].title}` : 'said nothing');
+    t('shots: a yield far from the one the curve traced is questioned',
+      bad.adrift.includes('yield_disagrees'), bad.adrift.join(',') || 'nothing');
+    t('shots: a yield that matches its curve is left alone',
+      !bad.agreeing.some((c) => /yield_/.test(c)) && !bad.close.some((c) => /yield_/.test(c)),
+      `matching [${bad.agreeing.join(',') || 'none'}], 1.5 g out [${bad.close.join(',') || 'none'}]`);
+    t('shots: and a record with no curve is not second-guessed',
+      !bad.noCurve.some((c) => /yield_/.test(c)), bad.noCurve.join(',') || 'nothing');
+    await yl.close();
+  }
+
   /* ----------------------------------------- every page still parses at all */
   {
     // `npm run check` node --check's the JS modules and cannot see the inline
@@ -7914,6 +7996,56 @@ try {
     t('pip: the corner you put him in is where he is on the next page too',
       kept.at === 'tr' && kept.flipped === 'row-reverse' && kept.stray === 0,
       `corner ${kept.at}, bubble ${kept.flipped}, ${kept.stray} stray hints`);
+
+    // BUT NOT WHERE THE PAGE IS THE THING YOU ARE WATCHING.
+    // On the brewing screen he is part of the instrument — the dial, the
+    // ladder and his face are one reading — and a part of an instrument that
+    // moves between shots is a worse instrument. There is also nothing to move
+    // him out of the way of during a twenty-second pour with both hands busy,
+    // so a handle there is a way to lose him rather than a convenience.
+    await fl.goto(`${B}/live.html?mock=lefu&noshot=1`);
+    await fl.waitForFunction(() => window.__sess, null, { timeout: 8000 });
+    await fl.waitForTimeout(300);
+    const pinned = await fl.evaluate(() => {
+      const d = document.getElementById('pip-dock');
+      const bar = d.querySelector('.pip-bar');
+      return {
+        at: d.dataset.at,
+        isPinned: d.classList.contains('pip-pinned'),
+        // No handle affordance: no tab stop, no button role, no grab cursor.
+        tabbable: bar?.tabIndex ?? -1,
+        role: bar?.getAttribute('role') ?? '',
+        cursor: bar ? getComputedStyle(bar).cursor : '',
+      };
+    });
+    t('pip: on the brewing screen he is pinned, and offers no handle to drag',
+      pinned.isPinned && pinned.tabbable !== 0 && pinned.role !== 'button'
+        && pinned.cursor !== 'grab',
+      `pinned ${pinned.isPinned}, tabIndex ${pinned.tabbable}, role "${pinned.role}", `
+        + `cursor ${pinned.cursor}`);
+    // The corner carried over from the other pages was 'tr'. Pinned means the
+    // brewing screen puts him where IT wants him, not where the log left him.
+    t('pip: and the corner he was left in elsewhere does not move him here',
+      pinned.at === 'bl', `he is at ${pinned.at}`);
+    // Dragging him has to actually do nothing — a listener that fires and is
+    // then ignored would still show the snap hints and look broken.
+    const liveBar = await fl.locator('#pip-dock .pip-bar').boundingBox();
+    await fl.mouse.move(liveBar.x + 20, liveBar.y + 6);
+    await fl.mouse.down();
+    await fl.mouse.move(1250, 110, { steps: 6 });
+    const during = await fl.evaluate(() => document.querySelectorAll('.pip-snap').length);
+    await fl.mouse.up();
+    await fl.waitForTimeout(250);
+    const stayed = await fl.evaluate(() => document.getElementById('pip-dock').dataset.at);
+    t('pip: dragging him on the brewing screen does nothing at all',
+      during === 0 && stayed === 'bl',
+      `${during} landing places offered, ended at ${stayed}`);
+    // And the pinning must not have overwritten the corner he keeps elsewhere.
+    await fl.goto(`${B}/shots.html`);
+    await fl.waitForTimeout(300);
+    const elsewhere = await fl.evaluate(() => document.getElementById('pip-dock').dataset.at);
+    t('pip: and being pinned there does not forget where you put him everywhere else',
+      elsewhere === 'tr', `back on the log he is at ${elsewhere}`);
 
     // AND HIS EYES GO WHERE YOU ARE. The two glance frames are eyes-left and
     // eyes-right and he already picked one at random — so he was looking

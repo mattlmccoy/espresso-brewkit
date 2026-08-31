@@ -3885,7 +3885,12 @@ function buildRateControls() {
 // switch, the question the x asks and the way back are the shared arrangement
 // every page uses now. What he SAYS is still this page's business, and that is
 // the part below.
-pip = installPip($('pip-dock'), prefs, { quietLabel: 'this shot' });
+// PINNED HERE, not draggable. During a shot the dial, the ladder and his face
+// are one reading taken together, and a part of an instrument that moves
+// between shots is a worse instrument. A replay is the same screen, so it is
+// the same rule. He is draggable on every other page, where he is commentary
+// beside something you are reading rather than part of what you are watching.
+pip = installPip($('pip-dock'), prefs, { quietLabel: 'this shot', fixed: true, at: 'bl' });
 
 /* ------------------------------------------------------- how much is on screen */
 // The control is in the nav, shared by every page — this only has to redraw the

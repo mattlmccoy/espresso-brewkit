@@ -361,7 +361,8 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
  * @returns a handle: say/ask/mood/hide pass through to him when he is up and
  *          are no-ops when he is not, so callers never have to null-check.
  */
-export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' } = {}) {
+export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
+                                          fixed = false, at: pinnedAt = 'bl' } = {}) {
   if (!host) return { say() {}, mood() {}, hide() {}, ask() {}, get talking() { return false; },
                       get up() { return false; }, destroy() {} };
 
@@ -414,9 +415,21 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
   // decisions, all of them safe. The one you pick is remembered, because he is
   // on every page now and being somewhere different on each would be worse than
   // being in the wrong place on all of them.
+  //
+  // EXCEPT WHERE THE PAGE IS THE THING YOU ARE WATCHING.
+  //
+  // On the brewing screen and in a replay he is pinned. Everywhere else he is
+  // commentary beside a page you are reading, and where he sits is a matter of
+  // taste. During a shot he is part of the instrument: the dial, the ladder and
+  // his face are one reading taken together, and a reading whose parts move
+  // between shots is a worse reading. There is also nothing to move him out of
+  // the way OF — you have twenty seconds and both hands busy, so a drag handle
+  // there is a way to lose him mid-pour, not a convenience.
   const CORNERS = ['tl', 'tr', 'bl', 'br'];
   host.classList.add('pip-dock');
+  if (fixed) host.classList.add('pip-pinned');
   host.dataset.at = (() => {
+    if (fixed) return CORNERS.includes(pinnedAt) ? pinnedAt : 'bl';
     const at = prefs.prefs?.().pipAt;
     return CORNERS.includes(at) ? at : 'bl';
   })();
@@ -443,6 +456,7 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
   }
 
   function settle(at) {
+    if (fixed) return;
     host.dataset.at = CORNERS.includes(at) ? at : 'bl';
     host.style.left = host.style.top = '';
     prefs.set?.({ pipAt: host.dataset.at });
@@ -482,7 +496,7 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' }
   }
 
   function draggable(bar) {
-    if (!bar) return;
+    if (!bar || fixed) return;
     let id = null, dx = 0, dy = 0;
     bar.addEventListener('pointerdown', (e) => {
       // The close button lives on this bar and is not a handle.

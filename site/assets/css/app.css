@@ -1193,6 +1193,10 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .pip-dock.dragging { transition: none; right: auto; bottom: auto; z-index: 72; }
 .pip-bar { cursor: grab; touch-action: none; user-select: none; }
 .pip-dock.dragging .pip-bar { cursor: grabbing; }
+/* PINNED, on the brewing screen and in a replay. He is part of the instrument
+   there rather than commentary beside it, so the bar offers no handle: a grab
+   cursor promising a drag that does nothing is worse than no cursor at all. */
+.pip-dock.pip-pinned .pip-bar { cursor: default; touch-action: auto; }
 .pip-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* THE BUBBLE FLIPS. It spawns to his right with a tail pointing back at him,
