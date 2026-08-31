@@ -271,35 +271,39 @@ try {
   const allRows = await page.locator('#alltbl tr').count();
   t('uncertainty: whole-log table renders', allRows === 16, allRows + ' rows');
 
-  // 9. Theme toggle persists
+  // 9. A theme is chosen by name, and persists
+  // It used to be a cycling button in the nav, which was only ever a concession
+  // to a bar with no room for four names: reaching the one you want took up to
+  // three presses, each repainting the whole app. The bar's options menu names
+  // all four, so this asks for one directly.
   await page.goto(B + '/index.html');
-  await page.click('[data-theme-toggle]');
-  const themeAttr = await page.getAttribute('html', 'data-theme');
+  const picked = await page.evaluate(async () => {
+    const { THEMES } = await import('./assets/js/ui.js');
+    document.querySelector('.menu').open = true;
+    const swatch = (t) => document.querySelector(`.menu-swatch[data-theme="${t}"]`);
+    // Every theme the app has must be reachable, asked of THEMES rather than of
+    // a list written here — so adding one cannot leave the menu half-wired
+    // without the suite noticing.
+    const missing = THEMES.filter((t) => !swatch(t));
+    swatch('terminal').click();
+    await new Promise((r) => setTimeout(r, 60));
+    return {
+      missing, themes: THEMES,
+      at: document.documentElement.getAttribute('data-theme'),
+      // The one you are wearing is marked, so the panel says where you are.
+      lit: THEMES.filter((t) => swatch(t).getAttribute('aria-pressed') === 'true'),
+      labels: THEMES.map((t) => swatch(t).textContent.trim()),
+    };
+  });
   await page.goto(B + '/explore.html');
   const themeAfter = await page.getAttribute('html', 'data-theme');
-  t('theme: toggles and persists across pages', themeAttr === themeAfter && !!themeAttr, themeAttr);
-
-  // Every palette, cycled. The button is named for where it takes you, and it
-  // is asked of THEMES rather than of a list written here, so adding one to
-  // the app cannot leave the button half-wired without the suite noticing.
-  const cycle = await page.evaluate(async () => {
-    const { THEMES } = await import('./assets/js/ui.js');
-    const btn = document.querySelector('[data-theme-toggle]');
-    const seen = [];
-    for (let i = 0; i <= THEMES.length; i++) {
-      seen.push(`${document.documentElement.getAttribute('data-theme')}>${btn.textContent}`);
-      btn.click();
-    }
-    return { seen, themes: THEMES, order: THEMES.join(','),
-             at: document.documentElement.getAttribute('data-theme') };
-  });
-  t('theme: six of them, and the button names the next one',
-    cycle.order === 'light,dark,terminal,glass'
-    && cycle.seen.every((s) => {
-      const [now, next] = s.split('>');
-      const order = cycle.themes;
-      return order[(order.indexOf(now) + 1) % order.length].toLowerCase() === next.toLowerCase();
-    }), cycle.seen.join(' · '));
+  t('theme: every palette is offered by name, and the current one is marked',
+    picked.missing.length === 0 && picked.at === 'terminal'
+    && picked.lit.join() === 'terminal',
+    picked.missing.length ? `no swatch for ${picked.missing.join()}`
+      : `${picked.labels.join(' · ')} — wearing ${picked.lit.join()}`);
+  t('theme: and the choice survives changing page',
+    themeAfter === 'terminal', `${picked.at} → ${themeAfter}`);
   const term = await page.evaluate(() => {
     document.documentElement.setAttribute('data-theme', 'terminal');
     const cs = getComputedStyle(document.documentElement);
@@ -430,6 +434,13 @@ try {
       document.documentElement.scrollWidth - document.documentElement.clientWidth);
     t(`layout: no horizontal overflow on ${name}`, overflow <= 1, overflow + 'px');
 
+    // AND WITH THE POINTER OUT OF THE WAY. Playwright keeps the mouse wherever
+    // it last was, across navigations — so a card that happens to sit under it
+    // is drawn hovered, and `.tool-card:hover` is a 2 px translate. That is a
+    // measurement of the cursor's position rather than of the layout, and it
+    // read as a staircase whose cause was somewhere else entirely.
+    await page.mouse.move(0, 0);
+
     // Items in one grid row must share a top edge — an adjacency margin leaking
     // into grid children silently staircases them. Measured only once every
     // entrance has finished: a staggered card is mid-transform for a few hundred
@@ -451,10 +462,15 @@ try {
         for (const k of kids) {
           const r = k.getBoundingClientRect();
           const key = Math.round(r.bottom / 5);
-          byRow.set(key, [...(byRow.get(key) || []), Math.round(r.top)]);
+          // Named, not just numbered: "896/894" says two things are two pixels
+          // apart and nothing about which two, which is the only part that
+          // tells you where to look.
+          const who = (k.querySelector('h3, .tag')?.textContent
+            || k.className || k.tagName).trim().slice(0, 24);
+          byRow.set(key, [...(byRow.get(key) || []), `${who}@${Math.round(r.top)}`]);
         }
         for (const tops of byRow.values()) {
-          if (new Set(tops).size > 1) bad.push(tops.join('/'));
+          if (new Set(tops.map((x) => x.split('@')[1])).size > 1) bad.push(tops.join(' / '));
         }
       }
       return bad;
@@ -483,7 +499,7 @@ try {
   await page.goto(B + '/explore.html');
   await page.waitForTimeout(300);
   const navRows = await page.evaluate(() => {
-    const tops = [...document.querySelectorAll('.nav a')].map(a => Math.round(a.getBoundingClientRect().top));
+    const tops = [...document.querySelectorAll('.nav > a')].map(a => Math.round(a.getBoundingClientRect().top));
     return new Set(tops).size;
   });
   const mobileOverflow = await page.evaluate(() =>
@@ -1739,7 +1755,10 @@ try {
     };
     const keep = ['brew-gauge', 'curve', 'stop', 'flowrow', 'pip'];
     const drop = ['ladder', 'pn-target', 'pn-lands', 'pour-legend', 'advanced'];
-    const btn = () => document.querySelector('.nav [data-mode-toggle]');
+    const btn = () => {
+      document.querySelector('.menu').open = true;
+      return document.querySelector('.menu-pick');
+    };
     ui.setMode('full');
     await new Promise((r) => setTimeout(r, 140));
     const full = { keep: keep.filter(shown), drop: drop.filter(shown),
@@ -1762,9 +1781,9 @@ try {
     ui.setMode('full');
     return { full, simple, stored, back, hasButton: !!btn() };
   });
-  t('view: the mode lives in the nav, so it is the same control on every page',
+  t('view: the mode lives in the bar\u2019s menu, so it is one control on every page',
     views.hasButton && views.full.label === 'Simple' && views.simple.label === 'Full',
-    `nav button reads "${views.full.label}" in full and "${views.simple.label}" in simple`);
+    `menu reads "${views.full.label}" in full and "${views.simple.label}" in simple`);
   t('view: simple keeps the instrument, the curve, the flow and the stop',
     views.simple.keep.length === views.full.keep.length && views.simple.flow === true,
     `kept ${views.simple.keep.join(', ')}${views.simple.flow ? ' + flow' : ' \u2014 FLOW GONE'}`);
@@ -1791,10 +1810,10 @@ try {
     await new Promise((r) => setTimeout(r, 140));
     const simple = heads();
     ui.setMode('full');
-    return { full, simple, nav: !!document.querySelector('.nav [data-mode-toggle]') };
+    return { full, simple, hasButton: !!document.querySelector('.menu .menu-pick') };
   });
   t('view: settings folds its instrument sections away in simple, and keeps the rest',
-    elsewhere.nav && elsewhere.simple.length < elsewhere.full.length
+    elsewhere.hasButton && elsewhere.simple.length < elsewhere.full.length
     && elsewhere.simple.includes('Sound and taps')
     && !elsewhere.simple.includes('Refractometry'),
     `${elsewhere.full.length} sections in full, ${elsewhere.simple.length} in simple`);
@@ -5523,15 +5542,48 @@ try {
   t('lab: the analysis tools moved behind one page',
     ['./calculator.html', './explore.html', './quality.html', './uncertainty.html']
       .every((h) => labLinks.includes(h)), labLinks.join(' '));
-  const navLinks = await page.$$eval('.nav a', (as) => as.map((a) => a.getAttribute('href')));
-  t('lab: the daily loop is what the nav shows',
-    navLinks.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html'
-      + ',./settings.html,./backup.html',
-    navLinks.join(' '));
-  t('lab: and Backup rides in last, not as a sixth first-class tab',
-    await page.locator('.nav a[data-backup]').count() === 1
-    && (await page.getAttribute('.nav a[data-backup]', 'href')) === './backup.html',
-    'one link, last');
+  // THE ROW IS DESTINATIONS. It had grown to nine items by accretion — six in
+  // each page's markup, a Backup link appended by one function, a view toggle by
+  // another — and it was mixing places you work with two controls that are not
+  // places at all. The row is the five you work in; everything else is one bin.
+  const topBar = await page.evaluate(() => ({
+    row: [...document.querySelectorAll('.nav > a')].map((a) => a.getAttribute('href')),
+    menu: [...document.querySelectorAll('.menu-panel a')].map((a) => a.getAttribute('href')),
+    groups: [...document.querySelectorAll('.menu-k')].map((k) => k.textContent.trim()),
+    controls: [...document.querySelectorAll('.menu-panel button')].length,
+  }));
+  t('lab: the daily loop is what the nav row shows, and nothing else',
+    topBar.row.join(',') === './live.html,./shots.html,./advisor.html,./kit.html,./lab.html',
+    topBar.row.join(' '));
+  // TWO THINGS THAT WENT WRONG BUILDING IT, both invisible to a test that only
+  // asks whether the menu opens.
+  const menuBox = await page.evaluate(async () => {
+    const menu = document.querySelector('.menu');
+    const panel = document.querySelector('.menu-panel');
+    menu.open = false;
+    await new Promise((r) => setTimeout(r, 60));
+    const shutH = Math.round(panel.getBoundingClientRect().height);
+    menu.open = true;
+    menu.dispatchEvent(new Event('toggle'));
+    await new Promise((r) => setTimeout(r, 80));
+    const r = panel.getBoundingClientRect();
+    menu.open = false;
+    return { shutH, w: Math.round(r.width),
+             onScreen: r.right <= innerWidth + 1 && r.left >= -1 && r.top >= -1 };
+  });
+  // A browser hides a closed `details`' children through the slot that renders
+  // them, and `position:fixed` takes the panel out of that slot — so it sat on
+  // every page, full size, while the menu was shut. The fix is a display rule,
+  // and this is what notices if it is ever dropped.
+  t('bar: the panel is not on the page while the menu is closed',
+    menuBox.shutH === 0, `${menuBox.shutH}px tall with the menu shut`);
+  t('bar: and it opens inside the viewport',
+    menuBox.onScreen && menuBox.w > 0, `${menuBox.w}px wide, on screen ${menuBox.onScreen}`);
+
+  t('lab: settings and backup are in the menu, sorted into named bins',
+    topBar.menu.join(',') === './settings.html,./backup.html'
+    && topBar.groups.join(' / ') === 'This screen / Your setup',
+    `${topBar.groups.join(' / ')} — ${topBar.menu.join(' ')}, ${topBar.controls} controls`);
 
 
 
