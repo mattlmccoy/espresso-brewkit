@@ -296,3 +296,99 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
     get face() { return face.textContent; },
   };
 }
+
+/* ------------------------------------------------------ him, on every page */
+//
+// HE IS ONE CHARACTER, NOT ONE PER SCREEN.
+//
+// He lived inside the pour panel on Live, which meant he existed for the eleven
+// steps of a shot that involve pouring and vanished for the ones that do not —
+// gone at setup, gone while you dose, gone while you grind — and did not exist
+// at all on the pages where you read what he had been watching. A coach who is
+// only there while coffee is coming out is not a coach, he is a readout.
+//
+// So the whole arrangement — the character, the on/off preference, the question
+// the x asks, and the way back once he is gone — lives here and every page
+// installs it the same way. What he SAYS is still the page's business: Live has
+// a scale and a session to talk about, Shots has a log. Presence is shared;
+// having something to say is not.
+
+/**
+ * Put Pip in `host`, with his own switch and his own way back.
+ *
+ * @param host        where he goes; emptied and filled
+ * @param prefs       the prefs module, passed in so this file stays DOM-only
+ * @param quietLabel  what "not now" means on this page, e.g. 'this shot'
+ * @returns a handle: say/ask/mood/hide pass through to him when he is up and
+ *          are no-ops when he is not, so callers never have to null-check.
+ */
+export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now' } = {}) {
+  if (!host) return { say() {}, mood() {}, hide() {}, ask() {}, get talking() { return false; },
+                      get up() { return false; }, destroy() {} };
+
+  const slot = document.createElement('div');
+  // Addressable: the page's CSS and the suite both need to find where he is.
+  slot.className = 'pip-slot';
+  const stub = document.createElement('div');
+  stub.className = 'pip-stub';
+  stub.hidden = true;
+  const face = document.createElement('span');
+  face.className = 'stub-face';
+  face.setAttribute('aria-hidden', 'true');
+  face.textContent = FACES.flat.open;
+  const why = document.createElement('span');
+  why.className = 'stub-why';
+  const wake = document.createElement('button');
+  wake.className = 'ghost';
+  wake.type = 'button';
+  wake.textContent = 'Wake him';
+  stub.append(face, why, wake);
+  host.replaceChildren(slot, stub);
+
+  let him = null;
+  // Quiet is not off. Closing him used to mean one of the two and the tap could
+  // not say which, so it asks — and both answers leave a way back.
+  let quiet = false;
+
+  const on = () => prefs.prefs().coach !== false;
+
+  function paint() {
+    const away = !on() || quiet;
+    stub.hidden = !away;
+    slot.hidden = away;
+    if (away) why.textContent = on() ? `pip is quiet ${quietLabel}` : 'pip is off';
+  }
+
+  function build() {
+    if (!on() || quiet) { him?.destroy(); him = null; paint(); return; }
+    paint();
+    if (him) return;
+    him = mountPip(slot, { name, onDismiss: () => {
+      him?.ask(`Quiet ${quietLabel}, or off for good?`, [
+        { label: quietLabel, act: () => { quiet = true; build(); } },
+        { label: 'off', act: () => { prefs.set({ coach: false }); build(); } },
+      ]);
+    } });
+  }
+
+  wake.addEventListener('click', () => {
+    quiet = false;
+    if (!on()) prefs.set({ coach: true });
+    build();
+  });
+  const stop = prefs.subscribe?.(build);
+  build();
+
+  return {
+    get up() { return !!him; },
+    get talking() { return !!him?.talking; },
+    get face() { return him?.face ?? ''; },
+    say: (...a) => him?.say(...a),
+    ask: (...a) => him?.ask(...a),
+    mood: (m) => him?.mood(m),
+    hide: () => him?.hide(),
+    /** Quiet him without touching the preference — a new shot clears it. */
+    unquiet() { if (quiet) { quiet = false; build(); } },
+    destroy() { stop?.(); him?.destroy(); him = null; },
+  };
+}

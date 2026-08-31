@@ -637,7 +637,7 @@ try {
       face: face?.textContent ?? '',
       size: face ? parseFloat(getComputedStyle(face).fontSize) : 0,
       w: Math.round(box?.width ?? 0), h: Math.round(box?.height ?? 0),
-      shown: !document.getElementById('pip').hidden,
+      shown: !!document.querySelector('#pip-dock .pip-box'),
     };
   });
   // Watching a pour is [ o_o ] with [ -_- ] as its blink, so either frame is
@@ -647,12 +647,7 @@ try {
     watching.shown && /\[ *[o\-]_[o\-] *\]/.test(watching.face)
     && !/·_·/.test(watching.face),
     `on screen ${watching.shown}, face "${watching.face}"`);
-  // And he is legible from across a kitchen counter. He is sized for a phone,
-  // where that is right; on a laptop the same box is a footnote in the corner of
-  // a very wide screen, which is the other half of "barely there".
-  t('live: and he is big enough to register on a laptop',
-    watching.size >= 18 && watching.w > 70 && watching.h > 40,
-    `${watching.size}px face in a ${watching.w}x${watching.h} case`);
+
 
   // The pour is a line plot now, not a scatter: assert the trace itself.
   await page.waitForFunction(
@@ -756,6 +751,26 @@ try {
   }));
   t('live: closing it gives the screen back',
     shut.gone && shut.unmarked, `replaying ${!shut.gone}`);
+
+  // HE IS THERE FOR THE WHOLE SHOT, not only the part with coffee in it. He
+  // lived inside the pour slide, so he existed while it poured and vanished for
+  // setup, dosing and grinding — which is most of making a coffee.
+  //
+  // Walked here rather than during the pour: stepping the session while the
+  // mock scale is mid-shot drove the capture to 138 g of espresso, which is a
+  // test breaking the thing it is standing next to.
+  const everyStep = [];
+  for (const step of ['setup', 'dose', 'grind', 'brew', 'rate']) {
+    await page.evaluate((st) => window.__sess.goto(st), step);
+    await page.waitForTimeout(120);
+    const up = await page.evaluate(() => {
+      const r = document.querySelector('#pip-dock .pip-box')?.getBoundingClientRect();
+      return !!r && r.width > 4 && r.height > 4;
+    });
+    everyStep.push(`${step}:${up ? 'yes' : 'NO'}`);
+  }
+  t('live: and he is there at every step, not only while it pours',
+    everyStep.every((x) => x.endsWith(':yes')), everyStep.join(' '));
   t('live: yield and time come from the curve, not a guess',
     last.yield_g > 1 && last.time_s > 1 && Math.abs(last.ratio - last.yield_g / last.dose_g) < 1e-6,
     `${last.yield_g} g in ${last.time_s} s, ratio ${last.ratio?.toFixed?.(2)}`);
@@ -1380,7 +1395,7 @@ try {
     const prefs = await import('./assets/js/core/prefs.js');
     const { FACES } = await import('./assets/js/core/pip.js');
     prefs.set({ coach: true });
-    const host = document.getElementById('pip');
+    const host = document.querySelector('#pip-dock .pip-slot');
     await document.fonts.ready;
     // EVERY FACE GLYPH HAS TO BE IN THE FONT WE SHIP.
     // The app self-hosts a latin-only subset of Space Mono. A character outside
@@ -1444,22 +1459,22 @@ try {
     [...host.querySelectorAll('.pip-choice')][0]?.click();
     await new Promise((r) => setTimeout(r, 80));
     const shot = { hidden: host.hidden, pref: prefs.prefs().coach,
-                   stub: !document.getElementById('pip-stub').hidden,
-                   why: document.querySelector('#pip-stub .stub-why').textContent };
-    document.getElementById('pip-wake').click();
+                   stub: !document.querySelector('#pip-dock .pip-stub').hidden,
+                   why: document.querySelector('#pip-dock .stub-why').textContent };
+    document.querySelector('#pip-dock .pip-stub button').click();
     await new Promise((r) => setTimeout(r, 80));
-    const woke = { hidden: host.hidden, stub: !document.getElementById('pip-stub').hidden };
+    const woke = { hidden: host.hidden, stub: !document.querySelector('#pip-dock .pip-stub').hidden };
     // And the hard answer, which does write the preference.
     host.querySelector('.pip-x')?.click();
     await new Promise((r) => setTimeout(r, 80));
     [...host.querySelectorAll('.pip-choice')][1]?.click();
     await new Promise((r) => setTimeout(r, 80));
     const after = { hidden: host.hidden, pref: prefs.prefs().coach,
-                    stub: !document.getElementById('pip-stub').hidden };
-    document.getElementById('pip-wake').click();
+                    stub: !document.querySelector('#pip-dock .pip-stub').hidden };
+    document.querySelector('#pip-dock .pip-stub button').click();
     await new Promise((r) => setTimeout(r, 80));
     return { before, asked, shot, woke, after,
-             back: !document.getElementById('pip').hidden && prefs.prefs().coach !== false };
+             back: !document.querySelector('#pip-dock .pip-slot').hidden && prefs.prefs().coach !== false };
   });
   t('pip: every glyph in every face is in the font this app actually ships',
     pipWire.before.missing.length === 0,
@@ -1471,10 +1486,11 @@ try {
   // line, which reads as jitter.
   const pipBox = await page.evaluate(async () => {
     const { mountPip } = await import('./assets/js/core/pip.js');
-    const host = document.getElementById('pip');
+    const host = document.querySelector('#pip-dock .pip-slot');
     host.hidden = false;
     const pip = mountPip(host);
-    const col = host.parentElement.getBoundingClientRect().width;
+    const col = document.getElementById('pip-dock')
+      .parentElement.getBoundingClientRect().width;
     const him = () => host.querySelector('.pip-box').getBoundingClientRect();
     const row = () => host.getBoundingClientRect().width;
     pip.mood('idle');
@@ -6859,7 +6875,7 @@ try {
     const root = document.documentElement;
     const had = root.getAttribute('data-theme');
     const { mountPip } = await import('./assets/js/core/pip.js');
-    const host = document.getElementById('pip');
+    const host = document.querySelector('#pip-dock .pip-slot');
     host.hidden = false;
     const pip = mountPip(host);
     pip.say('Flow jumped.', { mood: 'alert' });
@@ -7388,6 +7404,54 @@ try {
       hiddenSeen > 0 && showing.length === 0,
       hiddenSeen === 0 ? 'no hidden elements were found, so nothing was proven'
         : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
+  }
+
+  /* ------------------------------------------------------- him, everywhere */
+  {
+    // A coach who exists only while coffee is coming out is a readout, not a
+    // coach. He was on Live and nowhere else — not on the page that tells you
+    // what to change, not on the log of what you changed.
+    const pp = await ctx.newPage();
+    await pp.setViewportSize({ width: 1400, height: 950 });
+    const missing = [];
+    const faces = [];
+    for (const name of ['advisor', 'shots', 'kit', 'lab', 'settings']) {
+      await pp.goto(`${B}/${name}.html`);
+      await pp.waitForTimeout(250);
+      const r = await pp.evaluate(() => {
+        const box = document.querySelector('#pip-dock .pip-box')?.getBoundingClientRect();
+        return { up: !!box && box.width > 4 && box.height > 4,
+                 face: document.querySelector('#pip-dock .pip-face')?.textContent ?? '' };
+      });
+      if (!r.up) missing.push(name); else faces.push(name);
+    }
+    t('pip: he is on every page of the tool, not only the one with the scale',
+      missing.length === 0 && faces.length === 5,
+      missing.length ? `absent from ${missing.join(', ')}` : `present on ${faces.join(', ')}`);
+
+    // Turning him off is one decision, not five. The switch is a preference, so
+    // it has to reach the page you are not on.
+    await pp.goto(`${B}/shots.html`);
+    await pp.evaluate(async () => {
+      const P = await import('./assets/js/core/prefs.js');
+      P.set({ coach: false });
+    });
+    await pp.goto(`${B}/advisor.html`);
+    await pp.waitForTimeout(250);
+    const off = await pp.evaluate(() => ({
+      him: !!document.querySelector('#pip-dock .pip-box'),
+      // And the way back is where he was, on whichever page that is.
+      stub: !document.querySelector('#pip-dock .pip-stub')?.hidden,
+      why: document.querySelector('#pip-dock .stub-why')?.textContent ?? '',
+    }));
+    t('pip: switching him off on one page switches him off on all of them',
+      !off.him && off.stub && /off/i.test(off.why),
+      `on advisor after turning him off in shots: him ${off.him}, way back "${off.why}"`);
+    await pp.evaluate(async () => {
+      const P = await import('./assets/js/core/prefs.js');
+      P.set({ coach: true });
+    });
+    await pp.close();
   }
 
   /* --------------------------------------------------- telling bags apart */

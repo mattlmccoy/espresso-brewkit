@@ -82,9 +82,14 @@
     <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
     Runs entirely in your browser; no data leaves this device.
   </footer>
+  <!-- HE IS ON EVERY PAGE. A coach who exists only while coffee is
+       coming out is a readout, not a coach. -->
+  <div id="pip-dock"></div>
 </div>
 <script type="module">
 import { boot, fmt, el } from './assets/js/ui.js';
+import { installPip } from './assets/js/core/pip.js';
+import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as chart from './assets/js/core/chart.js';
@@ -402,6 +407,12 @@ kit.subscribe(fillBags);
 fillBags();
 if (!selected) selected = store.all().at(-1)?.shot_id ?? null;
 render();
+
+/* ------------------------------------------------------------------- Pip */
+// He is on every page. The switch, the question the x asks and the way back
+// are the shared arrangement; what he says here is this page's business, and
+// on a page with nothing to add he says nothing and simply keeps you company.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 </script>
 </body>
 </html>

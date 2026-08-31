@@ -204,9 +204,13 @@
     <a href="https://github.com/mattlmccoy/espresso-brewkit">Source</a> ·
     Runs entirely in your browser; no data leaves this device.
   </footer>
+  <!-- HE IS ON EVERY PAGE. A coach who exists only while coffee is
+       coming out is a readout, not a coach. -->
+  <div id="pip-dock"></div>
 </div>
 <script type="module">
 import { boot, fmt, el, THEMES, currentTheme, applyTheme } from './assets/js/ui.js';
+import { installPip } from './assets/js/core/pip.js';
 import * as ui from './assets/js/ui.js';
 import { restoreControl } from './assets/js/core/notice.js';
 import * as prefs from './assets/js/core/prefs.js';
@@ -461,6 +465,12 @@ $('reset-all').addEventListener('click', () => {
 
 restoreControl($('restore-notes'));
 paintPrefs();
+
+/* ------------------------------------------------------------------- Pip */
+// He is on every page. The switch, the question the x asks and the way back
+// are the shared arrangement; what he says here is this page's business, and
+// on a page with nothing to add he says nothing and simply keeps you company.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 </script>
 </body>
 </html>
