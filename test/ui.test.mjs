@@ -626,6 +626,34 @@ try {
   t('live: brew state machine advances', /extract|drip|complete/i.test(await page.textContent('#state')),
     await page.textContent('#state'));
 
+  // PIP WHILE HE IS NOT TALKING. He was barely there on the laptop, and the
+  // reason was not that he was hidden — he is on screen the whole time. It was
+  // that nothing ever called mood(), so his face changed only on the rare
+  // occasions the coach had something worth saying and sat frozen in between.
+  const watching = await page.evaluate(() => {
+    const face = document.querySelector('.pip-face');
+    const box = document.querySelector('.pip-box')?.getBoundingClientRect();
+    return {
+      face: face?.textContent ?? '',
+      size: face ? parseFloat(getComputedStyle(face).fontSize) : 0,
+      w: Math.round(box?.width ?? 0), h: Math.round(box?.height ?? 0),
+      shown: !document.getElementById('pip').hidden,
+    };
+  });
+  // Watching a pour is [ o_o ] with [ -_- ] as its blink, so either frame is
+  // him watching — what must not appear is the idle face, which is what he wore
+  // for the whole shot before.
+  t('live: Pip watches the pour rather than sitting on the face he last spoke in',
+    watching.shown && /\[ *[o\-]_[o\-] *\]/.test(watching.face)
+    && !/·_·/.test(watching.face),
+    `on screen ${watching.shown}, face "${watching.face}"`);
+  // And he is legible from across a kitchen counter. He is sized for a phone,
+  // where that is right; on a laptop the same box is a footnote in the corner of
+  // a very wide screen, which is the other half of "barely there".
+  t('live: and he is big enough to register on a laptop',
+    watching.size >= 18 && watching.w > 70 && watching.h > 40,
+    `${watching.size}px face in a ${watching.w}x${watching.h} case`);
+
   // The pour is a line plot now, not a scatter: assert the trace itself.
   await page.waitForFunction(
     () => (document.querySelector('#curve svg path.weightline')?.getAttribute('d') ?? '')
@@ -1461,8 +1489,13 @@ try {
       short: { w: Math.round(short.w), h: Math.round(short.h), row: Math.round(short.row) },
       long: { w: Math.round(long.w), h: Math.round(long.h), row: Math.round(long.row) } };
   });
+  // The proportional bound is the one that carries the meaning — "not a bar
+  // stretched across the column" is a claim about the column, not about pixels.
+  // The absolute ceiling was calibrated to a 13 px face and moved when he was
+  // deliberately grown on wide screens; it is kept as a sanity bound so an
+  // accidental doubling still fails.
   t('pip: he is a small box, not a bar stretched across the column',
-    pipBox.quiet.w > 0 && pipBox.quiet.w < 120 && pipBox.quiet.row < pipBox.col * 0.25,
+    pipBox.quiet.w > 0 && pipBox.quiet.w < 200 && pipBox.quiet.row < pipBox.col * 0.25,
     `${pipBox.quiet.w}\u00d7${pipBox.quiet.h} px, taking ${pipBox.quiet.row} of a `
     + `${pipBox.col} px column when silent`);
   // HE never changes size — only the bubble beside him comes and goes. This is
