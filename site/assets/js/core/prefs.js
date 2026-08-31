@@ -106,9 +106,9 @@ export const ABOUT = Object.freeze({
   defaultRatio: ['Default ratio', ':1',
     'What a new shot aims for. Empty means the brew method decides.'],
   coach: ['Pip, the shot coach', '',
-    'The bean in the corner. Reads the curve while it pours and the whole shot '
-    + 'afterwards, and says nothing at all unless it has something you cannot '
-    + 'already see on the screen.'],
+    'A small terminal that watches the shot. He reads the curve while it pours, '
+    + 'the whole shot afterwards, and your log when you are at the grinder — and '
+    + 'says nothing unless he has something you cannot already see on the screen.'],
   brixFactor: ['Brix to TDS factor', '',
     'The refractometer conversion behind every extraction yield in the log. '
     + 'Changing it changes what past shots are said to have extracted.'],

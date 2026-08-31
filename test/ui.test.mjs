@@ -67,8 +67,8 @@ try {
     seeded.added === 15, `${seeded.added} rows`);
   t('index: but the page no longer offers to pour them into your log',
     (await page.locator('#load-sample').count()) === 0
-    && /different equipment/i.test(await page.innerText('body')),
-    'the loader is gone, and the page says why');
+    && /skew the grind model/i.test(await page.innerText('body')),
+    'no loader, and the page says why the log starts empty');
 
   // ---- the walkthrough on the home page ----
   // It is the first thing anyone sees, and it is animated, which means it is

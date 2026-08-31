@@ -13,8 +13,12 @@
   .big .v { font-size: clamp(46px, 9vw, 92px); }
   /* The one line on the page that says what the app thinks is happening. It
      changes rarely and always means something, so it earns a transition. */
+  /* It is a filled slab in a column of outlined boxes and plain text, so it
+     needs a margin of its own or it butts straight into whatever is above it —
+     the step row on most steps, the start button on 00. Every other child of
+     this column carries a top margin; this was the one that did not. */
   .state-strip { position:relative; overflow:hidden; padding:14px 18px;
-    border-radius:var(--radius);
+    margin:16px 0 0; border-radius:var(--radius);
     font:700 13px/1 var(--sans); letter-spacing:.16em; text-transform:uppercase;
     background:var(--ink); color:var(--tag-fg);
     transition:background var(--t) var(--ease-out), color var(--t) var(--ease-out); }
@@ -209,7 +213,7 @@
   }
   /* The stepper moved into the narrower left column; these are the same
      concessions the side panel used to make for it. */
-  #cell-now .steps { margin-top:2px; }
+  #cell-now .steps { margin-top:2px; margin-bottom:4px; }
   #cell-now .steps button { min-width:0; padding:6px 4px; }
   #cell-now .steps .n { font-size:9.5px; }
   #cell-now .steps .l { font-size:10.5px; margin-top:3px; }
