@@ -1359,10 +1359,12 @@ body.replaying #cell-pour { outline: 3px solid var(--accent); outline-offset: -3
 body.replaying .fillchart { flex: 1 1 auto; min-height: 200px; }
 /* One way out, not two. The bar carries Done; the row above it was still
    offering "Stop watching" for the same thing. */
-body.replaying #replay-row,
-/* And nothing that talks. Pip reads a shot as it happens; on a recording there
-   is nothing for him to say that he did not say the first time. */
-body.replaying #pip-dock { display: none !important; }
+body.replaying #replay-row { display: none !important; }
+/* Pip STAYS during a replay. He was hidden here on the reasoning that he had
+   nothing to add to a recording — and the lines he had up during the shot are
+   exactly the thing you were too busy to read at the time, which makes them the
+   most worth replaying. He says them again, on his own clock, and says nothing
+   new. */
 /* The controls that only make sense while a shot is happening. A replay cannot
    be stopped, and a stop button over a recording is a button that lies. */
 body.replaying #stop, body.replaying #reset, body.replaying #replay-keep { display: none; }

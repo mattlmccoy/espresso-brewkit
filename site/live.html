@@ -739,7 +739,7 @@
           <div class="st bx"><div class="k">Target</div><div class="v"><span id="o-target">—</span><span class="u">g</span></div></div>
           <div class="st bx brew-only"><div class="k">Lands at</div><div class="v"><span id="o-proj">—</span><span class="u">g</span></div></div>
           <div class="st bx brew-only" id="tile-eta"><div class="k">To target</div><div class="v"><span id="o-eta">—</span><span class="u">s</span></div></div>
-          <div class="st bx brew-only"><div class="k">Trend</div><div class="v"><span id="o-trend">—</span><span class="u">g/s²</span></div></div>
+          <div class="st bx brew-only"><div class="k">Flow step</div><div class="v"><span id="o-trend">—</span><span class="u">%</span></div></div>
         </div>
 
         <p class="note pro-only" id="driver-note" hidden data-notice="driver-note"></p>
@@ -2110,21 +2110,42 @@ function render(s) {
   const eta = cut ? cut.eta : NaN;
   setText('o-proj', fmt(lands, 1), { flash: true });
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
-  setText('o-trend', fmt(s.trend, 3));
+  // The jump, not the slope. A rising slope is what a healthy shot does, so a
+  // tile labelled "Trend" in g/s² was a number whose only use in this app had
+  // been a rule that fired on good coffee.
+  const jumpNow = liveStep();
+  setText('o-trend', Number.isFinite(jumpNow) ? fmt(jumpNow * 100, 0) : '\u2014');
   paintPourTop(s, { lands, eta });
   // Pip reads a shot as it happens and says what to do next. On a recording
   // there is nothing to do next, and he already said it the first time.
   if (!replaying) { pipLive(s); pipWatch(s); }
 
-  // A channel is worth knowing about while the shot is still running, not only
-  // in the post-mortem. The trend is NaN until there is enough shot to judge,
-  // so the opening ramp cannot set it off.
+  // A CHANNEL IS A STEP, NOT A SLOPE — and this banner was the last place in
+  // the app still getting that wrong.
+  //
+  // It fired on `flowTrend`, a least-squares slope, at 0.05 g/s², and told you
+  // an intact puck compacts as it runs so flow should be sagging. That is not
+  // what a shot does. Puck resistance FALLS as the bed saturates and erodes, so
+  // at constant pressure the flow climbs through most of a normal shot. The
+  // rule fired on healthy shots and sent people off to fix a distribution that
+  // was fine.
+  //
+  // diagnose() and coach.live() were both corrected to the step signal and this
+  // was left behind, which is how the app came to hold two opinions about the
+  // same physics and show the wrong one during the shot.
+  //
+  // The step is what a channel looks like: a discontinuity in the flow. And
+  // even that is suggestive rather than certain — on a pressure machine a
+  // channel is a flow spike WITH a simultaneous pressure dip, and a scale
+  // cannot see the second half. So this says what it saw, not what caused it.
   const warn = $('live-warn');
-  if (Number.isFinite(s.trend) && s.trend > 0.05) {
+  const jump = liveStep();
+  if (Number.isFinite(jump) && jump > 0.28) {
     warn.style.display = '';
-    warn.textContent = `Flow is climbing (${s.trend.toFixed(3)} g/s²). An intact puck compacts as it `
-      + 'runs, so flow should be sagging by now — this is what a channel opening looks like. '
-      + 'Nothing to fix mid-shot; note it, and check distribution and tamp on the next one.';
+    warn.textContent = `Flow jumped ${Math.round(jump * 100)}% in a second. A bed giving way `
+      + 'somewhere looks like this — so does a machine still coming up to pressure, and a '
+      + 'scale cannot tell them apart. Nothing to fix mid-shot; worth remembering when you '
+      + 'taste it.';
   } else if (s.state !== BREW.EXTRACTING) {
     warn.style.display = 'none';
   }
@@ -3624,6 +3645,10 @@ function closeReplay() {
   // Back to what the screen was showing before the replay borrowed it. Only if
   // there is a real one: a replay opened straight from the log has no shot in
   // memory behind it, and there is nothing to restore.
+  // The line he was replaying goes with the replay.
+  replaySayingNow = null;
+  replaySaid = [];
+  pip.hide();
   if (replayStep) { sess.goto(replayStep); replayStep = null; paintSession(); }
   if (lastSnap) render(lastSnap);
   paintSlides();
@@ -3642,6 +3667,7 @@ function openReplay(curve = draft.curve, shot = replayShot()) {
         extracting: BREW.EXTRACTING, complete: BREW.COMPLETE,
         label: (st) => BREW_LABEL[st],
       }));
+      paintReplaySaying();
       paintTransport();
     },
   });
@@ -3655,6 +3681,11 @@ function openReplay(curve = draft.curve, shot = replayShot()) {
   // coffee by the time you come back to watch an old one.
   replayTarget = Number(shot.yield_g);
   replayDose = Number(shot.dose_g);
+  // WHAT HE SAID, AND WHEN. Derived from the curve rather than recorded, so it
+  // works on shots pulled long before any of this existed and cannot drift out
+  // of step with the coach that produced it. Worked out once here rather than
+  // per frame: it walks the whole shot, and scrubbing is a pointer drag.
+  replaySaid = replay.saidDuring(r.data, coach.live, { target: replayTarget });
   document.body.classList.add('replaying');
   // THE PANEL SAYS WHAT IT IS SHOWING. A hatched border is easy to clip and
   // easy to stop seeing; the tag over the panel is neither, and it is already
@@ -3685,6 +3716,26 @@ let replayTarget = NaN;
 let replayDose = NaN;
 let replayTag = 'Replay';
 let replayStep = null;
+let replaySaid = [];
+
+/**
+ * Pip, replaying himself.
+ *
+ * He is muted during a replay — his live reading is about what to do next and
+ * there is nothing next about a recording — so this puts back the one thing
+ * that IS worth seeing again: the line he had up at this second of the shot.
+ * Scrubbing moves it with everything else, which is the point: you can drag to
+ * the moment the flow jumped and read what he said about it.
+ */
+function paintReplaySaying() {
+  if (!replaying || !pip.up) return;
+  const line = replay.sayingAt(replaySaid, replaying.t);
+  if (line?.text === replaySayingNow) return;
+  replaySayingNow = line?.text ?? null;
+  if (line) pip.say(line.text, { mood: line.mood, ms: 1e6 });
+  else pip.hide();
+}
+let replaySayingNow = null;
 
 function paintTransport() {
   const r = replaying;
@@ -3873,9 +3924,12 @@ function pipWatch(s) {
 function moodFor(s) {
   if (!s) return 'idle';
   if (s.state === BREW.EXTRACTING) {
-    // A channel opening, or the stop coming up. Both are the moment to look.
-    if (Number.isFinite(s.trend) && s.trend > 0.05) return 'alert';
-    return stopArmed ? 'alert' : 'watch';
+    // The stop coming up, or a step in the flow. NOT a rising slope: flow
+    // climbing is what an ordinary shot does, and staring at every healthy shot
+    // is the same mistake the banner above used to make, in his face.
+    if (stopArmed) return 'alert';
+    const jump = liveStep();
+    return Number.isFinite(jump) && jump > 0.28 ? 'alert' : 'watch';
   }
   if (s.state === BREW.COMPLETE) {
     // Landed where you aimed, or not. `pleased` is the only mood that is a

@@ -301,6 +301,10 @@ boot();
 initNotices();
 
 const $ = (id) => document.getElementById(id);
+
+// Installed here rather than at the foot of the module: a const is in the
+// temporal dead zone for every line above it, and these pages render on load.
+const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 const num = (id) => { const v = parseFloat($(id).value); return Number.isFinite(v) ? v : null; };
 let editingBag = null, editingGrinder = null;
 
@@ -885,7 +889,6 @@ render();
 // He is on every page. The switch, the question the x asks and the way back
 // are the shared arrangement; what he says here is this page's business, and
 // on a page with nothing to add he says nothing and simply keeps you company.
-const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 </script>
 </body>
 </html>
