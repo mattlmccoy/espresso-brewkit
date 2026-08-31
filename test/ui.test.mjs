@@ -7368,6 +7368,129 @@ try {
         : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
   }
 
+  /* --------------------------------------------------- telling bags apart */
+  {
+    const bp = await ctx.newPage();
+    await bp.goto(`${B}/kit.html`);
+    await bp.waitForTimeout(200);
+
+    // THE REAL SHAPE THIS BROKE ON. One bag split into three and another of the
+    // same coffee split into two, both from the same roast date — which is a
+    // normal thing to own and made five entries in the picker that all read
+    // "Peru Medium Roast · Bellwood".
+    const SHELF = [
+      { id: 'bag-002', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
+        roast_date: '2026-08-20', weight_g: 145, archived: true },
+      { id: 'bag-003', bean_name: 'DECAF Colombia Desvelado', roaster: 'Bellwood',
+        roast_date: '2026-08-20', weight_g: 120, archived: false },
+      { id: 'bag-004', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
+        roast_date: '2026-08-20', weight_g: 0, archived: true, split_into: 3 },
+      ...[1, 2, 3].map((i) => ({ id: `bag-00${4 + i}`, bean_name: 'Peru Medium Roast',
+        roaster: 'Bellwood', roast_date: '2026-08-20', weight_g: 145, archived: false,
+        parent_id: 'bag-004', portion_index: i, portion_of: 3 })),
+      { id: 'bag-008', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
+        roast_date: '2026-08-20', weight_g: 0, archived: true, split_into: 2 },
+      ...[1, 2].map((i) => ({ id: `bag-0${8 + i}`, bean_name: 'Peru Medium Roast',
+        roaster: 'Bellwood', roast_date: '2026-08-20', weight_g: 163.5, archived: false,
+        parent_id: 'bag-008', portion_index: i, portion_of: 2 })),
+    ];
+    const named = await bp.evaluate(async (shelf) => {
+      const K = await import('./assets/js/core/kit.js');
+      const active = shelf.filter((b) => !b.archived);
+      const picker = K.labelBags(active);
+      const all = K.labelBags(shelf);
+      // Two parents split the SAME way, which "of N" cannot separate — the case
+      // that needs a real tiebreaker.
+      const same = [1, 2, 3].flatMap((i) => [
+        { id: `a${i}`, bean_name: 'Peru', roaster: 'B', roast_date: '2026-08-20',
+          weight_g: 145, portion_index: i, portion_of: 3, parent_id: 'a' },
+        { id: `b${i}`, bean_name: 'Peru', roaster: 'B', roast_date: '2026-08-20',
+          weight_g: 163.5, portion_index: i, portion_of: 3, parent_id: 'b' },
+      ]);
+      const tied = K.labelBags(same);
+      return {
+        picker: active.map((b) => picker.get(b.id)),
+        parents: shelf.filter((b) => b.split_into).map((b) => all.get(b.id)),
+        // A bag with none of the new fields is what everything looked like
+        // before any of this existed.
+        legacy: all.get('bag-002'),
+        tied: same.map((b) => tied.get(b.id)),
+      };
+    }, SHELF);
+    const uniq = (a) => new Set(a).size === a.length;
+    t('bags: portions of a split bag are told apart in the picker',
+      uniq(named.picker) && named.picker.filter((n) => /portion 1 of 3/.test(n)).length === 1
+      && named.picker.filter((n) => /portion 1 of 2/.test(n)).length === 1,
+      named.picker.join(' | '));
+    t('bags: and the parents say they were split rather than looking like more of the same',
+      named.parents.every((n) => /split into \d/.test(n)) && uniq(named.parents),
+      named.parents.join(' | '));
+    // The whole point of deriving the name: nothing was written, so a bag
+    // entered before portions existed is untouched and reads as it always did.
+    t('bags: a bag with none of the portion fields keeps the plain name it always had',
+      named.legacy === 'Peru Medium Roast \u00b7 Bellwood', named.legacy);
+    // Two parents split the same way: "of 3" is identical on both sides, so the
+    // name has to fall through to something that actually differs.
+    t('bags: two bags split the same way still get distinct names',
+      uniq(named.tied) && named.tied.some((n) => /145 g/.test(n))
+      && named.tied.some((n) => /163\.5 g/.test(n)),
+      named.tied.slice(0, 2).join(' | '));
+
+    // The other half of "checked for doubles": noticing on the way in.
+    const twins = await bp.evaluate(async (shelf) => {
+      const K = await import('./assets/js/core/kit.js');
+      const same = { id: 'new', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
+                     roast_date: '2026-08-20' };
+      return {
+        found: K.twinBags(same, shelf).map((b) => b.id),
+        // A portion is a bag deliberately made to match its siblings. Warning
+        // about what the split button just did would be noise.
+        portion: K.twinBags({ ...same, id: 'p', portion_of: 3 }, shelf).length,
+        different: K.twinBags({ ...same, roast_date: '2026-07-01' }, shelf).length,
+        blank: K.twinBags({ id: 'x' }, shelf).length,
+      };
+    }, SHELF);
+    t('bags: entering one you already have says so, without refusing it',
+      twins.found.length === 3 && twins.found.every((id) => /bag-00[248]/.test(id))
+      && twins.different === 0 && twins.blank === 0,
+      `matched ${twins.found.join(', ')}; a different roast date matches ${twins.different}`);
+    t('bags: and a portion is not reported as a double of its own siblings',
+      twins.portion === 0, `${twins.portion} twins reported for a portion`);
+
+    // THE LOG IS NOT RENAMED BY THE SHELF. A shot stores the bean name it was
+    // pulled with on purpose: that is what you made, and it has to survive the
+    // bag being renamed, split again or thrown away. So the log takes only the
+    // qualifier — the part it was missing — and keeps its own name.
+    const marks = await bp.evaluate(async (shelf) => {
+      const K = await import('./assets/js/core/kit.js');
+      const q = K.bagQualifiers(shelf);
+      const renamed = K.bagQualifiers(shelf.map((b) => b.id === 'bag-005'
+        ? { ...b, bean_name: 'Renamed Since' } : b));
+      return { portion: q.get('bag-005'), parent: q.get('bag-004'), plain: q.get('bag-003'),
+               afterRename: renamed.get('bag-005'), unknown: q.get('bag-999') };
+    }, SHELF);
+    t('bags: the shot log gains which portion it was without losing the name it recorded',
+      marks.portion === 'portion 1 of 3' && marks.parent === 'split into 3'
+      && marks.plain === '' && marks.afterRename === 'portion 1 of 3'
+      && marks.unknown === undefined,
+      `portion "${marks.portion}", plain bag "${marks.plain}", `
+      + `after renaming the bag "${marks.afterRename}"`);
+
+    // End to end, through the picker that showed the bug.
+    await bp.goto(`${B}/live.html`);
+    await bp.evaluate((shelf) => localStorage.setItem('brewkit.bags.v1', JSON.stringify(shelf)),
+      SHELF);
+    await bp.goto(`${B}/live.html`);
+    await bp.waitForFunction(() => document.getElementById('p-bag')?.options.length > 1,
+      { timeout: 8000 });
+    const options = await bp.evaluate(() =>
+      [...document.getElementById('p-bag').options].slice(1).map((o) => o.textContent));
+    t('bags: the coffee picker on Live offers six distinguishable bags, not five of one name',
+      uniq(options) && options.length === 6,
+      options.join(' | '));
+    await bp.close();
+  }
+
   /* ----------------------------------------------------- watching it again */
   {
     const rep = await ctx.newPage();

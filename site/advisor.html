@@ -115,9 +115,11 @@ function fillSelects() {
   const bagSel = $('bag'), gSel = $('grinder');
   const keepBag = bagSel.value || s.bag_id;
   const keepG = gSel.value || s.grinder_id;
+  const allBags = kit.bags();
+  const bagNames = kit.labelBags(allBags);
   bagSel.replaceChildren(el('option', { value: '' }, 'Any coffee'),
-    ...kit.bags().map((b) => el('option', { value: b.id },
-      `${b.bean_name || b.id}${b.roaster ? ' · ' + b.roaster : ''}${b.archived ? ' (finished)' : ''}`)));
+    ...allBags.map((b) => el('option', { value: b.id },
+      `${bagNames.get(b.id)}${b.archived ? ' (finished)' : ''}`)));
   gSel.replaceChildren(el('option', { value: '' }, 'Any grinder'),
     ...kit.grinders().map((g) => el('option', { value: g.id }, g.name || g.id)));
   bagSel.value = keepBag ?? ''; gSel.value = keepG ?? '';

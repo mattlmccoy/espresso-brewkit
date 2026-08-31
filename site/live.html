@@ -2558,10 +2558,13 @@ function fillKitSelects() {
   const bagSel = $('p-bag'), gSel = $('p-grinder');
   const bags = kit.activeBags(), grinders = kit.grinders();
   const keepBag = bagSel.value || st.bag_id, keepG = gSel.value || st.grinder_id;
+  // Named against each other, not one at a time: portions of a split bag are
+  // identical in every field a person reads, so five of them listed the same
+  // coffee five times with nothing to choose between.
+  const bagNames = kit.labelBags(bags);
   bagSel.replaceChildren(
     el('option', { value: '' }, bags.length ? 'Not recorded' : 'No bags yet — add one on Kit'),
-    ...bags.map((b) => el('option', { value: String(b.id) },
-      `${b.bean_name || b.id}${b.roaster ? ' · ' + b.roaster : ''}`)));
+    ...bags.map((b) => el('option', { value: String(b.id) }, bagNames.get(b.id))));
   gSel.replaceChildren(
     el('option', { value: '' }, grinders.length ? 'Not recorded' : 'No grinders yet — add one on Kit'),
     ...grinders.map((g) => el('option', { value: String(g.id) }, g.name || g.id)));

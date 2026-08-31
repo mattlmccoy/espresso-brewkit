@@ -157,6 +157,12 @@ function renderStrays() {
 
 function renderList() {
   const rows = shots();
+  // WHICH PORTION IT CAME FROM. A shot stores the bean name it was pulled with,
+  // and portions of one split bag all share it — so four shots from four
+  // different portions were four identical rows. The bag_id on the shot is what
+  // tells them apart, and it was already there. A shot whose bag has since been
+  // deleted keeps the name it recorded.
+  const bagMarks = kit.bagQualifiers(kit.bags());
   const holder = $('list');
   holder.replaceChildren();
   $('count').textContent = rows.length + (rows.length === 1 ? ' shot' : ' shots');
@@ -169,7 +175,9 @@ function renderList() {
     },
       el('span', { class: 'id' }, (r.shot_id ?? '').replace('shot-', '#')),
       el('span', {},
-        el('span', { class: 'who' }, r.bean_name || r.roaster || 'Unnamed coffee'),
+        el('span', { class: 'who' },
+          [r.bean_name || r.roaster || 'Unnamed coffee', bagMarks.get(r.bag_id) || null]
+            .filter(Boolean).join(' \u00b7 ')),
         el('br'),
         el('span', { class: 'nums' },
           [Number.isFinite(F(r.dose_g)) && Number.isFinite(F(r.yield_g))
@@ -225,7 +233,9 @@ function renderDetail() {
 
   holder.appendChild(el('div', { style: 'display:flex;align-items:baseline;gap:12px;flex-wrap:wrap' },
     el('div', { class: 'tag', style: 'margin:0' }, shot.shot_id),
-    el('strong', { style: 'font-size:16px' }, shot.bean_name || 'Unnamed coffee'),
+    el('strong', { style: 'font-size:16px' },
+      [shot.bean_name || 'Unnamed coffee',
+       kit.bagQualifiers(kit.bags()).get(shot.bag_id) || null].filter(Boolean).join(' \u00b7 ')),
     // Worth a badge rather than a footnote: this shot ran on a finer grind than
     // the dial says, so comparing it with the rest of the portion is a mistake.
     shot.from_frozen ? el('span', { class: 'badge flag',
@@ -363,9 +373,13 @@ function fillBags() {
   const sel = $('filter-bag');
   const keep = sel.value;
   const used = new Set(store.all().map((s) => s.bag_id).filter(Boolean));
+  // Labelled against the bags actually offered here rather than the whole
+  // shelf, so this list does not grow longer names because of a bag you cannot
+  // choose in it.
+  const shown = kit.bags().filter((b) => used.has(b.id));
+  const bagNames = kit.labelBags(shown);
   sel.replaceChildren(el('option', { value: '' }, 'All coffees'),
-    ...kit.bags().filter((b) => used.has(b.id))
-      .map((b) => el('option', { value: b.id }, b.bean_name || b.id)));
+    ...shown.map((b) => el('option', { value: b.id }, bagNames.get(b.id))));
   sel.value = keep;
 }
 $('filter-bag').addEventListener('change', render);
