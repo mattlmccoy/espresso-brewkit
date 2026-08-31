@@ -164,14 +164,17 @@ function why(fit, grinderName) {
   return bits.join(' ');
 }
 
-function renderRec(shots, bagId, grinderId, g) {
+function renderRec(shots, bagId, grinderId, g, picked = null) {
   const holder = $('rec');
   holder.replaceChildren();
   const r = recommendGrind(shots, {
     grinderId, bagId, grinder: g,
     targetTimeS: num('t-time') ?? 28, targetDoseG: num('t-dose') ?? 18,
     targetRatio: num('t-ratio') ?? 2, currentSetting: num('cur'),
-    days: (kit.bag(bagId) ? beanAge(kit.bag(bagId)).effective : null) ?? 0,
+    // The age of the bag you actually picked, not of the pool: how long off
+    // roast is a property of the bag in your hand, and the pool may span
+    // several. `bagId` is a list now, so kit.bag() cannot take it.
+    days: (picked && kit.bag(picked) ? beanAge(kit.bag(picked)).effective : null) ?? 0,
   });
   if (!r.ok) {
     holder.appendChild(el('p', { class: 'note warn' }, `Not enough to fit yet — ${r.reason}.`));
@@ -310,10 +313,15 @@ function renderDiag(shots) {
 function render() {
   fillSelects();
   const shots = store.all();
-  const bagId = $('bag').value || null;
+  // THE COFFEE, NOT THE BAG. Picking one portion of a split bag used to model
+  // only the shots pulled from that portion — so a coffee you had pulled twenty
+  // shots of arrived at the model as four, five and three, and it said nothing
+  // about any of them. They are the same beans.
+  const picked = $('bag').value || null;
+  const bagId = picked ? kit.sameBeans(picked) : null;
   const grinderId = $('grinder').value || null;
   const g = grinderId ? kit.grinder(grinderId) : null;
-  renderRec(shots, bagId, grinderId, g);
+  renderRec(shots, bagId, grinderId, g, picked);
   renderTaste(shots, bagId, grinderId, g);
   renderResistance(shots, bagId, grinderId);
   renderDiag(shots);

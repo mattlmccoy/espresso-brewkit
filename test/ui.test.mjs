@@ -7374,14 +7374,14 @@ try {
         roast_date: '2026-08-20', weight_g: 120, archived: false },
       { id: 'bag-004', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
         roast_date: '2026-08-20', weight_g: 0, archived: true, split_into: 3 },
-      ...[1, 2, 3].map((i) => ({ id: `bag-00${4 + i}`, bean_name: 'Peru Medium Roast',
+      ...[1, 2, 3].map((i) => ({ id: `bag-${String(4 + i).padStart(3, '0')}`, bean_name: 'Peru Medium Roast',
         roaster: 'Bellwood', roast_date: '2026-08-20', weight_g: 145, archived: false,
         parent_id: 'bag-004', portion_index: i, portion_of: 3 })),
       { id: 'bag-008', bean_name: 'Peru Medium Roast', roaster: 'Bellwood',
         roast_date: '2026-08-20', weight_g: 0, archived: true, split_into: 2 },
-      ...[1, 2].map((i) => ({ id: `bag-0${8 + i}`, bean_name: 'Peru Medium Roast',
+      ...[9, 10].map((i) => ({ id: `bag-${String(i).padStart(3, '0')}`, bean_name: 'Peru Medium Roast',
         roaster: 'Bellwood', roast_date: '2026-08-20', weight_g: 163.5, archived: false,
-        parent_id: 'bag-008', portion_index: i, portion_of: 2 })),
+        parent_id: 'bag-008', portion_index: i - 8, portion_of: 2 })),
     ];
     const named = await bp.evaluate(async (shelf) => {
       const K = await import('./assets/js/core/kit.js');
@@ -7445,6 +7445,38 @@ try {
       `matched ${twins.found.join(', ')}; a different roast date matches ${twins.different}`);
     t('bags: and a portion is not reported as a double of its own siblings',
       twins.portion === 0, `${twins.portion} twins reported for a portion`);
+
+    // ONE COFFEE, ONE DATASET. Splitting a bag makes one purchase into three or
+    // five records, and shots filed against them were three or five separate
+    // datasets — so a grind model that needs a handful of shots to say anything
+    // had one or two, on a coffee you had pulled twenty shots of.
+    const pooled = await bp.evaluate(async (shelf) => {
+      const K = await import('./assets/js/core/kit.js');
+      const A = await import('./assets/js/core/advisor.js');
+      // Twelve shots, spread over the three portions of bag-004 and the two of
+      // bag-008 — one coffee, five records.
+      const across = ['bag-005', 'bag-006', 'bag-007', 'bag-009', 'bag-010'];
+      const shots = Array.from({ length: 15 }, (_, i) => ({
+        shot_id: `s${i}`, bag_id: across[i % across.length], grinder_id: 'g1',
+        grind_setting: 2 + (i % 5) * 0.4, steady_flow_gs: 1.2 + (i % 5) * 0.22,
+        days_off_roast: 5, rating: 7,
+      }));
+      const one = K.sameBeans('bag-005', shelf);
+      return {
+        pool: one.length,
+        // What the model actually gets to see, before and after.
+        alone: A.resistanceRows(shots, { grinderId: 'g1', bagId: 'bag-005' }).length,
+        together: A.resistanceRows(shots, { grinderId: 'g1', bagId: one }).length,
+        // A different coffee is still a different coffee.
+        other: K.sameBeans('bag-003', shelf).length,
+      };
+    }, SHELF);
+    t('bags: portions of one coffee are one dataset to the advisor, not five',
+      pooled.pool === 8 && pooled.alone === 3 && pooled.together === 15,
+      `${pooled.pool} bags of that coffee; the model saw ${pooled.alone} shots `
+      + `on one portion and ${pooled.together} across the coffee`);
+    t('bags: and a different coffee is still a different coffee',
+      pooled.other === 1, `${pooled.other} bag pooled for the decaf`);
 
     // THE LOG IS NOT RENAMED BY THE SHELF. A shot stores the bean name it was
     // pulled with on purpose: that is what you made, and it has to survive the
@@ -7630,6 +7662,36 @@ try {
       closed.gone && !closed.marked && !/replay/i.test(closed.tag),
       `replaying ${!closed.gone}, tag "${closed.tag}"`);
 
+    // EVERY SHOT CAN BE WATCHED, not only the ones kept. Keeping was opt-in, and
+    // the button was only offered on kept ones — so on a log full of real shots,
+    // none of which had been through the button on Live, the feature did not
+    // appear at all. Every shot already stores its curve; keeping one buys
+    // resolution, not the ability to play it.
+    await rep.evaluate(() => localStorage.removeItem('brewkit.replays.v1'));
+    await rep.goto(`${B}/shots.html#shot-900`);
+    await rep.waitForSelector('.shot-row');
+    const unkept = await rep.evaluate(() => {
+      const a = [...document.querySelectorAll('#detail a')]
+        .find((n) => /watch this shot/i.test(n.textContent));
+      return { offered: !!a, href: a?.getAttribute('href') ?? '' };
+    });
+    t('replay: a shot that was never kept can still be watched from the log',
+      unkept.offered && /replay=shot-900/.test(unkept.href),
+      unkept.offered ? unkept.href : 'no button on an un-kept shot');
+    await rep.goto(`${B}/live.html?mock=generic#replay=shot-900`);
+    await rep.waitForFunction(() => window.__replay?.now, { timeout: 10000 });
+    const fromRecord = await rep.evaluate(() => {
+      window.__replay.now.pause();
+      window.__replay.now.seek(20);
+      return { t: document.getElementById('o-t').textContent,
+               w: document.getElementById('o-w').textContent,
+               msg: document.getElementById('live-msg').textContent };
+    });
+    t('replay: and it plays off the curve the record already carries',
+      Math.abs(parseFloat(fromRecord.t) - 20) < 0.4 && parseFloat(fromRecord.w) > 10
+      && !/no /i.test(fromRecord.msg),
+      `${fromRecord.w} g at ${fromRecord.t} s from the shot's own 4 Hz curve`);
+
     // Keeping one, and un-keeping it.
     const kept = await rep.evaluate(async () => {
       const R = await import('./assets/js/core/replay.js');
@@ -7651,6 +7713,13 @@ try {
     // A badge inside a selected row. The row recolours its text for an accent
     // ground, and a badge paints its own background — so one that inherited the
     // colour drew white on its own white panel and was a blank rectangle.
+    // Kept again: the test above cleared the store to prove an un-kept shot
+    // still plays, and this one is about the mark that says a shot IS kept.
+    await rep.goto(`${B}/shots.html`);
+    await rep.evaluate(async () => {
+      const R = await import('./assets/js/core/replay.js');
+      R.save('shot-900', [[0, 0], [1, 2], [2, 4], [3, 6]]);
+    });
     await rep.goto(`${B}/shots.html#shot-900`);
     await rep.waitForSelector('.shot-row');
     const badge = await rep.evaluate(() => {

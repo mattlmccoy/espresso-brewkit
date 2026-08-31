@@ -177,6 +177,43 @@ export function bagLabel(b, among = null) {
  * siblings, and warning about the thing the split button just did would be
  * noise about your own action.
  */
+/**
+ * What makes two bags the same coffee.
+ *
+ * Roast date is deliberately NOT in this. Two bags of one coffee roasted a
+ * fortnight apart are the same beans from the same roaster ground on the same
+ * setting, and the thing that actually differs between them — how long off
+ * roast each shot was — is already a field on every shot, which the resistance
+ * model reads directly. Splitting them into two datasets would throw away half
+ * the evidence to avoid a difference that is already accounted for.
+ */
+export function beanKey(b) {
+  const name = String(b?.bean_name ?? '').trim().toLowerCase();
+  const roaster = String(b?.roaster ?? '').trim().toLowerCase();
+  return name ? `${name}\u0000${roaster}` : '';
+}
+
+/**
+ * Every bag holding the same coffee as this one, by id.
+ *
+ * Splitting a bag makes three or five records of one purchase, and shots filed
+ * against them were three or five separate datasets — so a grind model that
+ * wanted a handful of shots to say anything had one or two, and said nothing,
+ * on a coffee you had pulled twenty shots of. They are the same beans. The
+ * parent counts too: shots pulled before the split are the same coffee as the
+ * portions cut out of it.
+ *
+ * A bag with no name is only ever itself — an empty key would otherwise pool
+ * every unnamed bag into one.
+ */
+export function sameBeans(bagId, list = bags()) {
+  if (!bagId) return [];
+  const me = list.find((b) => b.id === bagId);
+  const key = beanKey(me);
+  if (!key) return [bagId];
+  return list.filter((b) => beanKey(b) === key).map((b) => b.id);
+}
+
 export function twinBags(candidate, list = bags()) {
   const key = (b) => [
     String(b?.bean_name ?? '').trim().toLowerCase(),

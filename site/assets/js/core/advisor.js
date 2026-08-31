@@ -71,11 +71,31 @@ function invert(M) {
   return A.map((row) => row.slice(k));
 }
 
+/**
+ * Does this shot belong to the coffee being asked about?
+ *
+ * `bagId` may be one id or several. Several is the normal case now: splitting a
+ * bag makes one purchase into three or five records, and shots filed against
+ * them were three or five separate datasets — so a model that needs a handful
+ * of shots to say anything had one or two, on a coffee you had pulled twenty
+ * shots of. The caller decides what counts as the same beans (see
+ * kit.sameBeans); this only has to match against whatever it is handed.
+ */
+function inBag(shotBagId, bagId) {
+  if (!bagId) return true;
+  if (Array.isArray(bagId)) return bagId.includes(shotBagId);
+  if (bagId instanceof Set) return bagId.has(shotBagId);
+  return shotBagId === bagId;
+}
+
+/** Whether a bag filter was asked for at all, one id or many. */
+const anyBag = (bagId) => !!bagId && (Array.isArray(bagId) ? bagId.length > 0 : true);
+
 /** Rows usable for the resistance model: a grind setting and a flow rate. */
 export function resistanceRows(shots, { grinderId = null, bagId = null } = {}) {
   return shots.filter((s) => {
     if (grinderId && s.grinder_id !== grinderId) return false;
-    if (bagId && s.bag_id !== bagId) return false;
+    if (!inBag(s.bag_id, bagId)) return false;
     const g = F(s.grind_setting);
     const q = F(s.steady_flow_gs);
     const qAvg = F(s.flow_gs);
@@ -186,7 +206,7 @@ export function fitResistance(shots, { grinderId, bagId, kappa = 4 } = {}) {
   const bPool = pooled.beta[1];
   const c = useDays ? pooled.beta[2] : 0;
 
-  const bagRows = bagId ? pooledRows.filter((r) => r.bag_id === bagId) : [];
+  const bagRows = anyBag(bagId) ? pooledRows.filter((r) => inBag(r.bag_id, bagId)) : [];
   let b = bPool, lambda = 0, bBag = NaN, aRows = bagRows.length >= 2 ? bagRows : pooledRows;
 
   if (bagRows.length >= 3 && spread(bagRows) > 0.4) {
@@ -390,7 +410,7 @@ export function suggestByTaste(shots, { grinderId, bagId, grinder, currentSettin
                                         maxStep = 3 } = {}) {
   const rows = shots.filter((s) => {
     if (grinderId && s.grinder_id !== grinderId) return false;
-    if (bagId && s.bag_id !== bagId) return false;
+    if (!inBag(s.bag_id, bagId)) return false;
     return Number.isFinite(F(s.grind_setting)) && Number.isFinite(F(s.rating));
   }).map((s) => ({ x: F(s.grind_setting), y: F(s.rating), shot_id: s.shot_id }));
 

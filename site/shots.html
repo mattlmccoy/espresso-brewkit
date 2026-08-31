@@ -273,17 +273,28 @@ function renderDetail() {
   // stop-at weight, the warning arriving when it arrived — and that screen is
   // Live. Building a second one on this page would be a second rendering of a
   // shot, and two renderings of one thing disagree eventually.
-  if (replay.has(shot.shot_id)) {
+  // ANY SHOT WITH A CURVE CAN BE WATCHED. Keeping a replay was opt-in, and the
+  // button was only offered on the ones kept — which meant that on a log full
+  // of real shots, none of which had been through the new button on Live, the
+  // feature did not appear at all. Every shot already stores its curve; keeping
+  // one only stores it at the rate it was recorded instead of the 4 Hz the
+  // record carries. So the button is always here, and the kept ones simply
+  // scrub more finely.
+  if (decodeCurve(shot.curve).length > 3) {
+    const kept = replay.has(shot.shot_id);
     holder.appendChild(el('div', { class: 'replay-row', style: 'margin-top:18px' },
       el('a', { class: 'btn-link', href: `./live.html#replay=${shot.shot_id}` },
         'Watch this shot again'),
-      el('button', { class: 'danger ghost', type: 'button',
+      kept ? el('span', { class: 'msg', style: 'margin:0' },
+        'Kept at full rate, so scrubbing is smooth.') : null,
+      kept ? el('button', { class: 'danger ghost', type: 'button',
         style: 'padding:5px 10px;box-shadow:none',
         onclick: () => {
-          if (!confirm(`Remove the kept replay of ${shot.shot_id}? The shot stays.`)) return;
+          if (!confirm(`Remove the kept recording of ${shot.shot_id}? `
+            + 'The shot and its curve stay, and it can still be watched.')) return;
           replay.drop(shot.shot_id);
           render();
-        } }, 'Remove the replay')));
+        } }, 'Drop the full-rate copy') : null));
   }
 
   // The curve, and the flow derived from it — the shape is the whole point of
