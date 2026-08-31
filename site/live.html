@@ -3386,14 +3386,21 @@ for (const id of ['p-bag', 'p-grinder', 'p-grind', 'p-dose', 'p-ratio']) {
 /** The advisor's answer, shown where the decision is made. */
 function refreshAdvice() {
   fillKitSelects();
-  const bagId = $('p-bag').value || null, grinderId = $('p-grinder').value || null;
+  // Pooled by coffee, like the Advisor page: this is the same recommendation
+  // shown where the decision is made, and the two must not disagree because one
+  // of them saw a fifth of the shots.
+  const picked = $('p-bag').value || null;
+  const bagId = picked ? kit.sameBeans(picked) : null;
+  const grinderId = $('p-grinder').value || null;
   const note = $('p-advice');
   note.replaceChildren();
   if (!grinderId) return;
   const r = recommendGrind(store.all(), {
     grinderId, bagId, grinder: kit.grinder(grinderId), targetTimeS: 28,
     targetDoseG: targetDose(), targetRatio: targetRatio(),
-    days: (kit.bag(bagId) ? beans.beanAge(kit.bag(bagId)).effective : null) ?? 0,
+    // The bag in your hand, not the pool: days off roast is a property of the
+    // one you are dosing from, and `bagId` is a list of every bag of this coffee.
+    days: (picked && kit.bag(picked) ? beans.beanAge(kit.bag(picked)).effective : null) ?? 0,
     currentSetting: num('p-grind'),
   });
   if (!r.ok) { note.textContent = `No grind recommendation yet — ${r.reason}.`; return; }
@@ -3437,9 +3444,12 @@ function drawCurve() {
 
 /** Which past shot to pour against. Defaults to the best one on this coffee. */
 function eligibleGhosts() {
-  const bagId = $('p-bag').value || null;
+  // Every bag of this coffee, not this bag. Portions of a split are the same
+  // beans, and the shot worth pouring against does not stop being worth it
+  // because you opened the next portion.
+  const ids = $('p-bag').value ? kit.sameBeans($('p-bag').value) : null;
   return store.all()
-    .filter((r) => decodeCurve(r.curve).length > 4 && (!bagId || r.bag_id === bagId))
+    .filter((r) => decodeCurve(r.curve).length > 4 && (!ids || ids.includes(r.bag_id)))
     .slice(-40).reverse();
 }
 
@@ -3453,7 +3463,7 @@ function refreshGhostPicker() {
   // at zero and then offers it anyway when nothing scores higher, so the picker
   // said "best rated (—/10)" — and now that every shot is filed on landing,
   // whether or not it was ever rated, that was about to be the usual case.
-  const best = bestOn(rows, { bagId });
+  const best = bestOn(rows, { bagId: bagId ? kit.sameBeans(bagId) : null });
   sel.replaceChildren(
     el('option', { value: '' }, rows.length ? 'no reference' : 'no past curves'),
     ...(best ? [el('option', { value: 'best:' + best.shot_id },
@@ -3759,10 +3769,14 @@ function replayFromUrl() {
   if (!m) return;
   const id = m[1];
   history.replaceState(null, '', location.pathname + location.search.replace(/[?&]replay=[\w-]+/, ''));
-  const curve = replay.load(id);
   const rec = store.all().find((r) => r.shot_id === id);
-  if (!curve || !rec) {
-    $('live-msg').textContent = `No kept replay for ${id}.`;
+  if (!rec) { $('live-msg').textContent = `No shot ${id} in the log.`; return; }
+  // The full-rate recording if it was kept, and the shot's own curve if it was
+  // not. Every shot stores one, so every shot can be watched — keeping a replay
+  // buys resolution, not the ability to play it at all.
+  const curve = replay.load(id) ?? decodeCurve(rec.curve);
+  if (curve.length < 4) {
+    $('live-msg').textContent = `${id} has no curve to watch — it was entered by hand.`;
     return;
   }
   $('replay-row').hidden = false;

@@ -88,7 +88,13 @@ export function divergence(mine, ref) {
 export function bestOn(shots, { bagId = null, exclude = null, minRating = 6 } = {}) {
   const rated = (shots ?? []).filter((r) => {
     if (exclude && r.shot_id === exclude) return false;
-    if (bagId && r.bag_id !== bagId) return false;
+    // One id or several. Portions of a split bag are the same coffee, and the
+    // best shot on that coffee is the best across all of them — otherwise the
+    // reference resets every time you open the next portion, which is exactly
+    // when you most want the old one to compare against.
+    if (bagId && !(Array.isArray(bagId) ? bagId.includes(r.bag_id) : r.bag_id === bagId)) {
+      return false;
+    }
     const rating = Number(r.rating);
     if (!Number.isFinite(rating) || rating < minRating) return false;
     return decodeCurve(r.curve).length > 4;
