@@ -684,6 +684,61 @@ try {
     `peak ${last.peak_flow_gs}, steady ${last.steady_flow_gs}, late ${last.flow_slope_late}`);
   t('live: rating and tags are recorded', last.rating === 7 && last.tags === 'balanced',
     `${last.rating} / ${last.tags}`);
+
+  // WATCHING THE SHOT YOU JUST PULLED. Offered the moment the pump stops, from
+  // the stream-rate capture still in memory rather than the 4 Hz reduction that
+  // went into the record — a quarter-second step is visible when you are
+  // dragging to find the second the flow turned over.
+  const rr = await page.evaluate(() => ({
+    offered: !document.getElementById('replay-row').hidden,
+    panelUp: !document.getElementById('replay-panel').hidden,
+    keepable: !document.getElementById('replay-keep').disabled,
+  }));
+  t('live: a finished shot offers to play itself back',
+    rr.offered && !rr.panelUp && rr.keepable,
+    `row up ${rr.offered}, panel closed ${!rr.panelUp}, keep enabled ${rr.keepable}`);
+  await page.click('#replay-open');
+  await page.waitForTimeout(400);
+  const opened = await page.evaluate(() => ({
+    mounted: document.getElementById('replay-panel').classList.contains('replay')
+      && !!document.querySelector('#replay-panel .replay-play'),
+    // The static chart steps aside: two charts of one shot, one moving and one
+    // not, is a panel you have to read twice to find out which is the answer.
+    curveHidden: document.getElementById('curve').getBoundingClientRect().height === 0,
+    trace: document.querySelectorAll('.replay-plot path.weightline').length,
+  }));
+  t('live: and the replay takes the panel rather than sitting beside the chart',
+    opened.mounted && opened.curveHidden && opened.trace === 1,
+    `mounted ${opened.mounted}, static curve hidden ${opened.curveHidden}`);
+  // Keeping it is what links it to the shot in the log.
+  await page.click('#replay-keep');
+  await page.waitForTimeout(150);
+  const keptLive = await page.evaluate(() => {
+    const map = JSON.parse(localStorage.getItem('brewkit.replays.v1') || '{}');
+    const id = JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').at(-1)?.shot_id;
+    return { id, has: !!map[id], pts: (map[id] ?? '').split('|').length,
+             recorded: (JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]')
+               .at(-1)?.curve ?? '').split('|').length,
+             label: document.getElementById('replay-keep').textContent };
+  });
+  t('live: keeping the replay files it under the shot it is of',
+    keptLive.has && /kept/i.test(keptLive.label),
+    `${keptLive.id}: ${keptLive.pts} points kept, button says "${keptLive.label}"`);
+  // Finer than what the record carries, which is the reason keeping it is a
+  // separate thing from the shot being saved at all.
+  t('live: and keeps the full capture, not the reduction the record carries',
+    keptLive.pts >= keptLive.recorded,
+    `${keptLive.pts} kept vs ${keptLive.recorded} in the record`);
+  // A player left running under the next shot's chart would be the clearest
+  // possible version of the mistake the panel's hatched border exists to stop.
+  await page.click('#replay-open');
+  await page.waitForTimeout(150);
+  const shut = await page.evaluate(() => ({
+    gone: document.getElementById('replay-panel').hidden,
+    curveBack: document.getElementById('curve').getBoundingClientRect().height > 0,
+  }));
+  t('live: closing it gives the panel back to the chart',
+    shut.gone && shut.curveBack, `panel hidden ${shut.gone}, chart back ${shut.curveBack}`);
   t('live: yield and time come from the curve, not a guess',
     last.yield_g > 1 && last.time_s > 1 && Math.abs(last.ratio - last.yield_g / last.dose_g) < 1e-6,
     `${last.yield_g} g in ${last.time_s} s, ratio ${last.ratio?.toFixed?.(2)}`);
@@ -4610,6 +4665,52 @@ try {
     phoneScan.offered && /scan/i.test(phoneScan.label),
     `button "${phoneScan.label}", paste folded ${phoneScan.folded}`);
 
+  // A CAMERA THAT WILL NOT OPEN, which on an iPad is the ordinary case rather
+  // than the exotic one: the iOS Camera app holds the hardware while it is still
+  // open behind Safari, and the Camera app is exactly what you just used to scan
+  // the code that opened this page. getUserMedia then rejects with AbortError.
+  //
+  // What that used to do: throw out of start() with the video already unhidden
+  // and, past getUserMedia, the stream still held — a large empty grey box, the
+  // camera kept, and `running` left true, so the next press took the stop branch
+  // and silently ended a scan that had never begun. The message said "The
+  // operation was aborted..", which names no cause and suggests no action.
+  const refused = await phone.evaluate(async () => {
+    const real = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    const fail = (name) => Object.assign(new Error('The operation was aborted.'), { name });
+    navigator.mediaDevices.getUserMedia = () => Promise.reject(fail('AbortError'));
+    document.getElementById('scan').click();
+    await new Promise((r) => setTimeout(r, 300));
+    const out = {
+      boxGone: document.getElementById('cam').hidden,
+      running: window.__view.cam.running,
+      msg: document.getElementById('scan-msg').textContent,
+      label: document.getElementById('scan').textContent,
+      pasteOpen: document.getElementById('paste-fold').open,
+    };
+    navigator.mediaDevices.getUserMedia = real;
+    return out;
+  });
+  t('pairing: a camera that will not open leaves nothing half-started behind',
+    refused.boxGone && refused.running === false,
+    `video hidden ${refused.boxGone}, scanner still running ${refused.running}`);
+  t('pairing: and says what is holding the camera, not what the browser called it',
+    /camera/i.test(refused.msg) && !/aborted/i.test(refused.msg)
+    && /again/i.test(refused.label) && refused.pasteOpen,
+    `"${refused.msg}" · button "${refused.label}"`);
+  // The mapping itself, so each failure gets the sentence that fits it rather
+  // than one apology reused four ways.
+  const why = await phone.evaluate(async () => {
+    const { CamScan } = await import('./assets/js/core/camscan.js');
+    const as = (name) => CamScan.why(Object.assign(new Error('raw.'), { name }));
+    return { denied: as('NotAllowedError'), none: as('NotFoundError'),
+             busy: as('NotReadableError'), odd: as('WeirdError') };
+  });
+  t('pairing: each way the camera can fail gets the sentence that fits it',
+    /permitted/i.test(why.denied) && /No camera/i.test(why.none)
+    && /Something else/i.test(why.busy) && why.odd === 'raw',
+    `${[why.denied, why.none, why.busy].map((v) => v.slice(0, 28)).join(' · ')}`);
+
   await phone.evaluate(() => { document.getElementById('paste-fold').open = true; });
   await phone.fill('#offer', offer);
   await phone.click('#link');
@@ -7265,6 +7366,150 @@ try {
       hiddenSeen > 0 && showing.length === 0,
       hiddenSeen === 0 ? 'no hidden elements were found, so nothing was proven'
         : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
+  }
+
+  /* ----------------------------------------------------- watching it again */
+  {
+    const rep = await ctx.newPage();
+    await rep.setViewportSize({ width: 1280, height: 900 });
+    // A shot shaped like a real one: five seconds of nothing, a ramp, a taper.
+    const curve = Array.from({ length: 130 }, (_, i) => {
+      const tt = +(i * 0.25).toFixed(2);
+      return [tt, Math.max(0, +(tt < 5 ? 0 : 1.9 * (tt - 5) - 0.018 * (tt - 5) ** 2).toFixed(2))];
+    });
+    await rep.goto(`${B}/shots.html`);
+    await rep.evaluate((c) => {
+      localStorage.setItem('brewkit.shots.v1', JSON.stringify([{
+        shot_id: 'shot-900', timestamp: '2026-08-31 09:00:00', bean_name: 'Ethiopia Guji',
+        dose_g: 18, yield_g: 36, time_s: 32, method: 'espresso',
+        curve: c.map(([tt, w]) => `${tt}:${w}`).join('|'),
+      }]));
+      localStorage.setItem('brewkit.replays.v1', JSON.stringify({
+        'shot-900': c.map(([tt, w]) => `${tt.toFixed(2)}:${w.toFixed(2)}`).join('|') }));
+    }, curve);
+
+    // THE TRANSPORT, on a clock the test owns. Playing, pausing and scrubbing
+    // are a small pile of state that is easy to get subtly wrong, and driving
+    // it off the wall clock would make these tests both slow and flaky.
+    const drive = await rep.evaluate(async (c) => {
+      const { Replay } = await import('./assets/js/core/replay.js');
+      let now = 0;
+      let frame = null;
+      const r = new Replay(c, { now: () => now, raf: (fn) => { frame = fn; return 1; },
+                                cancel: () => { frame = null; } });
+      const step = (ms) => { now += ms; const f = frame; frame = null; f?.(); };
+      const out = { duration: +r.duration.toFixed(2) };
+      r.play();
+      step(4000);
+      out.afterFour = +r.t.toFixed(2);
+      // Pausing stops the clock, and time passing while paused must not count.
+      r.pause();
+      now += 10000;
+      out.afterPause = +r.t.toFixed(2);
+      // Double speed covers twice the ground for the same wall time.
+      r.play(); r.setSpeed(2); step(2000);
+      out.atDouble = +(r.t - out.afterFour).toFixed(2);
+      // A scrub lands where it was put, whatever was happening before.
+      r.seek(20); step(0); out.sought = +r.t.toFixed(2);
+      // And it stops at the end rather than running past it or looping.
+      r.setSpeed(4); step(60000);
+      out.end = +r.t.toFixed(2);
+      out.playingAtEnd = r.playing;
+      // Play at the end starts it over, rather than doing nothing.
+      r.play(); out.replayed = +r.t.toFixed(2);
+      return out;
+    }, curve);
+    t('replay: it plays at the speed it says, and pausing actually stops the clock',
+      Math.abs(drive.afterFour - 4) < 0.05 && Math.abs(drive.afterPause - 4) < 0.05
+      && Math.abs(drive.atDouble - 4) < 0.05,
+      `4 s of clock \u2192 ${drive.afterFour} s, ten more while paused \u2192 `
+      + `${drive.afterPause} s, 2 s at 2\u00d7 \u2192 ${drive.atDouble} s of shot`);
+    t('replay: it lands where it is scrubbed, stops at the end, and starts over from there',
+      drive.sought === 20 && Math.abs(drive.end - drive.duration) < 0.01
+      && drive.playingAtEnd === false && drive.replayed === 0,
+      `sought ${drive.sought}, ended at ${drive.end} of ${drive.duration}, `
+      + `play again from ${drive.replayed}`);
+
+    // The trace is the shot SO FAR. A replay that draws the whole curve at t=0
+    // is a chart, and the one thing a chart cannot show you is when something
+    // happened.
+    const drawn = await rep.evaluate(async (c) => {
+      const { prepare, upTo, sample } = await import('./assets/js/core/replay.js');
+      const d = prepare(c);
+      const at = (tt) => ({ n: upTo(d, tt).length, last: upTo(d, tt).at(-1)?.[0] ?? null });
+      return { zero: at(0), mid: at(15), end: at(d.duration),
+               // Interpolated between stored samples rather than stepping.
+               between: +sample(d, 10.1).w.toFixed(3),
+               lo: +sample(d, 10).w.toFixed(3), hi: +sample(d, 10.25).w.toFixed(3) };
+    }, curve);
+    t('replay: the curve draws itself as it goes rather than being there already',
+      drawn.zero.n <= 1 && drawn.mid.n > 4 && drawn.mid.n < drawn.end.n
+      && Math.abs(drawn.mid.last - 15) < 0.3,
+      `${drawn.zero.n} points at 0 s, ${drawn.mid.n} at 15 s, ${drawn.end.n} at the end`);
+    t('replay: and reads between the stored samples, so a scrub is smooth',
+      drawn.between > drawn.lo && drawn.between < drawn.hi,
+      `${drawn.lo} < ${drawn.between} < ${drawn.hi} across one sample step`);
+
+    // The panel on the page: it mounts, it plays, and the axis does not grow
+    // under the trace.
+    await rep.goto(`${B}/shots.html#shot-900`);
+    await rep.waitForSelector('.shot-row');
+    await rep.click('text=Watch this shot');
+    await rep.waitForTimeout(500);
+    const panel = await rep.evaluate(() => {
+      const ticks = [...document.querySelectorAll('.replay-plot .tick')]
+        .map((n) => Number(n.textContent)).filter(Number.isFinite);
+      return {
+        mounted: !!document.querySelector('.replay'),
+        playing: document.querySelector('.replay-play').textContent,
+        weight: document.querySelectorAll('.replay-plot path.weightline').length,
+        tTop: Math.max(...ticks),
+        rungs: document.querySelectorAll('.replay-rung').length,
+        clock: document.querySelector('.replay-clock').textContent,
+      };
+    });
+    t('replay: the panel mounts on a kept shot and starts playing it',
+      panel.mounted && panel.playing === 'Pause' && panel.weight === 1 && panel.rungs >= 3,
+      `${panel.rungs} landmarks, ${panel.weight} trace, clock ${panel.clock}`);
+    // A live chart widens as the shot runs because the end is unknown. Here it
+    // is known, and an axis that grew would hold the trace still and slide the
+    // grid under it.
+    t('replay: the time axis is the whole shot from the first frame, not the part drawn',
+      panel.tTop >= 30,
+      `axis runs to ${panel.tTop} s of a 32 s shot, ${panel.clock}`);
+
+    // Keeping one, and un-keeping it.
+    const kept = await rep.evaluate(async () => {
+      const R = await import('./assets/js/core/replay.js');
+      const before = R.saved();
+      R.save('shot-901', [[0, 0], [1, 2], [2, 4]]);
+      const after = R.saved();
+      const round = R.load('shot-901');
+      R.drop('shot-901');
+      return { before, after, round, gone: R.has('shot-901'),
+               // Two points is a dot, not a shot.
+               refused: R.save('shot-902', [[0, 0]]) };
+    });
+    t('replay: keeping one files it under its shot, and dropping it leaves the shot alone',
+      kept.after.includes('shot-901') && !kept.before.includes('shot-901')
+      && kept.round.length === 3 && kept.gone === false && kept.refused === false,
+      `${kept.before.length} \u2192 ${kept.after.length} kept, round-tripped `
+      + `${kept.round.length} points, still there after dropping: ${kept.gone}`);
+
+    // A badge inside a selected row. The row recolours its text for an accent
+    // ground, and a badge paints its own background — so one that inherited the
+    // colour drew white on its own white panel and was a blank rectangle.
+    const badge = await rep.evaluate(() => {
+      const b = document.querySelector('.shot-row[aria-current="true"] .badge');
+      if (!b) return null;
+      const cs = getComputedStyle(b);
+      return { fg: cs.color, bg: cs.backgroundColor, text: b.textContent };
+    });
+    t('replay: the mark on a kept shot is readable on a selected row',
+      badge && badge.fg !== badge.bg && badge.text.length > 0,
+      badge ? `${badge.text}: ${badge.fg} on ${badge.bg}` : 'no badge found');
+
+    await rep.close();
   }
 
 } finally {

@@ -1147,10 +1147,13 @@ $('scan').addEventListener('click', async () => {
     $('scan').textContent = 'Stop';
     $('scan-msg').textContent = 'Point it at the square on the laptop.';
   } catch (err) {
-    // A refusal here is nearly always the permission prompt being declined, and
-    // the useful thing to say is that there is another way rather than what the
-    // browser called it.
-    $('scan-msg').textContent = `No camera: ${err.message}. Paste the code instead.`;
+    // WHAT TO DO, not what the browser called it. `err.message` here is a string
+    // like "The operation was aborted", which names no cause and suggests no
+    // action; CamScan.why turns the DOMException name into the thing that is
+    // actually wrong. The paste stays open underneath either way, because it is
+    // the path that works when the camera will not.
+    $('scan').textContent = 'Try the camera again';
+    $('scan-msg').textContent = `${CamScan.why(err)} Or paste the code instead.`;
     $('paste-fold').open = true;
   }
 });

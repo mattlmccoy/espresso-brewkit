@@ -95,6 +95,8 @@ import { compareToBest } from './assets/js/core/compare.js';
 import { flowSeries } from './assets/js/core/diagnose.js';
 import { download } from './assets/js/core/csv.js';
 import { median, mad, mean, sd, clean } from './assets/js/core/stats.js';
+import { mountReplay } from './assets/js/core/replayview.js';
+import * as replay from './assets/js/core/replay.js';
 boot();
 
 const $ = (id) => document.getElementById(id);
@@ -175,7 +177,15 @@ function renderList() {
            Number.isFinite(F(r.time_s)) ? `${fmt(F(r.time_s), 0)} s` : null,
            Number.isFinite(F(r.grind_setting)) ? `grind ${r.grind_setting}` : null,
            Number.isFinite(F(r.rating)) ? `${r.rating}/10` : null].filter(Boolean).join(' · '))),
-      spark ?? el('span', { class: 'nums' }, '—')));
+      el('span', { style: 'display:flex;align-items:center;gap:8px' },
+        // Findable from the list, or a kept replay is a thing you have to open
+        // every shot in turn to look for.
+        replay.has(r.shot_id)
+          // A word, not a play triangle: neither theme font carries U+25B6 and
+          // it rendered as an empty box in both.
+          ? el('span', { class: 'badge', title: 'A replay of this pour is kept' }, 'replay')
+          : null,
+        spark ?? el('span', { class: 'nums' }, '\u2014'))));
   }
 }
 
@@ -199,7 +209,14 @@ function comparison(shot, all) {
   return rows.length ? rows : null;
 }
 
+// One at a time. Selecting another shot while a replay is playing used to be
+// the only way to get two frame loops running at once, both painting into
+// elements that no longer exist.
+let player = null;
+
 function renderDetail() {
+  player?.destroy();
+  player = null;
   const holder = $('detail');
   holder.replaceChildren();
   const all = store.all();
@@ -240,6 +257,38 @@ function renderDetail() {
     holder.appendChild(el('p', { class: 'msg' },
       [Number.isFinite(F(shot.rating)) ? `Rated ${shot.rating}/10` : null,
        shot.tags || null, shot.notes || null].filter(Boolean).join(' · ')));
+  }
+
+  // THE REPLAY, if this shot has one kept.
+  //
+  // Above the charts rather than below them, because it answers the question
+  // you came to this shot with — what did it do — and the charts answer the
+  // ones you have after watching it. Only for shots that were kept: a replay is
+  // an opt-in recording, and a button on every row promising something most of
+  // them cannot give would be worse than no button.
+  const kept = replay.load(shot.shot_id);
+  if (kept) {
+    const box = el('div', { style: 'margin-top:18px' });
+    const row = el('div', { class: 'replay-row' },
+      el('button', { class: 'ghost', type: 'button',
+        onclick: () => {
+          player?.destroy();
+          player = mountReplay(box, {
+            shot, curve: kept, autoplay: true,
+            onClose: () => { player = null; box.replaceChildren(); render(); },
+          });
+          box.focus();
+        } }, 'Watch this shot'),
+      el('button', { class: 'danger ghost', type: 'button',
+        style: 'padding:5px 10px;box-shadow:none',
+        onclick: () => {
+          if (!confirm(`Remove the kept replay of ${shot.shot_id}? The shot stays.`)) return;
+          player?.destroy(); player = null;
+          replay.drop(shot.shot_id);
+          render();
+        } }, 'Remove the replay'));
+    holder.appendChild(row);
+    holder.appendChild(box);
   }
 
   // The curve, and the flow derived from it — the shape is the whole point of
