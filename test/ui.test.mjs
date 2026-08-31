@@ -5455,7 +5455,10 @@ try {
     tag: document.getElementById('mid-tag').textContent,
     prep: document.getElementById('slide-prep').dataset.off,
     pour: document.getElementById('slide-pour').dataset.off,
-    cells: document.querySelectorAll('#prep-grid .c').length,
+    // Nothing about the chart is up before the chart is: the swatches name a
+    // curve that is not on screen, and the reference picker offers to lay a
+    // ghost over it.
+    legend: !document.getElementById('pour-legend').hidden,
   }));
   await page.evaluate(() => window.__sess.goto('brew'));
   await page.waitForTimeout(400);
@@ -5463,13 +5466,16 @@ try {
     tag: document.getElementById('mid-tag').textContent,
     prep: document.getElementById('slide-prep').dataset.off,
     pour: document.getElementById('slide-pour').dataset.off,
+    legend: !document.getElementById('pour-legend').hidden,
   }));
-  t('mid: weighing gets the dial, not an empty chart',
+  t('mid: weighing gets the dial, and nothing about a chart that is not there',
     weighing.tag === 'Weighing' && weighing.prep === '' && weighing.pour === 'right'
-    && weighing.cells === 6, `${weighing.tag}, ${weighing.cells} recall cells`);
-  t('mid: and the chart slides in when the shot does',
-    pouring.tag === 'The pour' && pouring.pour === '' && pouring.prep === 'left',
-    `${pouring.tag}, prep ${pouring.prep}`);
+    && weighing.legend === false,
+    `${weighing.tag}, legend up ${weighing.legend}`);
+  t('mid: and the chart, with its key, slides in when the shot does',
+    pouring.tag === 'The pour' && pouring.pour === '' && pouring.prep === 'left'
+    && pouring.legend === true,
+    `${pouring.tag}, prep ${pouring.prep}, legend up ${pouring.legend}`);
 
   // The dial is the fill bar's geometry on an arc, so it moves with the weight.
   const dial = await page.evaluate(async () => {
@@ -5634,6 +5640,14 @@ try {
   t('dashboard: a reference shot can be poured against',
     shotCtx.ghosts.some((o) => /best rated/.test(o)), shotCtx.ghosts.join(' | ').slice(0, 70));
 
+  // Chosen during the pour, which is when the chart it annotates exists. The
+  // picker used to sit out through the weighing steps on the argument that a
+  // reference is picked before you pour — but until there is a curve it is a
+  // dropdown offering to lay a ghost over nothing, so it comes up with the
+  // chart now. The options are still built ahead of time, which is what the
+  // assertion above reads.
+  await page.evaluate(() => window.__sess.goto('brew'));
+  await page.waitForTimeout(300);
   await page.selectOption('#ghost-pick', { index: 1 });
   await page.waitForTimeout(300);
   t('dashboard: choosing one draws it behind the live pour',
@@ -7005,33 +7019,89 @@ try {
   // that passes over zero elements is not a passing check, it is a broken one,
   // so a zero count is a failure here.
   {
-    const PAGES = ['index', 'live', 'shots', 'advisor', 'kit', 'lab', 'settings',
-                   'backup', 'logger'];
+    // THE VIEWER IS SWEPT TOO, and it needs different handling from the rest.
+    // It boots through initTheme rather than boot(), it has no nav, and every
+    // panel on it is hidden until a link is open — so pointed at it plainly the
+    // sweep would examine nothing and call that a pass. It is driven through
+    // its real states instead, with the frames the laptop would send, and its
+    // widths are the two devices it actually runs on rather than a desktop.
+    const CURVE = Array.from({ length: 90 }, (_, i) => {
+      const t = +(i * 0.3).toFixed(2);
+      return [t, +(t < 5 ? 0 : Math.min(36, (t - 5) * 1.4)).toFixed(2)];
+    });
+    const FRAME = { k: 'f', method: 'espresso', dose: 18, doseSet: true, target: 36,
+      tol: 1.4, coffee: 'Kenya Kirinyaga · Sey', lag: 1.4, theme: null, pip: null };
+    const VIEWS = {
+      // Before anything is linked: the pairing panel is the whole page.
+      pairing: null,
+      weigh: { ...FRAME, w: 18.2, q: 0, t: 0, st: 'idle', step: 'dose',
+        phase: 'ready', hint: 'Weigh 18.0 g of beans.', curve: [] },
+      brew: { ...FRAME, w: 24.4, q: 1.8, t: 19.2, st: 'extracting', step: 'brew',
+        phase: 'pour', hint: 'Pouring.', curve: CURVE },
+      done: { ...FRAME, w: 36.2, q: 0, t: 31.5, st: 'idle', step: 'rate',
+        phase: 'done', grounds: 20.1, hint: 'How was it?', curve: CURVE },
+    };
+    const PAGES = [
+      ...['index', 'live', 'shots', 'advisor', 'kit', 'lab', 'settings',
+          'backup', 'logger'].map((name) => ({ name, widths: [1400, 390], states: [null] })),
+      { name: 'view', widths: [820, 390], states: Object.keys(VIEWS), reveal: false },
+    ];
     const THEMES = ['light', 'dark', 'terminal', 'glass'];
-    const rowsOff = [], overflows = [], escaped = [];
-    let rowsSeen = 0, boxesSeen = 0;
+    const rowsOff = [], overflows = [], escaped = [], showing = [];
+    let rowsSeen = 0, boxesSeen = 0, hiddenSeen = 0;
 
     const look = await ctx.newPage();
     for (const theme of THEMES) {
       await look.addInitScript((t) => {
         try { localStorage.setItem('brewkit.theme', t); } catch { /* ignore */ }
       }, theme);
-      for (const name of PAGES) {
+      for (const page of PAGES) {
+        const { name, widths, states, reveal = true } = page;
         await look.goto(`${B}/${name}.html`);
+        if (name === 'view') await look.waitForFunction(() => window.__view, null, { timeout: 8000 });
         await look.waitForTimeout(140);
-        for (const w of [1400, 390]) {
+        for (const w of widths) {
           await look.setViewportSize({ width: w, height: 900 });
           await look.waitForTimeout(120);
-          const found = await look.evaluate(() => {
+        for (const state of states) {
+          if (name === 'view') {
+            await look.evaluate(({ st, frames }) => {
+              const linked = st !== 'pairing';
+              document.getElementById('pairing').hidden = linked;
+              document.getElementById('watching').hidden = !linked;
+              // The controls the link gates, so the sweep sees the bar it has
+              // once a shot is on screen rather than the one before it.
+              for (const id of ['clean', 'cues', 'unpair']) {
+                const el = document.getElementById(id);
+                if (el) el.hidden = !linked;
+              }
+              if (linked) window.__view.paint(frames[st]);
+            }, { st: state, frames: VIEWS });
+            await look.waitForTimeout(160);
+          }
+          const found = await look.evaluate((doReveal) => {
             // Panels a state hides are still panels; reveal them so the sweep
             // measures the app rather than whichever slice happens to be up.
-            for (const el of document.querySelectorAll('.cell, .sect, .panel')) {
-              if (getComputedStyle(el).display === 'none') {
-                el.style.setProperty('display', 'block', 'important');
+            // Not on the viewer: there, showing everything at once puts the
+            // pairing panel and a live shot on screen together, which is a
+            // combination that never happens and would be measured as if it
+            // did. Its states are driven explicitly instead.
+            if (doReveal) {
+              for (const el of document.querySelectorAll('.cell, .sect, .panel')) {
+                if (getComputedStyle(el).display === 'none') {
+                  el.style.setProperty('display', 'block', 'important');
+                  // Marked, because an inline !important beats every author
+                  // rule including the one that makes `hidden` stick — so the
+                  // reveal turns a legitimately hidden tab pane into something
+                  // that is hidden and rendering, which is the exact fault the
+                  // check below looks for. The sweep must not measure its own
+                  // hand as a defect.
+                  el.dataset.sweepRevealed = '1';
+                }
               }
             }
             const seen = (el) => el.getBoundingClientRect().height > 0;
-            const out = { rows: 0, boxes: 0, off: [], esc: [] };
+            const out = { rows: 0, boxes: 0, off: [], esc: [], showing: [] };
 
             // 1. Controls in one row share a top edge. Labels of different
             //    lengths wrap to different heights, and the boxes under them
@@ -7090,16 +7160,35 @@ try {
                   `@${Math.round(r.left)}..${Math.round(r.right)}`);
               }
             }
+            // 3. Anything marked hidden is actually gone. `hidden` is
+            //    display:none in the browser's own sheet and ANY author rule
+            //    that sets display beats it, so an element the script hides can
+            //    stay on screen while both the script and the markup look
+            //    right. That is how the chart's key and its reference picker
+            //    survived being hidden while weighing.
+            out.hidden = 0;
+            for (const el of document.querySelectorAll('[hidden]')) {
+              if (el.dataset.sweepRevealed || el.closest('[data-sweep-revealed]')) continue;
+              out.hidden++;
+              const r = el.getBoundingClientRect();
+              if (r.width > 0 && r.height > 0) {
+                out.showing.push(`${el.id || el.className || el.tagName}` +
+                  `(${Math.round(r.width)}x${Math.round(r.height)})`);
+              }
+            }
             out.overflow = document.documentElement.scrollWidth
               - document.documentElement.clientWidth;
             return out;
-          });
+          }, reveal);
           rowsSeen += found.rows;
           boxesSeen += found.boxes;
-          const where = `${name}/${theme}/${w}`;
+          hiddenSeen += found.hidden;
+          const where = `${name}${state ? ':' + state : ''}/${theme}/${w}`;
           for (const x of found.off.slice(0, 2)) rowsOff.push(`${where} ${x}`);
           for (const x of found.esc.slice(0, 2)) escaped.push(`${where} ${x}`);
+          for (const x of found.showing.slice(0, 2)) showing.push(`${where} ${x}`);
           if (found.overflow > 1) overflows.push(`${where} +${found.overflow}px`);
+        }
         }
       }
     }
@@ -7108,13 +7197,18 @@ try {
     t('sweep: it actually looked at something',
       rowsSeen > 0 && boxesSeen > 0,
       `${rowsSeen} field rows and ${boxesSeen} controls across ` +
-      `${PAGES.length} pages × ${THEMES.length} themes × 2 widths`);
+      `${PAGES.length} pages (the viewer in ${VIEWS ? Object.keys(VIEWS).length : 0} states) ` +
+      `× ${THEMES.length} themes × 2 widths`);
     t('sweep: controls in a row share a top edge, in every theme',
       rowsOff.length === 0, rowsOff.slice(0, 4).join('  |  ') || 'aligned everywhere');
     t('sweep: nothing pressable sits outside the window',
       escaped.length === 0, escaped.slice(0, 4).join('  |  ') || 'all inside');
     t('sweep: no page scrolls sideways, in any theme',
       overflows.length === 0, overflows.slice(0, 4).join('  |  ') || 'none');
+    t('sweep: what is marked hidden is actually gone',
+      hiddenSeen > 0 && showing.length === 0,
+      hiddenSeen === 0 ? 'no hidden elements were found, so nothing was proven'
+        : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
   }
 
 } finally {

@@ -170,13 +170,6 @@
   .dial-u { font:700 18px/1 var(--sans); color:var(--ink-mute); margin-left:3px; }
   .dial-sub { font:700 12px/1.3 var(--mono); letter-spacing:.06em; color:var(--ink-dim);
     margin-top:6px; }
-  .prep-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(108px, 1fr)); gap:9px;
-    margin-top:14px; }
-  .prep-grid .c { border:2px solid var(--hair); background:var(--panel-2); padding:9px 11px; }
-  .prep-grid .k { font:700 9.5px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase;
-    color:var(--ink-mute); }
-  .prep-grid .v { font:800 21px/1.1 var(--sans); font-variant-numeric:tabular-nums; margin-top:5px; }
-  .prep-grid .v small { font-size:.5em; font-weight:700; opacity:.6; margin-left:2px; }
 
   /* A capture is worth one beat of acknowledgement. */
   @keyframes caught { 0% { transform:scale(1); } 38% { transform:scale(1.045); } 100% { transform:scale(1); } }
@@ -817,8 +810,6 @@
                 <div class="dial-sub" id="dial-sub">—</div>
               </div>
             </div>
-            <div class="prep-grid" id="prep-grid"></div>
-            <p class="msg" id="prep-note" style="margin:10px 0 0"></p>
           </div>
 
           <!-- Brewing: the chart, and beside it the reading the chart cannot
@@ -1822,27 +1813,12 @@ function paintDial(net) {
         : `${fmt(p.delta, 1)} g over · ${fmt(target, 1)} g`;
 }
 
-/** What the last shot on this coffee did, which is the best guess at this one. */
-function paintPrep() {
-  const bagId = $('p-bag').value || null;
-  const past = store.all().filter((r) => (!bagId || r.bag_id === bagId)
-    && Number.isFinite(Number(r.dose_g)));
-  const last = past.at(-1) ?? null;
-  const cell = (k, v, u = '') => el('div', { class: 'c' },
-    el('div', { class: 'k' }, k),
-    el('div', { class: 'v' }, v, u ? el('small', {}, u) : null));
-  const n = (v, dp = 1) => (isNum(v) ? fmt(Number(v), dp) : '—');
-  $('prep-grid').replaceChildren(
-    cell('Last dose', n(last?.dose_g), 'g'),
-    cell('Last yield', n(last?.yield_g), 'g'),
-    cell('Last time', n(last?.time_s), 's'),
-    cell('Last grind', n(last?.grind_setting, 1)),
-    cell('Rated', last?.rating ? `${last.rating}` : '—', last?.rating ? '/10' : ''),
-    cell('Shots here', String(past.length)));
-  $('prep-note').textContent = last
-    ? `Last shot ${(last.timestamp ?? '').slice(0, 16)}`
-    : 'No shots on this coffee yet.';
-}
+// THE SIX RECALL TILES ARE GONE. Last dose, last yield, last time, last grind,
+// the rating and a count, under the dial, while you stand there weighing beans:
+// six numbers about a shot that is over, in the biggest panel on the screen,
+// none of which change anything you are about to do. The one reading in there
+// that could change something — your last two ran long, so go coarser — is what
+// the coach says at this step now, in a sentence, with the move in it.
 
 /** Slide whichever view the step calls for into place. */
 function paintSlides() {
@@ -1851,9 +1827,13 @@ function paintSlides() {
   $('slide-pour').dataset.off = brewing ? '' : 'right';
   $('mid-tag').textContent = sess.step === 'rate' ? 'The shot'
     : brewing ? 'The pour' : 'Weighing';
-  // The swatches describe a chart that is not on screen; the reference picker
-  // is chosen *before* pouring, so it stays reachable throughout.
-  for (const sw of $('pour-legend').querySelectorAll('i')) sw.hidden = !brewing;
+  // ALL OF IT BELONGS TO THE CHART, so none of it is up before the chart is.
+  // The swatches describe a curve that is not on screen. The reference picker
+  // was kept out on the argument that a reference is chosen before you pour —
+  // but what it does is lay a ghost over the chart, and until there is a chart
+  // it is a dropdown offering to annotate nothing. It is still there through
+  // the whole pour, which is when the annotation exists.
+  $('pour-legend').hidden = !brewing;
 }
 
 /** The bar under the big readout. Redrawn every frame; it is the point. */
@@ -2805,7 +2785,6 @@ function paintSession() {
   const s = sess.snapshot();
   paintCatch(s);
   paintSlides();
-  paintPrep();
 
   const show = (v, auto) => (Number.isFinite(v) ? `${v.toFixed(1)} g${auto ? ' ·auto' : ''}` : '—');
   const chosen = kit.bag($('p-bag').value)?.bean_name;

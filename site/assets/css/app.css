@@ -995,6 +995,17 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .chart .axis-label.alt { fill: var(--fit); }
 
 /* Legend and reference picker, inline with the chart's title. */
+/* THE ATTRIBUTE HAS TO WIN.
+   `hidden` is `display:none` in the browser's own stylesheet, and any author
+   rule that sets `display` beats it — so an element given `display:flex` here
+   and `hidden` in script stays on screen, and the script looks broken while the
+   markup looks right. It cost a real one: the chart's key and its reference
+   picker were set hidden while weighing and rendered anyway, because `.legend`
+   sets display:flex four lines below this.
+   One rule, at the top of the file, rather than a `[hidden]` variant for every
+   class that ever sets display. */
+[hidden] { display: none !important; }
+
 .legend { display: flex; align-items: center; gap: 6px; font: 700 10.5px/1 var(--sans);
   letter-spacing: .06em; text-transform: uppercase; color: var(--ink-mute); flex-wrap: wrap; }
 .legend i { width: 15px; height: 3px; display: inline-block; }
