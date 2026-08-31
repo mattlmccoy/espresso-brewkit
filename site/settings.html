@@ -81,7 +81,7 @@
     </div>
   </section>
 
-  <section class="bx panel sect">
+  <section class="bx panel sect pro-only">
     <h2>When the app takes a reading</h2>
     <p class="lede">These decide when a number on the scale stops being a wobble and becomes
     a measurement. If the session grabs a weight you were still adding to, raise the hold; if
@@ -104,7 +104,7 @@
     <div class="grid2" id="defaults"></div>
   </section>
 
-  <section class="bx panel sect">
+  <section class="bx panel sect pro-only">
     <h2>Refractometry</h2>
     <p class="lede">Extraction yield is worked out from a Brix reading using this factor,
     for every shot as it is saved. It is the one number behind every yield in the log, so
@@ -136,9 +136,9 @@
         <button class="ghost" id="t-coach" type="button" aria-pressed="false">&mdash;</button>
       </div>
       <div class="tog">
-        <div><strong id="clean-label">Clean view</strong>
-          <p id="clean-hint"></p></div>
-        <button class="ghost" id="t-clean" type="button" aria-pressed="false">&mdash;</button>
+        <div><strong id="mode-label">View</strong>
+          <p id="mode-hint"></p></div>
+        <button class="ghost" id="t-mode" type="button" aria-pressed="false">&mdash;</button>
       </div>
       <div class="tog">
         <div><strong>Tap sensitivity</strong>
@@ -160,7 +160,7 @@
     <div id="lags"></div>
   </section>
 
-  <section class="bx panel sect">
+  <section class="bx panel sect pro-only">
     <h2>Finding a scale</h2>
     <p class="lede">Only for a scale the chooser will not show. Most scales need neither of
     these, and both are remembered, so a scale that needs one needs it once.</p>
@@ -208,6 +208,7 @@
 </div>
 <script type="module">
 import { boot, fmt, el, THEMES, currentTheme, applyTheme } from './assets/js/ui.js';
+import * as ui from './assets/js/ui.js';
 import { restoreControl } from './assets/js/core/notice.js';
 import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
@@ -356,17 +357,23 @@ toggle('t-cues', 'brewkit.cues', true, ['Sound on', 'Sound off']);
   paint();
 }
 {
-  const [label, , hint] = prefs.ABOUT.clean;
-  $('clean-label').textContent = label;
-  $('clean-hint').textContent = hint;
-  const btn = $('t-clean');
+  const [label, , hint] = prefs.ABOUT.mode;
+  $('mode-label').textContent = label;
+  $('mode-hint').textContent = hint;
+  const btn = $('t-mode');
+  // Named for the state, not the destination, unlike the nav button: this row
+  // has its own label beside it saying what the setting is, so the control
+  // should answer "which is it on" rather than "where does this take me".
   const paint = () => {
-    const on = prefs.prefs().clean === true;
-    btn.textContent = on ? 'Clean' : 'Full';
-    btn.setAttribute('aria-pressed', String(on));
+    const simple = ui.currentMode() === 'simple';
+    btn.textContent = simple ? 'Simple' : 'Full';
+    btn.setAttribute('aria-pressed', String(simple));
   };
-  btn.addEventListener('click', () => { prefs.set({ clean: !(prefs.prefs().clean === true) }); paint(); });
-  prefs.subscribe(paint);
+  btn.addEventListener('click', () => {
+    ui.setMode(ui.currentMode() === 'simple' ? 'full' : 'simple');
+    paint();
+  });
+  document.addEventListener('brewkit:mode', paint);
   paint();
 }
 toggle('t-taps', 'brewkit.taps.v1', true, ['Taps on', 'Taps off']);
