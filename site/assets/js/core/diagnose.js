@@ -47,6 +47,199 @@ export function flowSeries(curve, win = 0.6) {
   return out;
 }
 
+/* ------------------------------------------------------- the step detector */
+
+/**
+ * How big a step has to be before the app says anything about it.
+ *
+ * Measured rather than chosen. Across the synthetic curves the suite keeps and
+ * four real shots, the largest reading an ordinary shot produced was 0.154 and
+ * the smallest deliberate channel 0.281, so the line goes in the middle of the
+ * gap rather than at either edge of it. Exported because the live banner, the
+ * coach and the post-shot read all have to agree: a shot called a channel while
+ * it pours and cleared when it is over is worse than either answer alone.
+ */
+export const STEP_FLAG = 0.20;
+
+/**
+ * Which version of the curve reading a record was made with.
+ *
+ * The scalars below are computed once, when a shot is saved, and stored on the
+ * record — so correcting the mathematics does not reach a single shot already
+ * in the log. Three of the four shots in the first real dataset had no
+ * `flow_step` at all because the field postdated them; the fourth carried one
+ * from a superseded detector. Stamping the version is what lets a reader tell
+ * "measured and found nothing" apart from "never measured", which are the same
+ * absent field otherwise.
+ */
+export const METRICS_V = 2;
+
+/**
+ * The curve-shape fields, and only those.
+ *
+ * Refreshing a record must not touch what the shot actually produced. The dose,
+ * the yield and the taste are the user's, some of them typed by hand, and a
+ * recomputation that quietly overwrote a yield with a number re-derived from a
+ * downsampled curve would be destroying data to fix a reading.
+ */
+export const SHAPE_FIELDS = ['flow_step', 'flow_step_at', 'peak_flow_gs'];
+
+/**
+ * Bring one record's curve reading up to date, from the curve it stored.
+ *
+ * `decode` is passed in rather than imported so this module keeps its one job
+ * and does not gain an opinion about storage formats.
+ *
+ * A record with no curve cannot be re-read, and its stale shape fields are
+ * cleared rather than kept: a wrong measurement presented as a measurement is
+ * worse than an honest gap, and these are exactly the fields that drive the
+ * channel finding.
+ */
+export function refreshMetrics(shot, decode) {
+  if (!shot || shot.metrics_v === METRICS_V) return shot;
+  const curve = shot.curve ? decode(shot.curve) : null;
+  if (!Array.isArray(curve) || curve.length < 8) {
+    const blanked = {};
+    for (const k of SHAPE_FIELDS) if (shot[k] != null) blanked[k] = null;
+    if (!Object.keys(blanked).length) return { ...shot, metrics_v: METRICS_V };
+    return { ...shot, ...blanked, metrics_v: METRICS_V };
+  }
+  const m = curveMetrics(curve);
+  const next = { ...shot, metrics_v: METRICS_V };
+  for (const k of SHAPE_FIELDS) next[k] = m[k] ?? null;
+  return next;
+}
+
+/**
+ * WHERE THE FLOW SETTLES AFTER THE OPENING TRANSIENT.
+ *
+ * The first drops land on the scale pan with some force, and the reading spikes
+ * and decays — real curves open at 3.7 g/s and fall to 0.9 within two seconds.
+ * Nothing in that decay is a flow rate, so nothing in it is a baseline either,
+ * and a detector that anchors there measures the artefact.
+ *
+ * Returns the first moment the flow holds roughly level, or NaN if it never
+ * does.
+ */
+function settlesAt(t, flow, end, level = 0.30) {
+  const grad = (a, b) => {
+    const ts = [], fs = [];
+    for (let i = 0; i <= end; i++) {
+      if (t[i] >= a && t[i] <= b && Number.isFinite(flow[i])) { ts.push(t[i]); fs.push(flow[i]); }
+    }
+    return ts.length < 4 ? NaN : slope(ts, fs);
+  };
+  for (let i = 0; i <= end; i++) {
+    if (!(flow[i] > 0.25)) continue;
+    const g = grad(t[i], t[i] + 1.2);
+    if (Number.isFinite(g) && Math.abs(g) < level) return t[i];
+  }
+  return NaN;
+}
+
+/**
+ * The flow series and the settling point for a curve, computed once.
+ *
+ * Both are O(n · window) with an allocation per sample, and the live page asks
+ * for a step on every animation frame while the replay asks on every frame of
+ * playback — so deriving them per call turned a reading into sixty scans a
+ * second over a curve that can be a thousand points long.
+ *
+ * One entry is the whole cache, keyed on the array itself and its length: a
+ * replay reads the same finished curve over and over, and a live shot appends
+ * to one array, so a single slot hits on everything except the sample that just
+ * arrived. Keyed on length as well as identity because the live curve is the
+ * same array each time and a stale flow series for it would be a wrong answer
+ * rather than a slow one.
+ */
+let memoCurve = null, memoLen = -1, memoOut = null;
+
+function derive(curve) {
+  if (curve === memoCurve && curve.length === memoLen) return memoOut;
+  const t = curve.map((p) => p[0]);
+  const flow = flowSeries(curve);
+  const end = t.length - 1;
+  memoCurve = curve;
+  memoLen = curve.length;
+  memoOut = { t, flow, end, t0: settlesAt(t, flow, end) };
+  return memoOut;
+}
+
+/**
+ * A CHANNEL CONCENTRATES ITS RISE; AN ORDINARY SHOT SPREADS IT.
+ *
+ * This is the one measurement in the app that was wrong in a way that mattered,
+ * and it was wrong three times over — the live banner, the replay and the
+ * post-shot read each had their own version, two of which compared flow now
+ * against flow a couple of seconds ago and called any large relative rise a
+ * step. Every healthy shot triggered it, because every healthy shot has one:
+ * puck resistance falls as the bed saturates and erodes, so at constant
+ * pressure flow climbs, and off a low pre-infusion baseline that climb is a
+ * 70% "rise". Four real shots out of four were told they channelled.
+ *
+ * The fix is to stop measuring how MUCH flow rose and measure how SUDDENLY.
+ * Compare the rise across a short window straddling `tau` with the rise across
+ * a long one centred on the same moment. A straight ramp delivers rise in
+ * proportion to the width of the window you look through, so short/long lands
+ * near h/H. A discontinuity delivers nearly all of its rise inside the short
+ * window, so the ratio approaches 1. That ratio is dimensionless, which is the
+ * point: it does not care whether the shot is a ristretto or a lungo, and it
+ * does not care what the baseline was.
+ *
+ * `h` is set by the smoothing — flowSeries averages over ±0.6 s, so a genuine
+ * discontinuity is already smeared across more than a second and a shorter
+ * window would read the smear rather than the jump.
+ *
+ * Returns the rise as a fraction of the flow before it, or NaN where the
+ * windows do not fit or the shape is a ramp. Being NaN is the common case and
+ * the correct one.
+ */
+export function stepAt(curve, tau, opts = {}) {
+  const { h = 0.9, H = 3.2, conc = 0.62 } = opts;
+  const { t, flow, t0, end } = derive(curve);
+  if (!Number.isFinite(t0)) return NaN;
+  const dur = t[end];
+  if (tau - H - 0.6 < t0 || tau + H + 0.6 > dur) return NaN;
+  // Binary search rather than a scan from zero: this runs once per sample when
+  // reading a whole curve, and four times per call, so a linear window search
+  // makes the whole-curve read quadratic — which is paid on every stale shot in
+  // the log, on every page load.
+  const at = (a, b) => {
+    let lo = 0, hi = end + 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < a) lo = m + 1; else hi = m; }
+    const v = [];
+    for (let i = lo; i <= end && t[i] <= b; i++) if (Number.isFinite(flow[i])) v.push(flow[i]);
+    return v.length ? median(v) : NaN;
+  };
+  const nearLo = at(tau - h - 0.6, tau - h), nearHi = at(tau + h, tau + h + 0.6);
+  const farLo = at(tau - H - 0.6, tau - H), farHi = at(tau + H, tau + H + 0.6);
+  if (![nearLo, nearHi, farLo, farHi].every(Number.isFinite)) return NaN;
+  if (!(nearLo > 0.25)) return NaN;
+  const shortRise = nearHi - nearLo, longRise = farHi - farLo;
+  // A fall is not a channel, and a long window with no rise in it gives the
+  // ratio no denominator worth dividing by.
+  if (!(shortRise > 0) || !(longRise > 0.02)) return NaN;
+  if (shortRise / longRise < conc) return NaN;
+  return shortRise / nearLo;
+}
+
+/**
+ * The largest step anywhere in a curve, and when it happened.
+ *
+ * Live and replay call `stepAt` on one moment at a time — live because it only
+ * ever has the shot so far, replay so that it reproduces live exactly. This is
+ * the whole-curve version, for reading a shot that is over.
+ */
+export function flowStep(curve, opts = {}) {
+  if (!Array.isArray(curve) || curve.length < 8) return { step: null, at: null };
+  let best = NaN, bestAt = null;
+  for (const [tau] of curve) {
+    const r = stepAt(curve, tau, opts);
+    if (Number.isFinite(r) && (!Number.isFinite(best) || r > best)) { best = r; bestAt = +tau.toFixed(2); }
+  }
+  return { step: Number.isFinite(best) ? +best.toFixed(3) : null, at: bestAt };
+}
+
 /**
  * Scalars from a full-rate curve. Computed before downsampling, so nothing here
  * depends on the reduced version stored in the CSV.
@@ -85,7 +278,14 @@ export function curveMetrics(curve) {
     return idx;
   };
 
-  const peakIdx = inWindow(0, dur);
+  // PEAK FLOW, PAST THE FIRST DROPS.
+  // Measured from t=0 this reports the impact of the opening drops on the scale
+  // pan rather than anything the pump did — real shots open at 3.7 g/s and fall
+  // to 0.9 within two seconds. That number then fed the "flow spiked well above
+  // its steady rate" finding, which reads the artefact as the puck surface
+  // breaking. Peak flow means the peak of the shot.
+  const settled = settlesAt(t, flow, end);
+  const peakIdx = inWindow(Number.isFinite(settled) ? settled : 0, dur);
   const peak_flow_gs = peakIdx.length ? Math.max(...peakIdx.map((i) => flow[i])) : NaN;
 
   // "Steady" is the middle of the shot: past the ramp, before the pump cut.
@@ -104,70 +304,16 @@ export function curveMetrics(curve) {
   const flow_slope_late = lateIdx.length >= 4
     ? slope(lateIdx.map((i) => t[i]), lateIdx.map((i) => flow[i])) : NaN;
 
-  // WHAT A CHANNEL ACTUALLY LOOKS LIKE: a step, not a slope.
-  // Preferential flow is a positive-feedback instability — a small defect takes
-  // a disproportionate share of the water and erodes itself wider — so it
-  // arrives as a discontinuity. Normal evolution is smooth and monotonic.
-  // Measured as the largest jump between consecutive half-second marks relative
-  // to the flow already running, past the opening ramp, where the ramp itself
-  // is a legitimate step and would otherwise be the largest one every time.
-  let flow_step = NaN;
-  let flow_step_at = null;
-  {
-    // AN EDGE DETECTOR, with a gap in the middle.
-    // Two things defeat the obvious version. The flow series is smoothed over
-    // ±0.6 s, so a genuine step is spread over more than a second and a window
-    // that straddles it reads the average rather than the jump. And the onset
-    // of a choked shot — nothing for fourteen seconds, then a trickle — is
-    // itself the largest change in the curve, so anchoring anywhere near the
-    // ramp finds the ramp every time.
-    // So: compare settled flow before a moment against settled flow after it,
-    // leaving a gap between the two windows wide enough for the smoothing to
-    // pass through, and only look once flow has been established long enough
-    // for the "before" window to sit entirely past the ramp.
-    const PAD = 0.8;   // half the gap, which the transition lives in
-    const SPAN = 1.2;  // how much settled flow to average on each side
-    const at = (a, b) => {
-      const v = [];
-      for (let i = 0; i <= end; i++) if (t[i] >= a && t[i] <= b && Number.isFinite(flow[i])) v.push(flow[i]);
-      return v.length ? median(v) : NaN;
-    };
-    // The baseline has to be SETTLED, and that is what excludes the opening
-    // ramp — without needing to know where the ramp ends, which turns out to be
-    // circular. Anchoring to a fraction of the steady rate fails because a step
-    // raises the steady rate, which pushes the search window past the very step
-    // it is looking for; both large steps scored exactly 0 that way. A step is
-    // a jump away from a level, so requiring the level first is the definition
-    // rather than a workaround.
-    const settled = (a, b) => {
-      const ts = [], fs = [];
-      for (let i = 0; i <= end; i++) {
-        if (t[i] >= a && t[i] <= b && Number.isFinite(flow[i])) { ts.push(t[i]); fs.push(flow[i]); }
-      }
-      if (ts.length < 4) return false;
-      const g = slope(ts, fs);
-      return Number.isFinite(g) && Math.abs(g) < 0.15;
-    };
-    const iUp = flow.findIndex((v, k) => k <= end && Number.isFinite(v) && v >= 0.25);
-    const from = (iUp >= 0 ? t[iUp] : 0) + PAD + SPAN + 0.4;
-    for (let i = 0; i <= end; i++) {
-      const tau = t[i];
-      if (tau < from || tau > dur - PAD - 0.4) continue;
-      const lo = tau - PAD - SPAN, hi = tau - PAD;
-      const before = at(lo, hi);
-      const after = at(tau + PAD, tau + PAD + SPAN);
-      if (!(before > 0.25) || !Number.isFinite(after) || !settled(lo, hi)) continue;
-      const rise = (after - before) / before;
-      if (Number.isFinite(rise) && (!Number.isFinite(flow_step) || rise > flow_step)) {
-        flow_step = rise;
-        flow_step_at = +tau.toFixed(2);
-      }
-    }
-  }
+  // WHAT A CHANNEL ACTUALLY LOOKS LIKE: a step, not a slope — measured by the
+  // one detector the live banner and the replay also use, so a shot cannot be
+  // read one way while it runs and another way afterwards. That divergence is
+  // what let this be wrong in three places at once.
+  const { step: flow_step, at: flow_step_at } = flowStep(curve);
 
   return {
+    metrics_v: METRICS_V,
     t_first_drip_s,
-    flow_step: Number.isFinite(flow_step) ? +flow_step.toFixed(3) : null,
+    flow_step,
     flow_step_at,
     peak_flow_gs: Number.isFinite(peak_flow_gs) ? +peak_flow_gs.toFixed(3) : null,
     steady_flow_gs: Number.isFinite(steady_flow_gs) ? +steady_flow_gs.toFixed(3) : null,
@@ -218,7 +364,7 @@ export function diagnose(shot) {
   // 0.099 and the smallest deliberate step 0.267; a flat shot scored -0.011
   // and a choked one 0.001. Anything between those two is a coin toss, so the
   // threshold goes in the middle of the gap and not at the edge of it.
-  if (Number.isFinite(step) && step > 0.20) {
+  if (Number.isFinite(step) && step > STEP_FLAG) {
     out.push({
       code: 'flow_step', severity: 'medium', title: 'Flow jumped rather than climbed',
       detail: `Flow rose ${Math.round(step * 100)}% in half a second`
@@ -312,7 +458,7 @@ export function diagnose(shot) {
 
   // The taste tags are the only ground truth here; when they contradict the
   // curve, say so rather than quietly ranking one above the other.
-  if (tags.includes('sour') && Number.isFinite(step) && step > 0.20) {
+  if (tags.includes('sour') && Number.isFinite(step) && step > STEP_FLAG) {
     out.push({ code: 'sour_channel', severity: 'medium', title: 'Sour, and the flow stepped',
       detail: 'Sourness after a shot whose flow jumped is usually under-extraction of the bed '
         + 'the water went around, rather than of the coffee as a whole.',

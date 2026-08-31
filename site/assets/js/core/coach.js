@@ -27,7 +27,7 @@
 // app that says nothing.
 
 import { CLAIMS, FLOW_BAND, ROAST, grindMove, GRINDER_STEPS } from './knowledge.js';
-import { diagnose } from './diagnose.js';
+import { diagnose, STEP_FLAG } from './diagnose.js';
 
 const F = (v) => (typeof v === 'number' ? v
   : v === '' || v === null || v === undefined ? NaN : Number(v));
@@ -219,13 +219,30 @@ export function live(state, said = new Set(), opts = {}) {
   const t = F(elapsed);
   const w = F(net);
   const q = F(flow);
-  if (!state?.running || !(t > 0)) return null;
+  if (!(t > 0)) return null;
 
   const out = (id, mood, text, ms = 7000) => {
     if (said.has(id)) return null;
     said.add(id);
     return { id, mood, text, ms };
   };
+
+  // THE TAIL AFTER THE PUMP CUTS.
+  // A curve does not end when the shot does. The pump stops and the puck keeps
+  // giving up what is in it, so the last seconds are a decay towards nothing —
+  // and read as though the shot were still running, that decay is a shot
+  // grinding to a halt. He called it choking, which is the opposite of what
+  // happened: the shot did not fail to finish, it finished.
+  // Said once, and only while there is still something falling, because the
+  // point is to name the drip rather than to announce the end of the shot —
+  // the state strip does that, two inches away.
+  if (!state?.running) {
+    if (Number.isFinite(q) && q > 0.02 && q < 0.5) {
+      const r = out('stopped', 'idle', 'Pump is off — that is just the puck dripping out.');
+      if (r) return r;
+    }
+    return null;
+  }
 
   // Nothing before there is a shot to read. The opening ramp is not a
   // diagnosis, and commenting on it is exactly the noise this is avoiding.
@@ -244,7 +261,7 @@ export function live(state, said = new Set(), opts = {}) {
   // from the machine ramping. There is nothing to do about it now, so it is
   // phrased as something to notice rather than something to fix — mid-shot
   // advice you cannot act on is the definition of the thing being avoided.
-  if (Number.isFinite(trend) && trend > 0.28 && t > 8) {
+  if (Number.isFinite(trend) && trend > STEP_FLAG && t > 8) {
     const r = out('stepping', 'alert', 'Flow jumped. That is a channel’s shape.');
     if (r) return r;
   }

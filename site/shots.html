@@ -94,7 +94,7 @@ import * as prefs from './assets/js/core/prefs.js';
 import * as store from './assets/js/core/store.js';
 import * as kit from './assets/js/core/kit.js';
 import * as chart from './assets/js/core/chart.js';
-import { decodeCurve, label } from './assets/js/core/schema.js';
+import { decodeCurve, label, byKey, EDITABLE } from './assets/js/core/schema.js';
 import { diagnose } from './assets/js/core/diagnose.js';
 import { strays } from './assets/js/core/reference.js';
 import { compareToBest } from './assets/js/core/compare.js';
@@ -112,6 +112,62 @@ const pip = installPip($('pip-dock'), prefs, { quietLabel: 'for now' });
 const F = (v) => (typeof v === 'number' ? v
   : v === '' || v === null || v === undefined ? NaN : Number(v));
 let selected = location.hash.slice(1) || null;
+// Which shot is open for editing, if any. Kept beside `selected` rather than in
+// the DOM so that a re-render from anywhere — a sync arriving, another tab
+// writing — cannot leave a half-filled form on screen claiming to be the record.
+let editing = null;
+
+/**
+ * The correction form for one shot.
+ *
+ * Everything the app measured stays on screen above this, unchanged and
+ * unchangeable: the point is to fix what was recorded about the shot, not to
+ * rewrite what the shot did. A blank field means "not recorded", which is a
+ * different thing from zero and is stored as such.
+ */
+function editForm(shot) {
+  const inputs = new Map();
+  const field = (key) => {
+    const f = byKey[key];
+    if (!f) return null;
+    const id = `edit-${key}`;
+    const input = el('input', {
+      id,
+      type: f.type === 'number' ? 'number' : 'text',
+      value: shot[key] ?? '',
+      ...(f.step ? { step: String(f.step) } : {}),
+    });
+    inputs.set(key, input);
+    return el('div', { class: 'field' },
+      el('label', { for: id }, f.unit ? `${f.label} (${f.unit})` : f.label), input);
+  };
+
+  const save = () => {
+    const patch = {};
+    for (const [key, input] of inputs) {
+      const raw = input.value.trim();
+      if (raw === '') { patch[key] = ''; continue; }
+      if (byKey[key].type === 'number') {
+        const n = Number(raw);
+        // A field that will not parse is left alone rather than written as NaN,
+        // which would read back as a measurement of nothing.
+        if (Number.isFinite(n)) patch[key] = n;
+      } else patch[key] = raw;
+    }
+    store.update(shot.shot_id, patch);
+    editing = null;
+    render();
+  };
+
+  return el('div', { class: 'bx', style: 'margin-top:18px' },
+    el('p', { class: 'msg', style: 'margin:0 0 12px' },
+      'Correcting what was recorded. The curve, and everything read off it, stays as pulled.'),
+    el('div', { class: 'grid g3' }, ...EDITABLE.map(field).filter(Boolean)),
+    el('div', { class: 'row', style: 'margin-top:14px;gap:10px' },
+      el('button', { type: 'button', onclick: save }, 'Save changes'),
+      el('button', { class: 'ghost', type: 'button',
+        onclick: () => { editing = null; render(); } }, 'Cancel')));
+}
 
 /** A 64px trace of the pour, so the list is scannable by shape not just number. */
 function sparkline(curve) {
@@ -253,10 +309,16 @@ function renderDetail() {
            + (F(shot.days_frozen) > 0 ? ` (${shot.days_frozen} frozen)` : '') : null,
        shot.machine_name || null, shot.grinder_name || null, shot.basket || null]
         .filter(Boolean).join(' · ')),
-    el('button', { class: 'danger ghost', type: 'button',
+    el('button', { class: 'ghost', type: 'button',
       style: 'margin-left:auto;padding:5px 10px;box-shadow:none',
+      onclick: () => { editing = editing === shot.shot_id ? null : shot.shot_id; render(); },
+    }, editing === shot.shot_id ? 'Stop editing' : 'Edit'),
+    el('button', { class: 'danger ghost', type: 'button',
+      style: 'padding:5px 10px;box-shadow:none',
       onclick: () => { if (confirm(`Delete ${shot.shot_id}?`)) { store.remove(shot.shot_id); selected = null; } },
     }, 'Delete')));
+
+  if (editing === shot.shot_id) { holder.appendChild(editForm(shot)); return; }
 
   const cells = [
     ['dose_g', 1], ['yield_g', 1], ['ratio', 2], ['time_s', 1],

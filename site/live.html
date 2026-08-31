@@ -1108,7 +1108,7 @@ import * as beans from './assets/js/core/beans.js';
 import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
-import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
+import { curveMetrics, diagnose, stepAt as stepOf, STEP_FLAG } from './assets/js/core/diagnose.js';
 import { cutPoint, LEAD_S, TICK_FROM_S } from './assets/js/core/cutoff.js';
 import { compareToBest, bestOn } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
@@ -1249,6 +1249,12 @@ let savedId = null;
 // one — a zero-flow snapshot at t=0 — repainted a finished shot as a live pour
 // and brought back the projections that finishing it had hidden.
 let lastSnap = null;
+// The largest flow step seen so far this shot. Kept rather than recomputed from
+// scratch each frame — the detector is a window scan and this runs on every
+// sample — and reset in resetShot(). Declared up here with the rest of the
+// module's state because render() reaches it during the first paint, and a
+// `let` further down the file is in the temporal dead zone until then.
+let stepSoFar = NaN;
 // The shot being watched back, or null. render() reads this to know whether it
 // is painting a pour or a recording of one — see the note in render().
 let replaying = null;
@@ -2139,12 +2145,12 @@ function render(s) {
   // cannot see the second half. So this says what it saw, not what caused it.
   const warn = $('live-warn');
   const jump = liveStep();
-  if (Number.isFinite(jump) && jump > 0.28) {
+  if (Number.isFinite(jump) && jump > STEP_FLAG) {
     warn.style.display = '';
-    warn.textContent = `Flow jumped ${Math.round(jump * 100)}% in a second. A bed giving way `
-      + 'somewhere looks like this — so does a machine still coming up to pressure, and a '
-      + 'scale cannot tell them apart. Nothing to fix mid-shot; worth remembering when you '
-      + 'taste it.';
+    warn.textContent = `Flow jumped ${Math.round(jump * 100)}% in about two seconds — faster `
+      + 'than the steady climb an intact bed gives as it erodes. A bed giving way somewhere '
+      + 'looks like this; so does a machine still coming up to pressure, and a scale cannot '
+      + 'tell them apart. Nothing to fix mid-shot; worth remembering when you taste it.';
   } else if (s.state !== BREW.EXTRACTING) {
     warn.style.display = 'none';
   }
@@ -3944,7 +3950,7 @@ function moodFor(s) {
     // is the same mistake the banner above used to make, in his face.
     if (stopArmed) return 'alert';
     const jump = liveStep();
-    return Number.isFinite(jump) && jump > 0.28 ? 'alert' : 'watch';
+    return Number.isFinite(jump) && jump > STEP_FLAG ? 'alert' : 'watch';
   }
   if (s.state === BREW.COMPLETE) {
     // Landed where you aimed, or not. `pleased` is the only mood that is a
@@ -3980,32 +3986,26 @@ function pipLive(s) {
 }
 
 /**
- * The biggest recent jump in flow, as a fraction of the flow before it.
+ * The step in the flow as of now — the same detector the replay and the
+ * post-shot read use, so a shot cannot be called a channel while it runs and
+ * cleared afterwards, or the reverse.
  *
- * The same quantity curveMetrics computes after the fact, but it has to be
- * derivable from what exists so far, so it compares the last second against
- * the second before the one before that — the gap in the middle is where the
- * smoothing lives, exactly as in the post-shot version.
+ * What stood here compared the last second against a second ending 2.2 s
+ * earlier and returned the relative rise. That is a measure of how much flow
+ * rose, not how suddenly, and off a low pre-infusion baseline an ordinary shot
+ * produces 70% of it. It called every healthy shot a channel.
+ *
+ * The detector needs to see flow settle after the jump, so it reads a moment
+ * about four seconds back rather than this instant, and the answer is kept once
+ * found: a step that happened stays a fact about the shot even after flow moves
+ * on from it.
  */
 function liveStep() {
   const c = brew.curve;
-  if (!c || c.length < 40) return NaN;
-  const now = c.at(-1)[0];
-  const mean = (a, b) => {
-    const v = [];
-    for (let i = c.length - 1; i >= 1; i--) {
-      const t = c[i][0];
-      if (t > b) continue;
-      if (t < a) break;
-      const dt = t - c[i - 1][0];
-      if (dt > 0) v.push((c[i][1] - c[i - 1][1]) / dt);
-    }
-    return v.length >= 4 ? v.reduce((x, y) => x + y, 0) / v.length : NaN;
-  };
-  const after = mean(now - 1.0, now);
-  const before = mean(now - 3.2, now - 2.2);
-  if (!(before > 0.25) || !Number.isFinite(after)) return NaN;
-  return (after - before) / before;
+  if (!c || c.length < 40) return stepSoFar;
+  const r = stepOf(c, c.at(-1)[0] - 3.8);
+  if (Number.isFinite(r) && (!Number.isFinite(stepSoFar) || r > stepSoFar)) stepSoFar = r;
+  return stepSoFar;
 }
 
 /** The full read, once there is a whole shot to read. */
@@ -4042,6 +4042,7 @@ function resetShot(why = 'Session reset.') {
   sess.reset();
   sess.setTarget(targetDose());
   stopArmed = false; stopSeen = null;
+  stepSoFar = NaN;
   shotStartedAt = null;
   ghostCurve = []; ghostFlowCurve = [];
   gate.reset();

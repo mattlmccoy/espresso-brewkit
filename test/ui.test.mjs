@@ -7502,11 +7502,223 @@ try {
       read.healthy.length
         ? `warned on a healthy rise: "${read.healthy[0].text}"`
         : 'silent through a 0.9 to 2.5 g/s climb');
-    t('physics: and an abrupt jump in the flow is',
-      read.channel.length === 1 && Math.abs(read.channel[0].at - 14) < 2.5,
+    // AFTER the jump, not at it. The detector compares a window either side of
+    // the moment in question, so the later half has to have happened before it
+    // can tell a step from the start of a steep climb. Roughly four seconds of
+    // lag is the honest cost of not calling every healthy shot a channel.
+    t('physics: and an abrupt jump in the flow is, once it can be told from a climb',
+      read.channel.length === 1 && read.channel[0].at >= 14 && read.channel[0].at - 14 < 6,
       read.channel.length
         ? `"${read.channel[0].text}" at ${read.channel[0].at} s`
         : 'said nothing about a 90% jump');
+  }
+
+  /* ------------------------- the shape of a real shot, not a synthetic one */
+  {
+    // WHY THE SUITE WAS GREEN WHILE EVERY REAL SHOT WAS MISREAD.
+    //
+    // The fixtures above are piecewise flat: the "rising" one climbs at
+    // 0.022 g/s². A real shot climbs at around 0.18 — eight times steeper — and
+    // does it off a pre-infusion plateau near 0.9 g/s, where a rise of half a
+    // gram per second is a 60% "step". Four real shots out of four were told
+    // they had channelled, on a detector the tests certified as correct.
+    //
+    // So this fixture is shaped like the real thing, and the property under
+    // test is the one that separates the two cases: a channel CONCENTRATES its
+    // rise into a moment, an ordinary shot spreads it across the pour.
+    const real = await ctx.newPage();
+    await real.goto(`${B}/live.html`);
+    const shape = await real.evaluate(async () => {
+      const D = await import('./assets/js/core/diagnose.js');
+      const build = (q) => {
+        const c = []; let w = 0;
+        for (let t = 0; t <= 26; t += 0.05) { w += Math.max(0, q(t)) * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]); }
+        return c;
+      };
+      // First drops hit the pan hard and the reading spikes, then a plateau at
+      // 0.9, then a smooth steep climb to 2.8 — the shape of every shot in the
+      // first real dataset.
+      const shot = (extra = 0, when = 99) => build((t) => (
+        t < 0.6 ? 3.6 * (1 - t / 0.6)
+          : t < 5 ? 0.9
+            : t < 20 ? 0.9 + (t - 5) * 0.13 + (t >= when ? extra : 0)
+              : 0.03));
+      const healthy = shot();
+      const channelled = shot(0.9, 11);
+      return {
+        healthy: D.flowStep(healthy),
+        channelled: D.flowStep(channelled),
+        peak: D.curveMetrics(healthy).peak_flow_gs,
+        flag: D.STEP_FLAG,
+      };
+    });
+    t('physics: a pre-infusion plateau followed by a steep smooth climb is not a channel',
+      shape.healthy.step === null || shape.healthy.step <= shape.flag,
+      `read ${shape.healthy.step} against a ${shape.flag} threshold`);
+    t('physics: the same curve with a real jump in it is',
+      shape.channelled.step > shape.flag,
+      `read ${shape.channelled.step} at ${shape.channelled.at} s`);
+    // The opening spike is the drops landing on the pan, not the pump. Left in,
+    // it reports 3.6 g/s as the peak of a shot that never exceeded 2.8, and
+    // feeds the finding about the puck surface breaking up.
+    t('physics: peak flow is the shot\'s peak, not the first drops hitting the pan',
+      shape.peak < 3, `peak read as ${shape.peak} g/s on a shot that tops out at 2.8`);
+    await real.close();
+  }
+
+  /* --------------------------- one detector, not three that disagree */
+  {
+    // The same question was answered by three different implementations — the
+    // live banner, the replay and the post-shot read — two of which compared
+    // flow now against flow a moment ago. A shot could be called a channel
+    // while it poured and cleared once it was over. Whatever the verdict, it
+    // has to be the same verdict.
+    const one = await ctx.newPage();
+    await one.goto(`${B}/live.html`);
+    const agree = await one.evaluate(async () => {
+      const D = await import('./assets/js/core/diagnose.js');
+      const R = await import('./assets/js/core/replay.js');
+      const C = await import('./assets/js/core/coach.js');
+      const build = (q) => {
+        const c = []; let w = 0;
+        for (let t = 0; t <= 26; t += 0.05) { w += Math.max(0, q(t)) * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]); }
+        return c;
+      };
+      const curves = {
+        healthy: build((t) => (t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9
+          : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03)),
+        channelled: build((t) => (t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9
+          : t < 20 ? 0.9 + (t - 5) * 0.13 + (t >= 11 ? 0.9 : 0) : 0.03)),
+      };
+      const out = {};
+      for (const [name, curve] of Object.entries(curves)) {
+        // as the whole-shot read sees it
+        const after = (D.curveMetrics(curve).flow_step ?? 0) > D.STEP_FLAG;
+        // as the replay — and therefore as it was live — sees it
+        const spoke = R.saidDuring(R.prepare(curve), C.live, { target: 36 })
+          .some((l) => /jump|channel/i.test(l.text));
+        out[name] = { after, spoke };
+      }
+      return out;
+    });
+    t('physics: a healthy shot reads the same during the pour and afterwards',
+      agree.healthy.after === false && agree.healthy.spoke === false,
+      `afterwards ${agree.healthy.after}, during ${agree.healthy.spoke}`);
+    t('physics: and so does a channelled one',
+      agree.channelled.after === true && agree.channelled.spoke === true,
+      `afterwards ${agree.channelled.after}, during ${agree.channelled.spoke}`);
+    await one.close();
+  }
+
+  /* ------------------------- a reading frozen into a record is re-read */
+  {
+    // The curve scalars are computed once, when the shot is saved, and stored
+    // on the record. So correcting the mathematics reached nothing already
+    // logged — the detector was fixed and every shot in the log went on
+    // asserting the old answer. Three of the four shots in the first real
+    // dataset had no flow_step at all because the field postdated them; the
+    // fourth carried 0.761 from a superseded detector.
+    const old = await ctx.newPage();
+    await old.goto(`${B}/shots.html`);
+    const back = await old.evaluate(async () => {
+      const D = await import('./assets/js/core/diagnose.js');
+      const S = await import('./assets/js/core/schema.js');
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.05) {
+        const q = t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9 : t < 20 ? 0.9 + (t - 5) * 0.13 : 0.03;
+        w += q * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]);
+      }
+      const curve = S.encodeCurve(c);
+      // A healthy shot carrying a channel verdict from the old detector.
+      const stale = { shot_id: 'shot-001', curve, flow_step: 0.761, peak_flow_gs: 3.6 };
+      const fixed = D.refreshMetrics(stale, S.decodeCurve);
+      // The same verdict, on a record whose curve was never kept: it cannot be
+      // re-read, so the claim is dropped rather than left standing.
+      const noCurve = D.refreshMetrics({ shot_id: 'shot-002', flow_step: 0.761 }, S.decodeCurve);
+      // Already current: returned untouched, not recomputed on every read.
+      const current = { shot_id: 'shot-003', metrics_v: D.METRICS_V, flow_step: 0.9 };
+      return {
+        was: D.diagnose(stale).map((f) => f.code),
+        now: D.diagnose(fixed).map((f) => f.code),
+        peak: fixed.peak_flow_gs,
+        dropped: noCurve.flow_step,
+        untouched: D.refreshMetrics(current, S.decodeCurve) === current,
+      };
+    });
+    t('shots: a channel verdict frozen into an old record is re-read from its curve',
+      back.was.includes('flow_step') && !back.now.includes('flow_step'),
+      `was [${back.was.join(',')}], now [${back.now.join(',') || 'nothing'}]`);
+    t('shots: and its peak flow is re-read too',
+      back.peak < 3, `${back.peak} g/s`);
+    t('shots: a verdict that cannot be re-read is dropped rather than left standing',
+      back.dropped === null, `flow_step came back as ${back.dropped}`);
+    t('shots: a record already at the current reading is not recomputed',
+      back.untouched, 'returned the same object');
+    await old.close();
+  }
+
+  /* ------------------------------------ correcting a shot after the fact */
+  {
+    // A shot was write-once, so a grind setting you forgot to change was a
+    // permanent lie in the log with no remedy but deleting the shot and losing
+    // its curve.
+    const ed = await ctx.newPage();
+    await ed.goto(`${B}/shots.html`);
+    const edit = await ed.evaluate(async () => {
+      const store = await import('./assets/js/core/store.js');
+      store.clear();
+      const made = store.add({ bean_name: 'Test', dose_g: 18, yield_g: 36, time_s: 28,
+        grind_setting: 7.5, curve: '' });
+      store.update(made.shot_id, { grind_setting: 6.5, dose_g: 18, yield_g: 40 });
+      const after = store.all().find((r) => r.shot_id === made.shot_id);
+      return { grind: after.grind_setting, ratio: after.ratio, was: made.ratio,
+        id: after.shot_id === made.shot_id };
+    });
+    t('shots: a correction sticks and keeps the shot it belongs to',
+      edit.grind === 6.5 && edit.id, `grind now ${edit.grind}`);
+    // The ratio is derived, so correcting the yield has to move it. A stored
+    // 1:2 beside a corrected 40 g yield is a record disagreeing with itself.
+    t('shots: and the numbers derived from it are worked out again',
+      Math.abs(edit.ratio - 40 / 18) < 0.01,
+      `ratio ${edit.ratio?.toFixed?.(3)} from ${edit.was?.toFixed?.(3)}`);
+    const fields = await ed.evaluate(async () => {
+      const S = await import('./assets/js/core/schema.js');
+      // Nothing the app worked out may be hand-edited: a curve reading is a
+      // reading of evidence, and the derived numbers come back on save anyway.
+      const banned = ['ratio', 'ey_pct', 'tds_pct', 'flow_gs', 'curve', 'shot_id',
+        'flow_step', 'peak_flow_gs', 'steady_flow_gs', 't_first_drip_s'];
+      return { offered: S.EDITABLE, leaked: S.EDITABLE.filter((k) => banned.includes(k)) };
+    });
+    t('shots: the correction form offers what was observed, not what was derived',
+      fields.leaked.length === 0 && fields.offered.includes('grind_setting'),
+      fields.leaked.join(',') || `${fields.offered.length} fields, none derived`);
+    await ed.close();
+  }
+
+  /* --------------------------------- the tail after the pump cuts */
+  {
+    // He called the decay after the pump cut "choking", which is the opposite
+    // of what happened: the shot did not fail to finish, it finished.
+    const tail = await ctx.newPage();
+    await tail.goto(`${B}/live.html`);
+    const said = await tail.evaluate(async () => {
+      const R = await import('./assets/js/core/replay.js');
+      const C = await import('./assets/js/core/coach.js');
+      const c = []; let w = 0;
+      for (let t = 0; t <= 26; t += 0.05) {
+        // A shot that ends at 20 s, then drips out over five seconds.
+        const q = t < 0.6 ? 3.6 * (1 - t / 0.6) : t < 5 ? 0.9
+          : t < 20 ? 0.9 + (t - 5) * 0.13 : Math.max(0, 0.6 - (t - 20) * 0.12);
+        w += q * 0.05; c.push([+t.toFixed(3), +w.toFixed(3)]);
+      }
+      const lines = R.saidDuring(R.prepare(c), C.live, { target: 36 });
+      return { all: lines.map((l) => l.text), stopped: lines.filter((l) => /dripping|pump/i.test(l.text)) };
+    });
+    t('pip: he does not call the drip after the pump cuts a choking shot',
+      !said.all.some((x) => /chok/i.test(x)), said.all.join(' | ') || 'said nothing');
+    t('pip: he names it for what it is instead',
+      said.stopped.length === 1, said.stopped.map((l) => `${l.at}s "${l.text}"`).join(' | ') || 'said nothing');
+    await tail.close();
   }
 
   /* ----------------------------------------- every page still parses at all */

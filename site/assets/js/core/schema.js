@@ -88,6 +88,29 @@ export const FIELDS = [
 ];
 
 export const byKey = Object.fromEntries(FIELDS.map((f) => [f.key, f]));
+
+/**
+ * WHAT A PERSON MAY CORRECT AFTER THE FACT.
+ *
+ * A shot was write-once, which is wrong about how the log is actually kept: you
+ * change the grind, pull the shot, and remember at the second sip that the dial
+ * moved and the record says otherwise. That shot is then quietly lying to every
+ * regression that reads it, and the only remedy was to delete it and lose the
+ * curve.
+ *
+ * The list is everything a person observed or typed, and nothing the app
+ * measured or worked out. The derived numbers — ratio, extraction yield, TDS —
+ * are deliberately absent because they are recomputed from these on save; the
+ * curve scalars are absent because the curve is the evidence and editing a
+ * reading of it would be editing the evidence. The curve itself is never
+ * touched, so a corrected shot still replays exactly as it was pulled.
+ */
+export const EDITABLE = [
+  'grind_setting', 'grind_label', 'dose_g', 'grounds_out_g', 'basket',
+  'temp_c', 'pressure_bar', 'preinfusion_s',
+  'yield_g', 'target_g', 'time_s', 'milk_g', 'brix',
+  'rating', 'tags', 'notes',
+];
 export const NUMERIC = FIELDS.filter((f) => f.type === 'number').map((f) => f.key);
 export const COLUMNS = FIELDS.map((f) => f.key);
 

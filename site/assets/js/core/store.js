@@ -7,6 +7,8 @@
 import { read, serialize } from './csv.js';
 import { tombstone } from './backup.js';
 import { deriveShot, DEFAULT_BRIX_FACTOR } from './coffee.js';
+import { refreshMetrics } from './diagnose.js';
+import { decodeCurve } from './schema.js';
 
 const KEY = 'brewkit.shots.v1';
 const SETTINGS_KEY = 'brewkit.settings.v1';
@@ -35,7 +37,39 @@ export function saveSettings(patch) {
   return next;
 }
 
-export const all = () => safeParse(safeGet(KEY), []);
+// THE CURVE READING IS RE-DERIVED, NOT TRUSTED.
+// Curve scalars are computed when a shot is saved and frozen into the record,
+// so a correction to the mathematics reaches nothing already logged — which is
+// how a detector that called every healthy shot a channel stayed visibly wrong
+// on shots the user had already pulled. Records stamped with an older version
+// are read again from the curve they stored.
+//
+// It happens here, on the way out of storage, rather than as a migration that
+// rewrites the log: the derivation is cheap, and a reader that recomputes is
+// one that cannot drift from the code again the next time a threshold moves.
+//
+// Nothing is written back, so the stored log and a backup of it hold exactly
+// what was recorded at the time. A CSV export goes through here and therefore
+// carries the corrected reading — which is the right way round: a backup is a
+// copy of the record, and an export is a reading of it for somewhere else.
+// The sentinel is its own symbol rather than null, because null is also what
+// safeGet returns for an empty store — and comparing those two nulls made the
+// first read on an empty log skip the fill and hand back nothing at all.
+const UNREAD = Symbol('unread');
+let cacheRaw = UNREAD;
+let cacheRows = [];
+
+export const all = () => {
+  const raw = safeGet(KEY);
+  if (raw !== cacheRaw) {
+    const rows = safeParse(raw, []);
+    const fresh = rows.map((r) => refreshMetrics(r, decodeCurve));
+    cacheRaw = raw;
+    // A shallow copy per call, because callers push onto what they are given.
+    cacheRows = fresh;
+  }
+  return cacheRows.slice();
+};
 
 export function write(records) {
   const ok = safeSet(KEY, JSON.stringify(records));
