@@ -519,10 +519,15 @@ a { color: var(--accent); }
 .nav a[target="_blank"]::after { content: ' \2197'; opacity: .7; }
 .nav a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
 
-/* The backup link, on every page. It grows a dot once there are shots that no
-   backup file contains — with no cloud copy behind the log, a nudge you cannot
-   help seeing is the whole safety net. */
-.nav a.backup-link { display: inline-flex; align-items: center; gap: 7px; }
+/* The backup link. It grows a dot once there are shots that no backup file
+   contains — with no cloud copy behind the log, a nudge you cannot help seeing
+   is the whole safety net.
+
+   It sits in the options menu now rather than in the nav row, and the
+   `display:inline-flex` that used to shape it there outranked the menu's own
+   rule (0,2,1 against 0,1,1) — so Settings filled the width of the panel and
+   Backup shrank to its own text, two rows of the same kind that did not look
+   like it. The layout is the menu's to decide; what stays here is the dot. */
 .nav a.backup-link .dot {
   width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--warn, #c2681a);
   opacity: 0; transform: scale(.4); transition: opacity .28s ease, transform .28s var(--ease-out);
@@ -578,6 +583,21 @@ input, select, textarea {
 }
 input[type="number"] { font-family: var(--mono); }
 
+/* ONE HEIGHT FOR EVERY CONTROL.
+   A date input is 42.8 px in Chromium where a text or number box is 40.8, on
+   identical padding, font and box-sizing — the extra two pixels are its own
+   shadow-DOM row, not anything this stylesheet asked for. Side by side in a
+   row that bottom-aligns, that put their tops two pixels apart, in every theme.
+   Written as the ingredients rather than as 41px so it cannot drift away from
+   the padding and line-height above it: 1.2em of line, 10px of padding either
+   side, 2px of border either side. `em` here is the control's own 14px. */
+input:not([type="checkbox"]):not([type="radio"]), select {
+  min-height: calc(1.2em + 24px);
+}
+input[type="date"], input[type="time"], input[type="datetime-local"], input[type="month"] {
+  height: calc(1.2em + 24px);
+}
+
 /* Checkboxes and radios must opt out of the rule above: `appearance: none`
    strips the native control entirely, leaving a bordered box that toggles
    invisibly — which reads as a dead control rather than a styled one. */
@@ -600,7 +620,15 @@ input:hover:not(:focus), select:hover:not(:focus), textarea:hover:not(:focus) {
 }
 select { cursor: pointer; }
 .field { margin-bottom: var(--s4); }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); }
+/* `align-items: end`, so the CONTROLS line up rather than the labels.
+   A row of fields is a row of labels above a row of boxes, and the labels are
+   not the same length: "Dose, grams" fits on one line where "Grounds, grams"
+   and "Yield, grams" wrap to two, so the first box sat 10 px above the other
+   two. In every theme, at every width — the wrap point moves with the font but
+   the mismatch does not go away, and in glass it was the middle box that was
+   odd rather than the first.
+   Aligning the bottoms lines up the boxes whatever the labels do. */
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s3); align-items: end; }
 
 /* ---------- forms: content decides the size, not the container ----------
 
@@ -792,11 +820,22 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
    widths did it depended on the theme, because the mono themes are wider. */
 @media (max-width: 900px) {
   .site-head { gap: 12px; }
-  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px;
-    /* The strip is cut flush at the right otherwise, so the last item reads as
-       a broken label rather than as more to scroll to. */
-    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
+  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
   .nav a { flex: 0 0 auto; }
+  /* PINNED, because it is the only way to anything it holds.
+     The strip scrolls — 485 px of bar in 338 px of phone — and Options is the
+     last item in it, so at rest it sat 7 px past the right edge of a 390 px
+     screen. Five links being half off is fine; they are all one tap from each
+     other anyway. A menu being off is not: theme, view, settings and backup are
+     behind it, and nothing on screen says to swipe the bar sideways to find
+     them. Sticky inside the scroller keeps it at the right edge whatever the
+     links do, and the links pass underneath it.
+     The right-edge fade goes with it: it existed to say "there is more this
+     way", and a control parked at that edge would have been fading in and out
+     under it. What the cut-off link on its left says is the same thing. */
+  .nav .menu { position: sticky; right: 0; z-index: 2;
+    background: var(--bg); padding-left: 14px;
+    box-shadow: -16px 0 12px -6px var(--bg); }
 }
 /* Form rows stack later: an 820px iPad has room for two columns, and taking it
    away there wastes half the width. */

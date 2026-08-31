@@ -424,10 +424,14 @@ function paintLags() {
         : lag.n ? `only ${lag.n} so far — still using 1.00 s` : 'not measured'),
       el('td', {}, reset));
   });
-  $('lags').replaceChildren(el('table', { class: 'lags' },
-    el('thead', {}, el('tr', {}, el('th', {}, 'Machine'), el('th', {}, 'Drip lag'),
-      el('th', {}, 'Confidence'), el('th', {}, ''))),
-    el('tbody', {}, ...rows)));
+  // Four columns do not fit a phone: at 390 px the last one — the button —
+  // hung 94 px past the right edge and took the whole page 106 px sideways
+  // with it. The app already has a scroller for exactly this.
+  $('lags').replaceChildren(el('div', { class: 'table-scroll' },
+    el('table', { class: 'lags' },
+      el('thead', {}, el('tr', {}, el('th', {}, 'Machine'), el('th', {}, 'Drip lag'),
+        el('th', {}, 'Confidence'), el('th', {}, ''))),
+      el('tbody', {}, ...rows))));
 }
 kit.subscribe(paintLags);
 paintLags();

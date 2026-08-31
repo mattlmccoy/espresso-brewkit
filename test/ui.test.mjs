@@ -505,6 +505,24 @@ try {
   const mobileOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   t('mobile: nav stays on one row', navRows === 1, navRows + ' row(s)');
+  // AND THE MENU IS REACHABLE WITHOUT SCROLLING THE BAR SIDEWAYS.
+  // The strip scrolls on a phone — 499 px of bar in 338 px of screen — and the
+  // menu is the last thing in it, so at rest it sat 7 px past the right edge of
+  // a 390 px viewport. Five links being half off is fine; they are one tap from
+  // each other anyway. The menu being off is not: theme, view, settings and
+  // backup are all behind it, and nothing on screen says to swipe the bar.
+  const reachable = await page.evaluate(() => {
+    const nav = document.querySelector('.nav');
+    const r = document.querySelector('.menu-btn').getBoundingClientRect();
+    return { scrolls: nav.scrollWidth > nav.clientWidth + 1,
+             onScreen: r.right <= innerWidth + 1 && r.left >= -1,
+             right: Math.round(innerWidth - r.right) };
+  });
+  t('mobile: and the options menu is on screen without scrolling the bar',
+    reachable.scrolls && reachable.onScreen,
+    reachable.scrolls
+      ? `pinned ${reachable.right}px from the edge of a scrolling strip`
+      : 'the strip does not scroll here, so nothing was proven');
   t('mobile: no horizontal page overflow', mobileOverflow <= 1, mobileOverflow + 'px');
   await page.setViewportSize({ width: 1400, height: 1000 });
 
@@ -6924,6 +6942,179 @@ try {
     } finally {
       await rm(profile, { recursive: true, force: true });
     }
+  }
+
+
+  // ---- a trace stays inside its own axes ----
+  // Flow is a derivative of a scale reading, so it goes negative whenever the
+  // weight does: a cup knocked, a hand taken off, a portafilter lifted. The
+  // scale clamped the top and not the bottom, so those samples were drawn below
+  // zero — outside the plot, over the axis labels and off the bottom of the box
+  // — which reads as the shot having had negative flow rather than as the scale
+  // having been disturbed.
+  {
+    const inside = await page.evaluate(async () => {
+      const { livePlot } = await import('./assets/js/core/chart.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:0;top:0;width:720px;height:380px';
+      document.body.append(host);
+      // A pour with a knock in it: flow dives well below zero, weight with it.
+      const weight = [], flow = [];
+      for (let i = 0; i <= 60; i++) {
+        const t = i * 0.5;
+        const hit = t > 12 && t < 14;
+        weight.push([t, hit ? -6 : Math.min(36, t * 1.3)]);
+        flow.push([t, hit ? -9.5 : 1.9]);
+      }
+      livePlot(host, { weight, flow, target: 36, width: 720, height: 380 });
+      const svg = host.querySelector('svg');
+      // The margins livePlot draws to; the plot floor is height - bottom.
+      const floor = 380 - 38, ceil = 14;
+      const out = [];
+      for (const el of svg.querySelectorAll('path')) {
+        const b = el.getBBox();
+        if (b.height === 0 && b.width === 0) continue;
+        out.push({ cls: el.getAttribute('class'),
+                   top: +b.y.toFixed(1), bottom: +(b.y + b.height).toFixed(1) });
+      }
+      host.remove();
+      return { series: out, floor, ceil,
+               escaped: out.filter((o) => o.bottom > floor + 1 || o.top < ceil - 1) };
+    });
+    t('chart: a knock cannot draw the trace outside the plot',
+      inside.series.length > 0 && inside.escaped.length === 0,
+      inside.series.length === 0 ? 'no series were drawn, so nothing was proven'
+        : `${inside.series.length} series, all within ${inside.ceil}..${inside.floor}` +
+          (inside.escaped.length ? ' — ESCAPED ' + JSON.stringify(inside.escaped) : ''));
+  }
+
+  // ================= THE SWEEP =================
+  // Every page, every theme, two widths, checked mechanically.
+  //
+  // WHY THIS EXISTS. The defects being found by hand were all of a few kinds —
+  // a control 10 px out of line with its neighbours, a box off the side of a
+  // phone, a trace drawn outside its own axes — and every one of them was found
+  // by somebody looking at a screenshot, one theme at a time. There are four
+  // themes and the fonts differ between them, so a label that fits on one line
+  // in Archivo wraps to two in Space Mono and takes the box under it with it.
+  // Checking one theme by eye is checking a quarter of the app.
+  //
+  // AND EVERY CHECK COUNTS WHAT IT LOOKED AT. Twice while writing this the
+  // measurement came back clean because it had examined nothing at all — the
+  // panel it was measuring was display:none in the state under test. A check
+  // that passes over zero elements is not a passing check, it is a broken one,
+  // so a zero count is a failure here.
+  {
+    const PAGES = ['index', 'live', 'shots', 'advisor', 'kit', 'lab', 'settings',
+                   'backup', 'logger'];
+    const THEMES = ['light', 'dark', 'terminal', 'glass'];
+    const rowsOff = [], overflows = [], escaped = [];
+    let rowsSeen = 0, boxesSeen = 0;
+
+    const look = await ctx.newPage();
+    for (const theme of THEMES) {
+      await look.addInitScript((t) => {
+        try { localStorage.setItem('brewkit.theme', t); } catch { /* ignore */ }
+      }, theme);
+      for (const name of PAGES) {
+        await look.goto(`${B}/${name}.html`);
+        await look.waitForTimeout(140);
+        for (const w of [1400, 390]) {
+          await look.setViewportSize({ width: w, height: 900 });
+          await look.waitForTimeout(120);
+          const found = await look.evaluate(() => {
+            // Panels a state hides are still panels; reveal them so the sweep
+            // measures the app rather than whichever slice happens to be up.
+            for (const el of document.querySelectorAll('.cell, .sect, .panel')) {
+              if (getComputedStyle(el).display === 'none') {
+                el.style.setProperty('display', 'block', 'important');
+              }
+            }
+            const seen = (el) => el.getBoundingClientRect().height > 0;
+            const out = { rows: 0, boxes: 0, off: [], esc: [] };
+
+            // 1. Controls in one row share a top edge. Labels of different
+            //    lengths wrap to different heights, and the boxes under them
+            //    follow unless something stops it.
+            // Like with like. A checkbox is 16 px tall and a text box is 38, so
+            // bottom-aligning them puts their TOPS 22 px apart on purpose — and
+            // a visually hidden file input is parked off-screen at 1 px, which
+            // is not a misalignment either. Comparing those against a text box
+            // is the check being wrong, not the layout.
+            const typed = (el) => {
+              if (el.tagName !== 'INPUT') return true;
+              return !['checkbox', 'radio', 'file', 'hidden'].includes(el.type);
+            };
+            const real = (el) => {
+              const r = el.getBoundingClientRect();
+              return r.width > 2 && r.height > 2;
+            };
+            for (const row of document.querySelectorAll('.row')) {
+              const kids = [...row.querySelectorAll('input, select, textarea')]
+                .filter((k) => seen(k) && typed(k) && real(k))
+                .map((k) => ({ k, r: k.getBoundingClientRect() }));
+              if (kids.length < 2) continue;
+              // SIDE BY SIDE, not merely in the same row element. Below 720 px
+              // the two-column row stacks into one, and two boxes one above the
+              // other are supposed to have different tops — comparing those was
+              // the check reporting the responsive layout working as a fault.
+              const band = kids.filter(({ r }) => {
+                const a = kids[0].r;
+                return Math.min(a.bottom, r.bottom) - Math.max(a.top, r.top)
+                  > Math.min(a.height, r.height) / 2;
+              });
+              if (band.length < 2) continue;
+              out.rows++;
+              const tops = band.map(({ r }) => Math.round(r.top));
+              if (new Set(tops).size > 1) {
+                out.off.push(band.map(({ k }, i) => `${k.id || k.name || i}@${tops[i]}`).join('/'));
+              }
+            }
+
+            // 2. Nothing a person can press sits outside the window. Anything
+            //    inside a deliberate scroller is exempt — the nav strip on a
+            //    phone is meant to run past the edge.
+            const scrolled = (el) => {
+              for (let e = el; e && e !== document.body; e = e.parentElement) {
+                const o = getComputedStyle(e).overflowX;
+                if (o === 'auto' || o === 'scroll') return true;
+              }
+              return false;
+            };
+            for (const el of document.querySelectorAll('button, a, input, select')) {
+              if (!seen(el) || scrolled(el)) continue;
+              out.boxes++;
+              const r = el.getBoundingClientRect();
+              if (r.right > innerWidth + 2 || r.left < -2) {
+                out.esc.push(`${el.id || el.textContent.trim().slice(0, 14) || el.tagName}` +
+                  `@${Math.round(r.left)}..${Math.round(r.right)}`);
+              }
+            }
+            out.overflow = document.documentElement.scrollWidth
+              - document.documentElement.clientWidth;
+            return out;
+          });
+          rowsSeen += found.rows;
+          boxesSeen += found.boxes;
+          const where = `${name}/${theme}/${w}`;
+          for (const x of found.off.slice(0, 2)) rowsOff.push(`${where} ${x}`);
+          for (const x of found.esc.slice(0, 2)) escaped.push(`${where} ${x}`);
+          if (found.overflow > 1) overflows.push(`${where} +${found.overflow}px`);
+        }
+      }
+    }
+    await look.close();
+
+    t('sweep: it actually looked at something',
+      rowsSeen > 0 && boxesSeen > 0,
+      `${rowsSeen} field rows and ${boxesSeen} controls across ` +
+      `${PAGES.length} pages × ${THEMES.length} themes × 2 widths`);
+    t('sweep: controls in a row share a top edge, in every theme',
+      rowsOff.length === 0, rowsOff.slice(0, 4).join('  |  ') || 'aligned everywhere');
+    t('sweep: nothing pressable sits outside the window',
+      escaped.length === 0, escaped.slice(0, 4).join('  |  ') || 'all inside');
+    t('sweep: no page scrolls sideways, in any theme',
+      overflows.length === 0, overflows.slice(0, 4).join('  |  ') || 'none');
   }
 
 } finally {

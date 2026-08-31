@@ -447,11 +447,20 @@ export function livePlot(container, {
   const fMax = niceTop(Math.max(1.2, percentile(flowVals, 0.9)) * 1.15);
 
   const sx = (t) => m.l + (t / tMax) * iw;
-  const sy = (w) => m.t + ih - (w / wMax) * ih;
-  // Clamped, so a sample above the axis rides the top of the plot instead of
+  // Same at both ends for the weight, and for the same reason: a tare mid-pour
+  // or a lift takes the net negative for a few samples.
+  const sy = (w) => m.t + ih - (Math.max(0, Math.min(w, wMax)) / wMax) * ih;
+  // Clamped at BOTH ends, so a sample outside the axis rides its edge instead of
   // being drawn off the canvas. It is still not silent — see the note by the
   // flow axis, which says what the real peak was.
-  const sf = (f) => m.t + ih - (Math.min(f, fMax) / fMax) * ih;
+  //
+  // The floor was missing, and only the ceiling was there. Flow is a derivative
+  // of a scale reading, so it goes negative whenever the weight does: a cup
+  // knocked, a hand taken off, a portafilter lifted. Those samples were drawn
+  // below zero — outside the plot area entirely, over the axis labels and off
+  // the bottom of the box — which reads as the shot having negative flow rather
+  // than as the scale having been disturbed.
+  const sf = (f) => m.t + ih - (Math.max(0, Math.min(f, fMax)) / fMax) * ih;
 
   for (const t of ticks(0, tMax, 6)) {
     el('line', { x1: sx(t), y1: m.t, x2: sx(t), y2: m.t + ih, class: 'grid' }, svg);
