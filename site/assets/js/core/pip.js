@@ -427,6 +427,21 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
   // there is a way to lose him mid-pour, not a convenience.
   const CORNERS = ['tl', 'tr', 'bl', 'br'];
   host.classList.add('pip-dock');
+  // AN OVERLAY BELONGS TO THE VIEWPORT, SO IT BELONGS TO THE BODY.
+  //
+  // `position: fixed` does not mean "fixed to the window" — it resolves against
+  // the nearest ancestor carrying a transform, filter, perspective or paint
+  // containment, and only against the viewport when there is none. The brewing
+  // screen's panel has a staggered entrance animation, so its computed
+  // transform stays an identity matrix for the life of the page: enough to
+  // capture him. "Bottom left" then meant the bottom left of THAT PANEL, which
+  // is where the replay transport sits, and he covered the controls.
+  //
+  // Re-homing him is the structural fix rather than a per-page one. Any page
+  // that wraps his slot in an animated container would otherwise reintroduce
+  // this, and nothing about where his markup sits was ever meaningful — he is
+  // painted over the page, not laid out in it.
+  if (host.parentElement !== document.body) document.body.append(host);
   if (fixed) host.classList.add('pip-pinned');
   host.dataset.at = (() => {
     if (fixed) return CORNERS.includes(pinnedAt) ? pinnedAt : 'bl';
