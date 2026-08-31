@@ -691,54 +691,43 @@ try {
   // dragging to find the second the flow turned over.
   const rr = await page.evaluate(() => ({
     offered: !document.getElementById('replay-row').hidden,
-    panelUp: !document.getElementById('replay-panel').hidden,
+    barUp: !document.getElementById('replay-bar').hidden,
     keepable: !document.getElementById('replay-keep').disabled,
   }));
   t('live: a finished shot offers to play itself back',
-    rr.offered && !rr.panelUp && rr.keepable,
-    `row up ${rr.offered}, panel closed ${!rr.panelUp}, keep enabled ${rr.keepable}`);
+    rr.offered && !rr.barUp && rr.keepable,
+    `row up ${rr.offered}, transport closed ${!rr.barUp}, keep enabled ${rr.keepable}`);
   await page.click('#replay-open');
   await page.waitForTimeout(400);
   const opened = await page.evaluate(() => ({
-    mounted: document.getElementById('replay-panel').classList.contains('replay')
-      && !!document.querySelector('#replay-panel .replay-play'),
-    // The static chart steps aside: two charts of one shot, one moving and one
-    // not, is a panel you have to read twice to find out which is the answer.
-    curveHidden: document.getElementById('curve').getBoundingClientRect().height === 0,
-    trace: document.querySelectorAll('.replay-plot path.weightline').length,
+    playing: !!window.__replay?.now,
+    marked: document.body.classList.contains('replaying'),
+    // The transport is pinned to the bottom of the pour column: it used to sit
+    // under the chart, so on any screen where the chart filled the column the
+    // play button had scrolled out of reach.
+    barUp: !document.getElementById('replay-bar').hidden,
+    tag: document.getElementById('mid-tag').textContent,
   }));
-  t('live: and the replay takes the panel rather than sitting beside the chart',
-    opened.mounted && opened.curveHidden && opened.trace === 1,
-    `mounted ${opened.mounted}, static curve hidden ${opened.curveHidden}`);
-  // Keeping it is what links it to the shot in the log.
-  await page.click('#replay-keep');
-  await page.waitForTimeout(150);
-  const keptLive = await page.evaluate(() => {
-    const map = JSON.parse(localStorage.getItem('brewkit.replays.v1') || '{}');
-    const id = JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').at(-1)?.shot_id;
-    return { id, has: !!map[id], pts: (map[id] ?? '').split('|').length,
-             recorded: (JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]')
-               .at(-1)?.curve ?? '').split('|').length,
-             label: document.getElementById('replay-keep').textContent };
-  });
-  t('live: keeping the replay files it under the shot it is of',
-    keptLive.has && /kept/i.test(keptLive.label),
-    `${keptLive.id}: ${keptLive.pts} points kept, button says "${keptLive.label}"`);
-  // Finer than what the record carries, which is the reason keeping it is a
-  // separate thing from the shot being saved at all.
-  t('live: and keeps the full capture, not the reduction the record carries',
-    keptLive.pts >= keptLive.recorded,
-    `${keptLive.pts} kept vs ${keptLive.recorded} in the record`);
-  // A player left running under the next shot's chart would be the clearest
-  // possible version of the mistake the panel's hatched border exists to stop.
-  await page.click('#replay-open');
-  await page.waitForTimeout(150);
+  t('live: and it replays on the brewing screen rather than in a panel beside it',
+    opened.playing && opened.marked && opened.barUp && /replay/i.test(opened.tag),
+    `replaying ${opened.playing}, transport up ${opened.barUp}, tag "${opened.tag}"`);
+  await page.evaluate(() => { window.__replay.now.pause(); window.__replay.now.seek(5); });
+  await page.waitForTimeout(200);
+  const scrubbed = await page.evaluate(() => ({
+    t: document.getElementById('o-t').textContent,
+    w: document.getElementById('o-w').textContent,
+  }));
+  t('live: scrubbing moves the whole screen, not just a chart',
+    Math.abs(parseFloat(scrubbed.t) - 5) < 0.3,
+    `dragged to 5 s: the readout says ${scrubbed.t} s at ${scrubbed.w} g`);
+  await page.click('#rp-stop');
+  await page.waitForTimeout(250);
   const shut = await page.evaluate(() => ({
-    gone: document.getElementById('replay-panel').hidden,
-    curveBack: document.getElementById('curve').getBoundingClientRect().height > 0,
+    gone: !window.__replay?.now,
+    unmarked: !document.body.classList.contains('replaying'),
   }));
-  t('live: closing it gives the panel back to the chart',
-    shut.gone && shut.curveBack, `panel hidden ${shut.gone}, chart back ${shut.curveBack}`);
+  t('live: closing it gives the screen back',
+    shut.gone && shut.unmarked, `replaying ${!shut.gone}`);
   t('live: yield and time come from the curve, not a guess',
     last.yield_g > 1 && last.time_s > 1 && Math.abs(last.ratio - last.yield_g / last.dose_g) < 1e-6,
     `${last.yield_g} g in ${last.time_s} s, ratio ${last.ratio?.toFixed?.(2)}`);
@@ -7573,33 +7562,73 @@ try {
       drawn.between > drawn.lo && drawn.between < drawn.hi,
       `${drawn.lo} < ${drawn.between} < ${drawn.hi} across one sample step`);
 
-    // The panel on the page: it mounts, it plays, and the axis does not grow
-    // under the trace.
-    await rep.goto(`${B}/shots.html#shot-900`);
-    await rep.waitForSelector('.shot-row');
-    await rep.click('text=Watch this shot');
-    await rep.waitForTimeout(500);
-    const panel = await rep.evaluate(() => {
-      const ticks = [...document.querySelectorAll('.replay-plot .tick')]
-        .map((n) => Number(n.textContent)).filter(Number.isFinite);
-      return {
-        mounted: !!document.querySelector('.replay'),
-        playing: document.querySelector('.replay-play').textContent,
-        weight: document.querySelectorAll('.replay-plot path.weightline').length,
-        tTop: Math.max(...ticks),
-        rungs: document.querySelectorAll('.replay-rung').length,
-        clock: document.querySelector('.replay-clock').textContent,
-      };
-    });
-    t('replay: the panel mounts on a kept shot and starts playing it',
-      panel.mounted && panel.playing === 'Pause' && panel.weight === 1 && panel.rungs >= 3,
-      `${panel.rungs} landmarks, ${panel.weight} trace, clock ${panel.clock}`);
-    // A live chart widens as the shot runs because the end is unknown. Here it
-    // is known, and an axis that grew would hold the trace still and slide the
-    // grid under it.
-    t('replay: the time axis is the whole shot from the first frame, not the part drawn',
-      panel.tTop >= 30,
-      `axis runs to ${panel.tTop} s of a 32 s shot, ${panel.clock}`);
+    // THE BREWING SCREEN IS WHAT PLAYS. The first version of this was a panel
+    // of its own beside the pour, which is a second rendering of a shot — and
+    // the wrong answer to the ask, which was to watch the shot back on the
+    // screen you watched it on. So the assertions are about the real dial, the
+    // real numbers and the real curve.
+    await rep.goto(`${B}/live.html?mock=generic#replay=shot-900`);
+    await rep.waitForFunction(() => window.__replay, { timeout: 10000 });
+    await rep.waitForFunction(() => window.__replay.now, { timeout: 10000 });
+    await rep.evaluate(() => { window.__replay.now.pause(); window.__replay.now.seek(22); });
+    await rep.waitForTimeout(300);
+    const onScreen = await rep.evaluate(() => ({
+      // The brewing screen, not the connect or teaching step. A replay opened
+      // from the log has no scale behind it and must not wait for one.
+      live: getComputedStyle(document.getElementById('step-live')).display !== 'none',
+      tag: document.getElementById('mid-tag').textContent,
+      weight: document.getElementById('o-w').textContent,
+      time: document.getElementById('o-t').textContent,
+      flow: document.getElementById('o-f').textContent,
+      state: document.getElementById('state').textContent.trim(),
+      // The dial, the bands and the stop-at are the real ones this screen
+      // always draws — that is the whole point of driving render().
+      dial: document.querySelector('#brew-gauge .g-sub')?.textContent ?? '',
+      cut: document.getElementById('c-cut').textContent,
+      trace: document.querySelectorAll('#curve path.weightline').length,
+      flowline: document.querySelectorAll('#curve path.flowline').length,
+      marked: document.body.classList.contains('replaying'),
+    }));
+    t('replay: the brewing screen itself plays the shot back, numbers and all',
+      onScreen.live && Math.abs(parseFloat(onScreen.weight) - 27.1) < 0.4
+      && Math.abs(parseFloat(onScreen.time) - 22) < 0.2
+      && parseFloat(onScreen.flow) > 0.5 && /extract/i.test(onScreen.state),
+      `${onScreen.weight} g at ${onScreen.time} s, ${onScreen.flow} g/s, "${onScreen.state}"`);
+    t('replay: and the dial, the bands and the stop weight are the ones it always draws',
+      /ristretto|espresso|lungo/i.test(onScreen.dial)
+      && parseFloat(onScreen.cut) > 30 && onScreen.trace === 1 && onScreen.flowline === 1,
+      `dial "${onScreen.dial}", stop at ${onScreen.cut} g, ${onScreen.trace} trace`);
+    // A recording that looks exactly like a shot in progress is the one bad
+    // outcome here, so the panel says what it is showing for the whole time.
+    t('replay: the panel says it is a recording, for as long as it is one',
+      onScreen.marked && /replay/i.test(onScreen.tag) && /900/.test(onScreen.tag),
+      `body.replaying ${onScreen.marked}, tag "${onScreen.tag}"`);
+
+    // NOTHING IS CHANGED BY WATCHING. render() files the shot, arms the stop,
+    // advances the session and talks to the phone past the paint — a replay
+    // must do the paint and none of the rest, or rewatching a shot files it a
+    // second time and teaches the machine its drip lag twice from one pour.
+    await rep.evaluate(() => window.__replay.now.seek(999));
+    await rep.waitForTimeout(300);
+    const after = await rep.evaluate(() => ({
+      shots: JSON.parse(localStorage.getItem('brewkit.shots.v1') || '[]').length,
+      ended: window.__replay.now.ended,
+      still: !!window.__replay.now,
+    }));
+    t('replay: watching a shot to the end does not file it again',
+      after.shots === 1 && after.ended,
+      `${after.shots} shot in the log after playing to the end`);
+    // And the way out puts the screen back.
+    await rep.click('#rp-stop');
+    await rep.waitForTimeout(250);
+    const closed = await rep.evaluate(() => ({
+      marked: document.body.classList.contains('replaying'),
+      tag: document.getElementById('mid-tag').textContent,
+      gone: !window.__replay.now,
+    }));
+    t('replay: and closing it gives the screen back to the scale',
+      closed.gone && !closed.marked && !/replay/i.test(closed.tag),
+      `replaying ${!closed.gone}, tag "${closed.tag}"`);
 
     // Keeping one, and un-keeping it.
     const kept = await rep.evaluate(async () => {
@@ -7622,6 +7651,8 @@ try {
     // A badge inside a selected row. The row recolours its text for an accent
     // ground, and a badge paints its own background — so one that inherited the
     // colour drew white on its own white panel and was a blank rectangle.
+    await rep.goto(`${B}/shots.html#shot-900`);
+    await rep.waitForSelector('.shot-row');
     const badge = await rep.evaluate(() => {
       const b = document.querySelector('.shot-row[aria-current="true"] .badge');
       if (!b) return null;

@@ -37,11 +37,39 @@ export function prepare(curve, win = 0.8) {
     .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
     .sort((a, b) => a[0] - b[0]);
   const fs = pts.length > 4 ? flowSeries(pts, win) : [];
+  // When the first coffee actually arrived, which the brewing screen draws as a
+  // marker. Read off the curve rather than stored, because it is already in it:
+  // the first sample that is meaningfully above zero.
+  const first = pts.find((p) => p[1] >= 0.3);
   return {
     pts,
     flow: pts.map(([t], i) => [t, Number.isFinite(fs[i]) ? Math.max(0, fs[i]) : 0]),
     duration: pts.length ? pts.at(-1)[0] : 0,
+    firstDrip: first ? first[0] : null,
   };
+}
+
+/**
+ * Is the flow climbing?
+ *
+ * The same least-squares slope over the same six-second window the brew machine
+ * uses, so the channel warning appears in a replay exactly where it appeared
+ * during the shot. A different window would put it somewhere else, and a
+ * warning that moves between watching a shot and rewatching it is worse than no
+ * warning.
+ */
+function trendOf(flowPts, window = 6, minElapsed = 9) {
+  if (flowPts.length < 8) return NaN;
+  const end = flowPts.at(-1)[0];
+  if (end < minElapsed) return NaN;
+  const pts = flowPts.filter((p) => p[0] >= end - window);
+  if (pts.length < 6) return NaN;
+  const n = pts.length;
+  const mx = pts.reduce((a, p) => a + p[0], 0) / n;
+  const my = pts.reduce((a, p) => a + p[1], 0) / n;
+  let sxy = 0, sxx = 0;
+  for (const [x, y] of pts) { const dx = x - mx; sxy += dx * (y - my); sxx += dx * dx; }
+  return sxx > 1e-9 ? sxy / sxx : NaN;
 }
 
 /** Linear interpolation on a [t, v] series, flat outside its ends. */
@@ -152,6 +180,40 @@ export class Replay {
     this._last = this._now();
     this.speed = x;
     this._emit();
+  }
+
+  /** The shot so far, which is what makes the curve draw itself. */
+  trace() { return upTo(this.data, this.t); }
+
+  /**
+   * The shot at this instant, in the shape the brew machine emits.
+   *
+   * THIS IS THE WHOLE POINT OF THE FILE. A replay panel built beside the
+   * brewing screen is a second rendering of a shot, and two renderings of one
+   * thing disagree eventually — a different dial, a different reading of the
+   * bands, a stop weight worked out twice. Emitting the brew machine's own
+   * snapshot instead means the replay is drawn by the brewing UI itself, and
+   * cannot disagree with it about anything, because it is not a second opinion.
+   *
+   * `states` is passed in rather than imported: this module has no business
+   * knowing the machine's vocabulary, and the caller already does.
+   */
+  snapshot({ extracting = 'extracting', complete = 'complete', label = () => '' } = {}) {
+    const s = sample(this.data, this.t);
+    const done = this.t >= this.duration - 1e-6;
+    const state = done ? complete : extracting;
+    const played = this.data.flow.filter((p) => p[0] <= this.t);
+    return {
+      state,
+      label: label(state),
+      net: s.w,
+      elapsed: s.t,
+      running: !done,
+      flow: s.flow,
+      trend: trendOf(played),
+      peakFlow: played.reduce((a, p) => Math.max(a, p[1]), 0),
+      firstDrip: this.data.firstDrip,
+    };
   }
 
   /** Give up the frame loop. Called when the panel goes away. */

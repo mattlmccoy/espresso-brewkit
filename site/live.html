@@ -888,7 +888,21 @@
               <button class="ghost" id="replay-keep" type="button">Keep this replay</button>
               <span class="msg" id="replay-msg" style="margin:0"></span>
             </div>
-            <div id="replay-panel" hidden></div>
+            <!-- The transport. It sits under the pour panel because the pour
+                 panel IS the replay: there is no second screen to put it on. -->
+            <div class="replay-bar" id="replay-bar" hidden>
+              <button class="primary" id="rp-play" type="button">Pause</button>
+              <input class="replay-scrub" id="rp-scrub" type="range" min="0" max="1000"
+                     value="0" step="1" aria-label="Position in the shot">
+              <span class="replay-clock" id="rp-clock">0.0 / 0.0 s</span>
+              <span class="replay-speeds" id="rp-speeds">
+                <button class="ghost" type="button" data-speed="0.5">0.5&times;</button>
+                <button class="ghost" type="button" data-speed="1">1&times;</button>
+                <button class="ghost" type="button" data-speed="2">2&times;</button>
+                <button class="ghost" type="button" data-speed="4">4&times;</button>
+              </span>
+              <button class="ghost" id="rp-stop" type="button">Done</button>
+            </div>
           </div>
         </div>
 
@@ -1104,7 +1118,8 @@ import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
 import { cutPoint, LEAD_S, TICK_FROM_S } from './assets/js/core/cutoff.js';
 import { compareToBest, bestOn } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
-import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
+import { FlowEstimator, BrewMachine, BREW, BREW_LABEL, stopSignalWeight }
+  from './assets/js/core/filter.js';
 import { SessionMachine, fillProgress } from './assets/js/core/session.js';
 import { METHOD_ORDER, METHODS, methodOf, nextMethod, stepLabel, stepNumber, brewTarget }
   from './assets/js/core/method.js';
@@ -1115,7 +1130,6 @@ import { ladder as shotLadder, ladderScale, styleOf, stylesFor }
 import { shotDial } from './assets/js/core/dial.js';
 import { mountGauge, geoFor } from './assets/js/core/gauge.js';
 import { mountBrowse, BROWSE_PAGES } from './assets/js/core/overlay.js';
-import { mountReplay } from './assets/js/core/replayview.js';
 import * as replay from './assets/js/core/replay.js';
 import * as prefs from './assets/js/core/prefs.js';
 import { mountPip } from './assets/js/core/pip.js';
@@ -1236,6 +1250,14 @@ let pipSaying = null;
 // The row this shot already occupies in the log, once it has one. Null until
 // the pump stops, and null again after the shot is thrown away.
 let savedId = null;
+// The last snapshot the scale actually produced, so closing a replay can put
+// the screen back where it was rather than inventing a state for it. Fabricating
+// one — a zero-flow snapshot at t=0 — repainted a finished shot as a live pour
+// and brought back the projections that finishing it had hidden.
+let lastSnap = null;
+// The shot being watched back, or null. render() reads this to know whether it
+// is painting a pour or a recording of one — see the note in render().
+let replaying = null;
 let stopArmed = false, stopSeen = null;   // predictive-stop bookkeeping
 // Wall-clock when the pump actually started, which is the far end of the
 // grind-to-brew gap. The brew machine's own clock is scale time and only
@@ -1258,6 +1280,12 @@ function activeCaps() {
 
 /* ------------------------------------------------------------------ phases */
 function setPhase(phase) {
+  // A REPLAY OWNS THE SCREEN WHILE IT IS UP. Opening one from the log is a race
+  // otherwise: the replay puts the brewing screen on, and then the scale
+  // finishes connecting — or turns out to need teaching — and puts the setup
+  // step back over it. The replay carried on painting perfectly behind a panel
+  // nobody could see.
+  if (replaying && phase !== 'live') return;
   $('step-connect').style.display = phase === 'connect' ? '' : 'none';
   $('step-setup').style.display = phase === 'setup' ? '' : 'none';
   $('step-live').style.display = phase === 'live' ? '' : 'none';
@@ -1442,8 +1470,10 @@ function onFrame({ uuid, bytes, at }) {
   }
   if (moved.advancedTo) trace.mark(`advanced to ${moved.advancedTo}`);
   if (moved.tareTo !== null) trace.mark(`tare set to ${moved.tareTo}`);
-  render(snap);
-  broadcast(snap);
+  // A scale left on the counter keeps sending. Painting those samples over a
+  // replay would be two shots fighting for one screen, and the live one would
+  // win every frame.
+  if (!replaying) { lastSnap = snap; render(snap); broadcast(snap); }
   // While the tuner is listening it owns the platter: the taps being performed
   // are being performed AT it, and letting them through was what made
   // calibration start shots and undo captures under the person's hands.
@@ -1838,8 +1868,12 @@ function paintSlides() {
   const brewing = sess.step === 'brew' || sess.step === 'rate';
   $('slide-prep').dataset.off = brewing ? 'left' : '';
   $('slide-pour').dataset.off = brewing ? '' : 'right';
-  $('mid-tag').textContent = sess.step === 'rate' ? 'The shot'
-    : brewing ? 'The pour' : 'Weighing';
+  // WHAT THIS PANEL IS SHOWING, and during a replay that is not a pour. This
+  // runs every frame, so a name set once when the replay opened was overwritten
+  // before anyone saw it.
+  $('mid-tag').textContent = replaying ? replayTag
+    : sess.step === 'rate' ? 'The shot'
+      : brewing ? 'The pour' : 'Weighing';
   // ALL OF IT BELONGS TO THE CHART, so none of it is up before the chart is.
   // The swatches describe a curve that is not on screen. The reference picker
   // was kept out on the argument that a reference is chosen before you pour —
@@ -2066,7 +2100,9 @@ function render(s) {
   paintLadder(s);
   paintDial(s.net);
   paintSlides();
-  soundCues(s);
+  // The cue is for a hand on a paddle. There is no paddle here, and a chime for
+  // a shot that is not running is the confusion this whole mode exists to avoid.
+  if (!replaying) soundCues(s);
   $('o-t').textContent = fmt(s.elapsed, 1);
   $('o-f').textContent = fmt(s.flow, 2);
   paintFlow($('flowrow'), s.flow, sess.method);
@@ -2081,7 +2117,9 @@ function render(s) {
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   setText('o-trend', fmt(s.trend, 3));
   paintPourTop(s, { lands, eta });
-  pipLive(s);
+  // Pip reads a shot as it happens and says what to do next. On a recording
+  // there is nothing to do next, and he already said it the first time.
+  if (!replaying) pipLive(s);
 
   // A channel is worth knowing about while the shot is still running, not only
   // in the post-mortem. The trend is NaN until there is enough shot to judge,
@@ -2109,11 +2147,19 @@ function render(s) {
   if (s.state === BREW.EXTRACTING && Number.isFinite(target)) {
     const lag = kit.stopLag($('p-machine').value).seconds;
     const signal = stopSignalWeight(target, s.flow, lag);
-    if (!stopArmed && s.net >= signal) {
-      stopArmed = true;
-      stopSeen = { weight: s.net, flow: s.flow };
+    // Armed for the eye on a replay, armed for the record on a shot. The real
+    // flag is what finishShot reads to learn this machine's drip lag, so a
+    // replay setting it would teach the machine from a shot it already learned
+    // from — the same measurement counted twice.
+    if (replaying) {
+      if (s.net >= signal) label = `${s.label} — stop now, ${fmt(target, 1)} g incoming`;
+    } else {
+      if (!stopArmed && s.net >= signal) {
+        stopArmed = true;
+        stopSeen = { weight: s.net, flow: s.flow };
+      }
+      if (stopArmed) label = `${s.label} — stop now, ${fmt(target, 1)} g incoming`;
     }
-    if (stopArmed) label = `${s.label} — stop now, ${fmt(target, 1)} g incoming`;
   }
   // The strip holds a span so the text can move without the background moving
   // with it — a block that slides its own colour in reads as a glitch.
@@ -2127,6 +2173,11 @@ function render(s) {
   strip.dataset.state = s.state;
   strip.classList.toggle('on', s.state === BREW.EXTRACTING && !stopArmed);
   strip.classList.toggle('stop', stopArmed && s.state === BREW.EXTRACTING);
+
+  // EVERYTHING ABOVE THIS LINE IS PAINT. Everything below it changes something,
+  // and a replay must do the first and none of the second: it is the same shot
+  // being looked at again, not a second shot happening.
+  if (replaying) { drawCurve(); return; }
 
   if (s.state === BREW.EXTRACTING && shotStartedAt === null) shotStartedAt = Date.now();
   if (s.state === BREW.COMPLETE && draft.time_s === null && brew.curve.length > 2) finishShot();
@@ -2587,10 +2638,19 @@ function fillKitSelects() {
 }
 let defaultsApplied = false;
 
-const targetDose = () => (Number.isFinite(sess.dose) ? sess.dose
-  : num('p-dose') ?? methodOf(sess.method).defaults.dose);
+const targetDose = () => (replaying && Number.isFinite(replayDose) && replayDose > 0
+  ? replayDose
+  : (Number.isFinite(sess.dose) ? sess.dose
+    : num('p-dose') ?? methodOf(sess.method).defaults.dose));
 const targetRatio = () => num('p-ratio') ?? methodOf(sess.method).defaults.ratio;
-const targetYield = () => brewTarget(sess.method, targetDose(), targetRatio());
+// THE SHOT BEING LOOKED AT, which during a replay is not the one the form is
+// set up for. You can come back a week later, with a different coffee and a
+// different ratio in the fields, and watch an old pour — and the dial, the
+// bands and the stop-at weight all have to be drawn against what that shot was
+// aiming at, or the replay shows a shot missing a target it never had.
+const targetYield = () => (replaying && Number.isFinite(replayTarget) && replayTarget > 0
+  ? replayTarget
+  : brewTarget(sess.method, targetDose(), targetRatio()));
 
 /**
  * What the app is about to capture, and how long you have to disagree with it.
@@ -3359,7 +3419,10 @@ function drawCurve() {
   if (!holder) return;
   const h = Math.max(200, Math.round(holder.clientHeight || 300));
   const w = Math.max(340, Math.round(holder.clientWidth || 640));
-  const weight = brew.curve.map(([t, x]) => [t, x]);
+  // The shot so far. Live that is everything captured; replaying it is the part
+  // that has played, which is what makes the curve draw itself rather than sit
+  // there finished while the numbers move.
+  const weight = replaying ? replaying.trace() : brew.curve.map(([t, x]) => [t, x]);
   const fs = weight.length > 4 ? flowSeries(weight, 0.8) : [];
   chart.livePlot(holder, {
     weight,
@@ -3512,39 +3575,124 @@ function finishShot() {
 }
 
 /* ----------------------------------------------------------------- replay */
-// The recording of the pour that just happened, and whether to keep it.
+// Watching the shot again ON THE SCREEN YOU WATCHED IT ON.
 //
-// `draft.curve` is the stream-rate capture still in memory — every sample the
-// scale sent. What goes into the shot record is a 4 Hz reduction, which is the
-// right thing to plot and to put in a CSV and the wrong thing to scrub through:
-// a quarter-second step is visible when you are dragging to find the second the
-// flow turned over. So the replay you watch now is the full capture, and
-// keeping it stores that rather than the reduction.
-let player = null;
+// The first version of this was a panel of its own beside the pour — its own
+// dial, its own plot, its own reading of the bands. That is a second rendering
+// of a shot, and two renderings of one thing disagree eventually. It also
+// answered the wrong question: what you want is not a chart that moves, it is
+// the brewing screen doing again what it did, with the weight climbing, the
+// dial crossing out of ristretto, the stop-at weight appearing, the channel
+// warning arriving at the second it arrived.
+//
+// So there is no replay panel. `render()` paints this screen from one snapshot
+// per frame, and a replay is that same function fed snapshots off the recording
+// instead of off the scale. Everything the screen can show, it shows.
+//
+// What the replay must NOT do is the half of render() past the paint: filing
+// the shot, arming the stop, advancing the session, talking to the phone,
+// sounding the cue, or letting Pip narrate. Those are marked in render() and
+// gated on `replaying`.
+//
+// `draft.curve` is the stream-rate capture still in memory. What goes into the
+// shot record is a 4 Hz reduction, right for a plot and a CSV and wrong for a
+// scrub — a quarter-second step is visible when you are dragging to find the
+// second the flow turned over. So this plays the full capture, and keeping it
+// stores that rather than the reduction.
 
-function closeReplay() {
-  player?.destroy();
-  player = null;
-  $('replay-panel').hidden = true;
-  $('replay-panel').replaceChildren();
-  $('slide-pour').classList.remove('replaying');
+function replayShot() {
+  if (savedId) {
+    const rec = store.all().find((r) => r.shot_id === savedId);
+    if (rec) return rec;
+  }
+  return { dose_g: draft.dose_g, yield_g: draft.yield_g, method: draft.method };
 }
 
-function openReplay() {
+function closeReplay() {
+  if (!replaying) return;
+  replaying.destroy();
+  replaying = null;
+  document.body.classList.remove('replaying');
+  $('replay-bar').hidden = true;
+  $('replay-open').textContent = 'Watch it again';
+  $('replay-open').setAttribute('aria-pressed', 'false');
+  // Back to what the screen was showing before the replay borrowed it. Only if
+  // there is a real one: a replay opened straight from the log has no shot in
+  // memory behind it, and there is nothing to restore.
+  if (replayStep) { sess.goto(replayStep); replayStep = null; paintSession(); }
+  if (lastSnap) render(lastSnap);
+  paintSlides();
+  drawCurve();
+  // And to the phase the scale actually justifies: a replay borrowed the live
+  // screen without a scale behind it, and leaving it there would offer a pour
+  // panel wired to nothing.
+  if (!link) setPhase(deviceKey ? 'setup' : 'connect');
+}
+
+function openReplay(curve = draft.curve, shot = replayShot()) {
   closeReplay();
-  const shot = savedId ? store.all().find((r) => r.shot_id === savedId) : null;
-  player = mountReplay($('replay-panel'), {
-    shot: shot ?? { dose_g: draft.dose_g, yield_g: draft.yield_g, method: draft.method },
-    curve: draft.curve,
-    autoplay: true,
-    onClose: closeReplay,
+  const r = new replay.Replay(curve, {
+    onTick: () => {
+      render(replaying.snapshot({
+        extracting: BREW.EXTRACTING, complete: BREW.COMPLETE,
+        label: (st) => BREW_LABEL[st],
+      }));
+      paintTransport();
+    },
   });
-  $('replay-panel').hidden = false;
-  // The static curve and the projections step aside while it plays. Two charts
-  // of the same shot, one moving and one not, is a screen that has to be read
-  // twice to find out which one is the answer.
-  $('slide-pour').classList.add('replaying');
-  $('replay-panel').focus();
+  if (!r.playable) {
+    $('replay-msg').textContent = 'There is not enough of this shot to watch.';
+    return;
+  }
+  replaying = r;
+  // The target the dial and the stop-at are drawn against has to be this shot's,
+  // not whatever the form currently says — you may be set up for a different
+  // coffee by the time you come back to watch an old one.
+  replayTarget = Number(shot.yield_g);
+  replayDose = Number(shot.dose_g);
+  document.body.classList.add('replaying');
+  // THE PANEL SAYS WHAT IT IS SHOWING. A hatched border is easy to clip and
+  // easy to stop seeing; the tag over the panel is neither, and it is already
+  // the thing that names what this column is.
+  replayTag = shot.shot_id
+    ? `Replay \u00b7 ${String(shot.shot_id).replace('shot-', '#')}` : 'Replay';
+  // THE BREWING SCREEN HAS TO BE ON SCREEN. Opening a kept replay from the log
+  // is the case that forces this: there is no scale connected, so the page is
+  // sitting on connect or on the teaching step, and driving the pour panel
+  // behind it painted a perfect replay nobody could see. A recording needs no
+  // scale, so it does not wait for one.
+  setPhase('live');
+  $('replay-bar').hidden = false;
+  $('replay-open').textContent = 'Stop watching';
+  $('replay-open').setAttribute('aria-pressed', 'true');
+  // The pour slide is the one with the dial and the curve on it, so the replay
+  // needs the session there — and has to put it back afterwards. Leaving it on
+  // brew turned a finished shot back into a running one: `.live-only` is the
+  // projections, and they are hidden by being past the pour, not by the shot
+  // being over.
+  replayStep = sess.step;
+  sess.goto('brew');
+  paintSession();
+  r.play();
+}
+
+let replayTarget = NaN;
+let replayDose = NaN;
+let replayTag = 'Replay';
+let replayStep = null;
+
+function paintTransport() {
+  const r = replaying;
+  if (!r) return;
+  $('rp-play').textContent = r.playing ? 'Pause' : (r.ended ? 'Again' : 'Play');
+  $('rp-play').setAttribute('aria-pressed', String(r.playing));
+  $('rp-clock').textContent = `${fmt(r.t, 1)} / ${fmt(r.duration, 1)} s`;
+  if (document.activeElement !== $('rp-scrub')) {
+    $('rp-scrub').value = String(Math.round((r.t / (r.duration || 1)) * 1000));
+  }
+  for (const b of $('rp-speeds').querySelectorAll('button')) {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === r.speed));
+  }
 }
 
 function paintReplayRow() {
@@ -3556,12 +3704,12 @@ function paintReplayRow() {
   $('replay-keep').setAttribute('aria-pressed', String(kept));
   $('replay-keep').disabled = !savedId;
   $('replay-msg').textContent = kept
-    ? 'Saved with this shot \u2014 it is in the log under Shots.'
+    ? 'Kept with this shot \u2014 it opens from the log under Shots.'
     : '';
 }
 
 $('replay-open').addEventListener('click', () => {
-  if (player) closeReplay(); else openReplay();
+  if (replaying) closeReplay(); else openReplay();
 });
 $('replay-keep').addEventListener('click', () => {
   if (!savedId) return;
@@ -3569,8 +3717,8 @@ $('replay-keep').addEventListener('click', () => {
     replay.drop(savedId);
     $('replay-msg').textContent = 'Removed. The shot and its curve are still in the log.';
   } else if (!replay.save(savedId, draft.curve)) {
-    // Storage is a few megabytes and a pour is on the order of ten kilobytes,
-    // so this is the hundredth replay rather than the second — but a save that
+    // Storage is a few megabytes and a pour is on the order of ten kilobytes, so
+    // this is the hundredth replay rather than the second — but a save that
     // silently did not happen is worse than one that says so.
     $('replay-msg').textContent = 'No room to keep it. Removing a few old replays '
       + 'in Settings frees the space.';
@@ -3578,6 +3726,52 @@ $('replay-keep').addEventListener('click', () => {
   }
   paintReplayRow();
 });
+$('rp-play').addEventListener('click', () => replaying?.toggle());
+$('rp-stop').addEventListener('click', closeReplay);
+$('rp-scrub').addEventListener('input', () => {
+  if (replaying) replaying.seek((Number($('rp-scrub').value) / 1000) * replaying.duration);
+});
+$('rp-speeds').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-speed]');
+  if (b) replaying?.setSpeed(Number(b.dataset.speed));
+});
+// Space is what every player uses, and this is a player. Not while a control is
+// focused, or it would fight the button it is over.
+addEventListener('keydown', (e) => {
+  if (!replaying) return;
+  const onControl = /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName ?? '');
+  if (e.key === 'Escape') { closeReplay(); return; }
+  if (onControl) return;
+  if (e.key === ' ') { e.preventDefault(); replaying.toggle(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); replaying.seek(replaying.t + 1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); replaying.seek(replaying.t - 1); }
+});
+
+/**
+ * A replay asked for by the log: live.html#replay=shot-012.
+ *
+ * The Shots page has no brewing screen and should not grow one — this is where
+ * the brewing screen lives, so that is where a kept replay opens. Read once, on
+ * load, and the fragment is cleared so a refresh is not a second replay.
+ */
+function replayFromUrl() {
+  const m = /[#&?]replay=([\w-]+)/.exec(location.hash + location.search);
+  if (!m) return;
+  const id = m[1];
+  history.replaceState(null, '', location.pathname + location.search.replace(/[?&]replay=[\w-]+/, ''));
+  const curve = replay.load(id);
+  const rec = store.all().find((r) => r.shot_id === id);
+  if (!curve || !rec) {
+    $('live-msg').textContent = `No kept replay for ${id}.`;
+    return;
+  }
+  $('replay-row').hidden = false;
+  $('replay-keep').textContent = 'Replay kept';
+  $('replay-keep').disabled = true;
+  openReplay(curve, rec);
+}
+
+
 
 /* ------------------------------------------------------------------- rate */
 function buildRateControls() {
@@ -4112,6 +4306,8 @@ paintSupply();
 paintCoffee();
 paintHistory();
 refreshGhostPicker();
+// Last, so the screen it borrows is already built.
+replayFromUrl();
 
 /* ------------------------------------------------------------- test harness */
 // The demo buttons are gone from the UI, but the mock scales remain drivable so
@@ -4126,6 +4322,11 @@ if (mock && !manualMock) {
   // The brew machine too: the software tare lives here, and a test that cannot
   // see it cannot tell a tared cup from a coincidence.
   window.__brew = brew;
+  // The transport, so the suite can drive a replay without a wall clock.
+  window.__replay = {
+    open: openReplay, close: closeReplay,
+    get now() { return replaying; },
+  };
   // The peer link to the phone, so a test can drop its transport the way a
   // pocket does. A drop cannot be asked for politely — closing the far end
   // does not promptly tell this one — so the seam is the connection itself.
