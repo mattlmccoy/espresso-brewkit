@@ -28,6 +28,11 @@ const listeners = new Set();
  * on the settings page must not silently alter anybody's behaviour.
  */
 export const DEFAULTS = Object.freeze({
+  // ---- where the coach sits ----
+  // Which corner Pip floats in. He is on every page, so this is one decision
+  // rather than one per screen. Anything not a corner falls back to bottom-left.
+  pipAt: 'bl',
+
   // ---- how a reading becomes a measurement ----
   // Anything lighter than this is not a dose, it is a fingertip or a draught.
   minMass: 1,

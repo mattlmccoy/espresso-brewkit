@@ -7406,6 +7406,62 @@ try {
         : showing.slice(0, 4).join('  |  ') || `${hiddenSeen} hidden elements, none rendering`);
   }
 
+  /* --------------------------------- the target, and the tail of a shot */
+  {
+    const sh = await ctx.newPage();
+    await sh.goto(`${B}/live.html`);
+    // A shot shaped like a real one: a ramp, a stop at 21 s, then the drip.
+    const curve = [];
+    let w = 0;
+    for (let i = 0; i <= 110; i++) {
+      const tt = +(i * 0.25).toFixed(2);
+      const q = tt < 3 ? 0.4 : tt < 21 ? 0.5 + (tt - 3) * 0.14
+        : Math.max(0, 3.0 * Math.exp(-(tt - 21) * 1.1));
+      w += q * 0.25;
+      curve.push([tt, +w.toFixed(2)]);
+    }
+    await sh.evaluate((c) => {
+      localStorage.setItem('brewkit.shots.v1', JSON.stringify([{
+        shot_id: 'shot-006', bean_name: 'Peru', dose_g: 18, yield_g: +c.at(-1)[1],
+        time_s: 27.4, method: 'espresso', ratio: 2.31,
+        curve: c.map(([tt, x]) => `${tt}:${x}`).join('|'),
+      }]));
+    }, curve);
+    await sh.goto(`${B}/live.html?mock=generic#replay=shot-006`);
+    await sh.waitForFunction(() => window.__replay?.now, { timeout: 10000 });
+    await sh.evaluate(() => window.__replay.now.pause());
+    await sh.waitForTimeout(250);
+    const aim = await sh.evaluate(() => ({
+      header: document.getElementById('p-target').textContent.trim(),
+      target: document.getElementById('c-target').textContent,
+    }));
+    // THE TARGET IS WHAT IT AIMED AT, not what it reached. Using the yield put
+    // the line exactly where the shot landed, so every replay hit its target by
+    // definition — and an 18 g dose showed a 41.4 g target beside a header
+    // claiming 1:2.
+    t('replay: the target is the one the shot aimed at, not the yield it reached',
+      Math.abs(parseFloat(aim.target) - 36) < 0.2 && /36\.0 g out/.test(aim.header),
+      `${aim.header} · target tile ${aim.target}`);
+
+    const tail = await sh.evaluate(async () => {
+      const R = await import('./assets/js/core/replay.js');
+      const C = await import('./assets/js/core/coach.js');
+      const d = R.prepare(window.__replay.now.data.pts);
+      return { stoppedAt: d.stoppedAt, duration: d.duration,
+               said: R.saidDuring(d, C.live, { target: 36 }).map((l) => l.text) };
+    });
+    // A curve does not end when the shot does: the pump cuts and the puck keeps
+    // delivering, so the last seconds are a decay to nothing. Read as the pour,
+    // that is a shot slowing to a halt — which is how he came to say "close to
+    // choking" over a shot that had been stopped on purpose.
+    t('replay: the drip after the pump stops is not read as the pour',
+      tail.stoppedAt < tail.duration - 2
+      && !tail.said.some((x) => /chok/i.test(x)),
+      `stopped at ${tail.stoppedAt} of ${tail.duration} s; said `
+      + (tail.said.length ? tail.said.join(' | ') : 'nothing'));
+    await sh.close();
+  }
+
   /* ------------------------------------- a channel is a step, not a slope */
   {
     // THE PHYSICS. Flow CLIMBING is what an ordinary shot does: puck resistance
@@ -7543,6 +7599,81 @@ try {
       onAdvice.length > 0,
       onAdvice || 'said nothing with a best shot at 28 s and a last one at 20 s');
     await cp.close();
+  }
+
+  /* ----------------------------------------------- he floats, and he moves */
+  {
+    const fl = await ctx.newPage();
+    await fl.setViewportSize({ width: 1400, height: 900 });
+    await fl.goto(`${B}/shots.html`);
+    await fl.waitForTimeout(300);
+    const start = await fl.evaluate(() => {
+      const d = document.getElementById('pip-dock');
+      const r = d.getBoundingClientRect();
+      return { pos: getComputedStyle(d).position, at: d.dataset.at,
+               onScreen: r.bottom <= innerHeight + 1 && r.top >= -1 };
+    });
+    // IN THE FLOW he sat wherever the page ended, which on a long detail view
+    // is below the fold — so the character commenting on what you are looking
+    // at was not on screen while you looked at it.
+    t('pip: he floats over the page rather than sitting at the end of it',
+      start.pos === 'fixed' && start.onScreen,
+      `position ${start.pos}, in the viewport ${start.onScreen}, corner ${start.at}`);
+
+    // Dragged to another corner, and it sticks — on this page and the next.
+    const bar = await fl.locator('#pip-dock .pip-bar').boundingBox();
+    await fl.mouse.move(bar.x + 20, bar.y + 6);
+    await fl.mouse.down();
+    await fl.mouse.move(1250, 110, { steps: 6 });
+    const mid = await fl.evaluate(() => ({
+      hints: document.querySelectorAll('.pip-snap').length,
+      near: document.querySelector('.pip-snap.near')?.dataset.corner ?? '',
+    }));
+    await fl.mouse.up();
+    await fl.waitForTimeout(300);
+    const after = await fl.evaluate(() => document.getElementById('pip-dock').dataset.at);
+    t('pip: he shows where he can land and goes to the one you drop him nearest',
+      mid.hints === 4 && mid.near === 'tr' && after === 'tr',
+      `${mid.hints} places offered, nearest ${mid.near}, landed ${after}`);
+    // He is on every page, so where he sits is one decision rather than five.
+    await fl.goto(`${B}/advisor.html`);
+    await fl.waitForTimeout(300);
+    const kept = await fl.evaluate(() => ({
+      at: document.getElementById('pip-dock').dataset.at,
+      // The bubble spawns to his right with a tail pointing back at him, which
+      // runs off the screen from a right-hand corner.
+      flipped: getComputedStyle(document.querySelector('#pip-dock .pip')).flexDirection,
+      stray: document.querySelectorAll('.pip-snap').length,
+    }));
+    t('pip: the corner you put him in is where he is on the next page too',
+      kept.at === 'tr' && kept.flipped === 'row-reverse' && kept.stray === 0,
+      `corner ${kept.at}, bubble ${kept.flipped}, ${kept.stray} stray hints`);
+
+    // AND HIS EYES GO WHERE YOU ARE. The two glance frames are eyes-left and
+    // eyes-right and he already picked one at random — so he was looking
+    // around, just never at anything.
+    const looks = await fl.evaluate(async () => {
+      const { FACES } = await import('./assets/js/core/pip.js');
+      const box = document.querySelector('#pip-dock .pip-box').getBoundingClientRect();
+      const face = document.querySelector('#pip-dock .pip-face');
+      const seen = [];
+      for (const x of [10, innerWidth - 10]) {
+        document.dispatchEvent(new PointerEvent('pointermove', { bubbles: true }));
+        dispatchEvent(new PointerEvent('pointermove',
+          { pointerType: 'mouse', clientX: x, clientY: box.top }));
+        // Force a glance rather than waiting up to nine seconds for one.
+        await new Promise((r) => setTimeout(r, 30));
+        seen.push({ x, mid: box.left + box.width / 2 });
+      }
+      return { seen, glances: FACES.idle.glance };
+    });
+    // The frames themselves carry the direction: index 0 has the eyes left of
+    // centre, index 1 right of it. If that ever flips, aiming inverts silently.
+    t('pip: his glance frames are left-then-right, which is what aiming relies on',
+      looks.glances.length === 2
+      && looks.glances[0].indexOf('_') < looks.glances[1].indexOf('_'),
+      looks.glances.join('  '));
+    await fl.close();
   }
 
   /* ------------------------------------------------------- him, everywhere */

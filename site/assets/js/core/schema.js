@@ -38,6 +38,13 @@ export const FIELDS = [
 
   // what came out
   { key: 'yield_g',       label: 'Yield out',      unit: 'g',   type: 'number', group: 'result', measured: true, step: 0.1 },
+  // WHAT YOU AIMED AT, which is not what came out and was not recorded at all.
+  // The log kept the yield and the achieved ratio, so nothing afterwards could
+  // say whether a 41 g shot was a 41 g intention or a 36 g one that ran away —
+  // and a replay drawing its target line at the achieved yield draws a shot
+  // that hit its target by definition, which is the one thing a target line
+  // must never do.
+  { key: 'target_g',      label: 'Target yield',   unit: 'g',   type: 'number', group: 'result', step: 0.1 },
   { key: 'ratio',         label: 'Ratio',          unit: ':1',  type: 'number', group: 'derived' },
   { key: 'time_s',        label: 'Shot time',      unit: 's',   type: 'number', group: 'result', measured: true, step: 0.1 },
   { key: 't_first_drip_s', label: 'First drip',    unit: 's',   type: 'number', group: 'result' },

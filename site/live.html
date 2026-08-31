@@ -445,7 +445,6 @@
   /* flex:none so an overflowing column cannot squeeze the pane to its title
      bar, and align-self so it hugs its content instead of being stretched to
      the column's width — a stretched window is a banner. */
-  #pip-dock { margin-top:10px; flex:none; align-self:flex-start; }
   /* Ten buttons at 44 px do not fit a 340 px column, and wrapping them 7-and-3
      makes the scale look like it stops at seven. */
   body.rating .rate { display:grid; grid-template-columns:repeat(5, 1fr); }
@@ -3565,6 +3564,10 @@ function finishShot() {
   // thirty seconds.
   draft.puck_prep_s = sess.puckPrep(shotStartedAt ?? Date.now());
   draft.method = sess.method;
+  // What this shot was aiming at, recorded beside what it actually did. Free to
+  // capture and impossible to reconstruct later: dose times ratio only recovers
+  // it if neither was touched afterwards.
+  draft.target_g = +targetYield().toFixed(1);
   // What it turned out to be, rather than what you set out to make. Aiming at
   // 36 g and cutting at 27 is a ristretto, and the log should say so — a ratio
   // is a number you have to interpret every time you read it.
@@ -3679,8 +3682,20 @@ function openReplay(curve = draft.curve, shot = replayShot()) {
   // The target the dial and the stop-at are drawn against has to be this shot's,
   // not whatever the form currently says — you may be set up for a different
   // coffee by the time you come back to watch an old one.
-  replayTarget = Number(shot.yield_g);
+  // THE TARGET IT AIMED AT, NOT THE YIELD IT REACHED. Using yield_g put the
+  // target line exactly where the shot landed — so every replay hit its target
+  // by definition, the dial read "espresso" against a number the shot defined,
+  // and an 18 g dose showed a 41.4 g target beside a header claiming 1:2.
+  //
+  // Shots recorded from now on carry target_g. For everything already in the
+  // log it is gone, so it is reconstructed from the dose at the method's own
+  // ratio — 18 g of espresso aims at 36 g — which is what the app would have
+  // proposed and is right far more often than the yield is.
+  const method = shot.method || 'espresso';
   replayDose = Number(shot.dose_g);
+  replayTarget = Number.isFinite(Number(shot.target_g)) && Number(shot.target_g) > 0
+    ? Number(shot.target_g)
+    : brewTarget(method, replayDose, methodOf(method).defaults.ratio);
   // WHAT HE SAID, AND WHEN. Derived from the curve rather than recorded, so it
   // works on shots pulled long before any of this existed and cannot drift out
   // of step with the coach that produced it. Worked out once here rather than
