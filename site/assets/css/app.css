@@ -1043,6 +1043,16 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
    inherits every theme without a palette of its own, and it is native to the
    terminal theme instead of tolerated by it. */
 .pip {
+  /* A LITTLE WINDOW, AND A FIXED ONE.
+     Stretched to the column it was a banner, not a window — what makes a
+     terminal read as a terminal is being a small object sitting on a surface
+     rather than a bar spanning one.
+     Sizing it to its content was the first fix and the wrong one: every
+     message gave a different width, so the window resized on every line, which
+     no terminal does and which reads as jitter. A window has a size and the
+     text wraps inside it. Idle, that leaves a small pane holding one short
+     line, which is exactly what an idle terminal looks like. */
+  width: min(320px, 100%);
   border: var(--bw) solid var(--ink);
   border-radius: var(--radius);
   background: var(--panel);
@@ -1051,10 +1061,10 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 }
 
 .pip-bar {
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 10px;
   background: var(--ink); color: var(--tag-fg);
-  padding: 4px 4px 4px 8px;
-  font: 700 10px/1.6 var(--mono); letter-spacing: .1em;
+  padding: 2px 2px 2px 7px;
+  font: 700 8.5px/1.7 var(--mono); letter-spacing: .09em;
 }
 .pip-who { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The state word is the colour signal. Nothing else in the pane ever takes a
@@ -1065,28 +1075,28 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .pip[data-tone="warn"] .pip-state { color: var(--flag); opacity: 1; }
 .pip[data-tone="good"] .pip-state { color: var(--tag-fg); opacity: 1; }
 .pip-x {
-  flex: none; width: 20px; height: 20px; padding: 0;
-  font: 700 14px/1 var(--mono);
+  flex: none; width: 15px; height: 15px; padding: 0;
+  font: 700 11px/1 var(--mono);
   background: none; border: 0; box-shadow: none;
   color: var(--tag-fg); opacity: .7; cursor: pointer; border-radius: 0;
 }
 .pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--tag-fg) 22%, transparent); }
 
 .pip-line {
-  display: flex; align-items: baseline; gap: 9px;
-  padding: 9px 10px 10px;
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 6px 8px 7px;
   min-width: 0;
 }
 /* The face never wraps and never shrinks — a face broken across two lines is
    not a face. */
 .pip-face {
-  flex: none; font: 700 15px/1.3 var(--mono);
-  letter-spacing: .04em; white-space: pre;
+  flex: none; font: 700 12.5px/1.35 var(--mono);
+  letter-spacing: .02em; white-space: pre;
 }
 .pip[data-tone="warn"] .pip-face { color: var(--warn); }
 .pip-text {
-  margin: 0; flex: 1 1 auto; min-width: 0;
-  font: 400 12.5px/1.45 var(--mono); color: var(--ink);
+  margin: 0; flex: 0 1 auto; min-width: 0;
+  font: 400 11px/1.4 var(--mono); color: var(--ink);
 }
 .pip-say:not(:empty) { margin-right: .45em; }
 

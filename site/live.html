@@ -437,7 +437,10 @@
      #pip is a child of a flex column whose content already overflows, so a
      default flex-shrink of 1 lets it be compressed to nothing — which is
      exactly what happened: 35 px of pane, all of it chrome. */
-  #pip { margin-top:10px; flex:none; }
+  /* flex:none so an overflowing column cannot squeeze the pane to its title
+     bar, and align-self so it hugs its content instead of being stretched to
+     the column's width — a stretched window is a banner. */
+  #pip { margin-top:10px; flex:none; align-self:flex-start; }
   #pip[hidden] { display:none; }
   /* Ten buttons at 44 px do not fit a 340 px column, and wrapping them 7-and-3
      makes the scale look like it stops at seven. */

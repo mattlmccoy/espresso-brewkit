@@ -1321,6 +1321,34 @@ try {
     pipWire.before.missing.length === 0,
     pipWire.before.missing.join(', ')
       || `all present, advance ${pipWire.before.unit} px`);
+  // A WINDOW, NOT A BANNER. The first build stretched to the column, which is
+  // what a bar does and not what a terminal does. It also has to be the same
+  // width whatever it is saying — sizing to content made it resize on every
+  // line, which reads as jitter.
+  const pipBox = await page.evaluate(async () => {
+    const { mountPip } = await import('./assets/js/core/pip.js');
+    const host = document.getElementById('pip');
+    host.hidden = false;
+    const pip = mountPip(host);
+    const col = host.parentElement.getBoundingClientRect().width;
+    const w = () => host.getBoundingClientRect().width;
+    pip.mood('idle');
+    const quiet = w();
+    pip.say('Flow jumped.', { mood: 'alert' });
+    const short = w();
+    pip.say('Your last six shots on this setting ranged 21 to 39 s. That spread '
+      + 'is the puck, not the grind.', { mood: 'think' });
+    const long = w();
+    return { col: Math.round(col), quiet: Math.round(quiet),
+      short: Math.round(short), long: Math.round(long) };
+  });
+  t('pip: is a little window, not a bar stretched across the column',
+    pipBox.quiet > 0 && pipBox.quiet < pipBox.col * 0.6,
+    `${pipBox.quiet} px in a ${pipBox.col} px column`);
+  t('pip: keeps one size whatever it is saying, the way a window does',
+    pipBox.quiet === pipBox.short && pipBox.short === pipBox.long,
+    `idle ${pipBox.quiet}, short ${pipBox.short}, long ${pipBox.long}`);
+
   t('pip: is on the page as a prompt, with a face and a caret that trails it',
     pipWire.before.bar && /\[.+\]/.test(pipWire.before.face)
     && pipWire.before.caretInline && !pipWire.before.hidden,
