@@ -212,6 +212,10 @@
     color:var(--ink-mute); }
   .strip .v { font:800 clamp(19px, 6vw, 27px)/1.1 var(--sans); font-variant-numeric:tabular-nums; }
   .strip .v small { font-size:.5em; font-weight:700; opacity:.6; }
+  /* The last few seconds, on the screen that is actually being looked at from
+     across the room. */
+  .strip .c.is-due { border-color:var(--accent); }
+  .strip .c.is-due .k, .strip .c.is-due .v { color:var(--accent); }
   .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .head .who { font:700 13px/1.2 var(--sans); }
   .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
@@ -322,6 +326,19 @@
   /* Pip sits in the flow, full width, and only exists once there is something
      to repeat. font-size drives the whole pane, so this is all the sizing it
      needs on a phone. */
+  /* THE CLEAN VIEW, on the screen most likely to be read at arm's length while
+     both hands are busy. The ladder repeats the bands the dial already draws,
+     and several of the seven cells are projections; what is left is the weight,
+     the time, the flow and where to stop. */
+  body.clean #ladder,
+  body.clean #c-ratio,
+  body.clean #c-lands,
+  body.clean #c-dose,
+  body.clean #hint { display:none !important; }
+  body.clean.brewing .strip { grid-template-columns:repeat(2, 1fr); }
+  @media (min-width: 700px) {
+    body.clean.brewing .strip { grid-template-columns:repeat(4, 1fr); }
+  }
   #pip { font-size:12px; margin:0 0 2px; }
   #pip[hidden] { display:none; }
 
@@ -409,6 +426,8 @@
     <!-- This page had no way to change its own theme, and no way to follow the
          laptop's either, so a dark laptop beside a light phone was the normal
          case. The button is the local override; without it the frame decides. -->
+    <button class="ghost" id="clean" type="button" aria-pressed="false" hidden
+            style="padding:6px 10px;box-shadow:none;font-size:11px">Clean</button>
     <button class="ghost" data-theme-toggle id="theme" type="button"
             style="padding:6px 10px;box-shadow:none;font-size:11px">Theme</button>
     <button class="ghost" id="unpair" type="button" hidden
@@ -562,7 +581,7 @@
         <div class="v" id="ratio">—</div></div>
       <div class="c brew-only" id="c-lands"><div class="k">Lands at</div>
         <div class="v" id="lands">—</div></div>
-      <div class="c brew-only" id="c-cut"><div class="k">Cut in</div>
+      <div class="c brew-only" id="c-cut"><div class="k">Stop at</div>
         <div class="v" id="cut">—</div></div>
     </div>
     <!-- The reason this device exists is that it is the one across the room
@@ -591,6 +610,7 @@
 import { initTheme, paintFlow, applyTheme, themeChosen, currentTheme } from './assets/js/ui.js';
 import { LiveLink } from './assets/js/core/link.js';
 import { fillProgress } from './assets/js/core/session.js';
+import { cutPoint } from './assets/js/core/cutoff.js';
 import * as cue from './assets/js/core/cue.js';
 import { svg as qrSvg } from './assets/js/core/qr.js';
 import { scan as scanQr } from './assets/js/core/qrscan.js';
@@ -633,6 +653,7 @@ function setConn(state) {
   $('watching').hidden = !live;
   $('unpair').hidden = !live;
   $('cues').hidden = !live;
+  $('clean').hidden = !live;
   if (state === 'open') {
     wasOpen = true;
     // Nothing to look for any more, and a camera left running behind a live
@@ -703,18 +724,19 @@ function paintStrip(f, brewing) {
   $('ratio').innerHTML = known && Number.isFinite(w) && w > 0
     ? `1:<b>${(w / dose).toFixed(2)}</b>` : '—';
 
+  // The same module the laptop stops by, so the two screens cannot disagree
+  // about where the stop is. The lag rides along in the frame because it is
+  // learned per machine and lives over there.
   const flow = Number(f.q);
-  const lag = Number.isFinite(f.lag) ? f.lag : 1;
   const pouring = brewing && Number.isFinite(flow) && flow > 0.05;
-  const lands = pouring && Number.isFinite(w) ? w + flow * lag : NaN;
-  $('lands').innerHTML = Number.isFinite(lands)
-    ? `${lands.toFixed(1)}<small>g</small>` : '—';
-
-  const tgt = Number(f.target);
-  const eta = pouring && Number.isFinite(tgt) && Number.isFinite(w)
-    ? (tgt - flow * lag - w) / flow : NaN;
-  $('cut').innerHTML = Number.isFinite(eta) && eta > -30
-    ? `${Math.max(0, eta).toFixed(1)}<small>s</small>` : '—';
+  const cut = pouring
+    ? cutPoint({ target: f.target, flow, lag: Number.isFinite(f.lag) ? f.lag : 1, net: w })
+    : null;
+  $('lands').innerHTML = cut && Number.isFinite(cut.lands)
+    ? `${cut.lands.toFixed(1)}<small>g</small>` : '—';
+  const show = cut && Number.isFinite(cut.eta) && cut.eta > -30;
+  $('cut').innerHTML = show ? `${cut.at.toFixed(1)}<small>g</small>` : '—';
+  $('c-cut').classList.toggle('is-due', !!(cut && (cut.ready || cut.due)));
 }
 
 function paint(f) {
@@ -1001,6 +1023,25 @@ addEventListener('resize', () => { if (last) drawCurve(last); });
 link.onState = setConn;
 /* The phone is the device standing next to the machine, so it is the one that
    should make the noise. Same cues, driven off the same frames. */
+// Local to this device: a phone propped against the machine wants less on it
+// than a laptop does, and that is a fact about this screen rather than about the
+// shot, so it does not come down the link.
+const CLEAN_KEY = 'brewkit.view.clean';
+let viewClean = false;
+try { viewClean = localStorage.getItem(CLEAN_KEY) === 'on'; } catch { /* ignore */ }
+function paintClean() {
+  document.body.classList.toggle('clean', viewClean);
+  $('clean').textContent = viewClean ? 'Full' : 'Clean';
+  $('clean').setAttribute('aria-pressed', String(viewClean));
+  if (last) drawCurve(last);
+}
+$('clean').addEventListener('click', () => {
+  viewClean = !viewClean;
+  try { localStorage.setItem(CLEAN_KEY, viewClean ? 'on' : 'off'); } catch { /* ignore */ }
+  paintClean();
+});
+paintClean();
+
 const CUE_KEY = 'brewkit.view.cues';
 const gate = new cue.CueGate({ enabled: false });
 try { gate.enabled = localStorage.getItem(CUE_KEY) === 'on'; } catch { /* ignore */ }

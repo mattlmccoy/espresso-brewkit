@@ -136,6 +136,11 @@
         <button class="ghost" id="t-coach" type="button" aria-pressed="false">&mdash;</button>
       </div>
       <div class="tog">
+        <div><strong id="clean-label">Clean view</strong>
+          <p id="clean-hint"></p></div>
+        <button class="ghost" id="t-clean" type="button" aria-pressed="false">&mdash;</button>
+      </div>
+      <div class="tog">
         <div><strong>Tap sensitivity</strong>
           <p id="tap-state">How many grams of platter deflection counts as a tap.</p></div>
         <button class="ghost" id="tap-reset" type="button">Reset</button>
@@ -347,6 +352,20 @@ toggle('t-cues', 'brewkit.cues', true, ['Sound on', 'Sound off']);
     btn.setAttribute('aria-pressed', String(on));
   };
   btn.addEventListener('click', () => { prefs.set({ coach: !(prefs.prefs().coach !== false) }); paint(); });
+  prefs.subscribe(paint);
+  paint();
+}
+{
+  const [label, , hint] = prefs.ABOUT.clean;
+  $('clean-label').textContent = label;
+  $('clean-hint').textContent = hint;
+  const btn = $('t-clean');
+  const paint = () => {
+    const on = prefs.prefs().clean === true;
+    btn.textContent = on ? 'Clean' : 'Full';
+    btn.setAttribute('aria-pressed', String(on));
+  };
+  btn.addEventListener('click', () => { prefs.set({ clean: !(prefs.prefs().clean === true) }); paint(); });
   prefs.subscribe(paint);
   paint();
 }

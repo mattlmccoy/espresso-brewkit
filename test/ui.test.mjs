@@ -1647,6 +1647,129 @@ try {
   t('coach: and stands down entirely once the pump is running',
     atGrinder.brewing === null, String(atGrinder.brewing));
 
+  // ---- landing on the target rather than past it ----
+  // Aim for 36, stop the pump at 36, and the cup settles at 38: the puck does
+  // not stop when the pump does. What is still in flight is the flow times how
+  // long that machine drips, so the correction has to move with the flow — a
+  // fixed "stop 2 g early" is wrong at both ends and worst at the fast end,
+  // where the overshoot is biggest and the time to react is shortest.
+  const stopping = await page.evaluate(async () => {
+    const { cutPoint, LEAD_S } = await import('./assets/js/core/cutoff.js');
+    const at = (flow, lag = 1.4, net = 0) => cutPoint({ target: 36, flow, lag, net });
+    return {
+      slow: at(1.2).at,
+      fast: at(2.6).at,
+      lead: LEAD_S,
+      // A hand on the platter briefly reads as an enormous flow. Uncapped that
+      // says "stop at 4 g" in the middle of a normal shot, which is a worse
+      // failure than the one being fixed.
+      spike: at(40).at,
+      // No flow yet is not "stop immediately", it is "there is nothing to time".
+      still: at(0, 1.4, 10).eta,
+      // Where the cup is heading if nothing changes.
+      lands: at(2.0, 1.4, 30).lands,
+      // The stop is at 33.2 g here, and the pour is 2 g/s — so a second is two
+      // grams. Sixteen grams short is eight seconds out and far too early to
+      // say anything; six grams short is three seconds out and is the warning.
+      early: at(2.0, 1.4, 33.2 - 16).ready,
+      warn: at(2.0, 1.4, 33.2 - 6).ready,
+      due: at(2.0, 1.4, 33.0).due,
+      none: cutPoint({ target: 0, flow: 2 }),
+    };
+  });
+  t('stop: the cut moves with the flow, so a fast shot is called earlier',
+    Math.abs(stopping.slow - 34.32) < 0.02 && Math.abs(stopping.fast - 32.36) < 0.02,
+    `1.2 g/s stops at ${stopping.slow} g, 2.6 g/s at ${stopping.fast} g`);
+  t('stop: a knock cannot tell you to stop in the middle of the shot',
+    stopping.spike >= 27, `a 40 g/s transient still says ${stopping.spike} g`);
+  t('stop: with no pour there is nothing to count down',
+    !Number.isFinite(stopping.still) && stopping.none === null,
+    `eta ${stopping.still}, no target ${stopping.none}`);
+  t('stop: warns before it is due, and stays quiet eight seconds out',
+    stopping.warn === true && stopping.early === false && stopping.due === true,
+    `8 s out ${stopping.early}, 3 s out ${stopping.warn}, at the cut ${stopping.due}`);
+
+  // AND THE SOUND COUNTS TO THE SAME PLACE THE SCREEN DOES.
+  // It did not. The screen counted down to the stop weight and the cue counted
+  // down to the target, so the one signal you use when you are NOT looking at
+  // the screen — which is the whole reason a cue exists — fired a gram and a
+  // half late on a normal shot and nearly three on a fast one, every time.
+  await page.goto(B + '/live.html?mock=lefu');
+  await page.waitForFunction(
+    () => document.getElementById('step-live').style.display !== 'none', { timeout: 9000 });
+  const heard = await page.evaluate(async () => {
+    const { cutPoint } = await import('./assets/js/core/cutoff.js');
+    const fired = [];
+    const cue = await import('./assets/js/core/cue.js');
+    for (const k of ['ready', 'tick', 'stop']) {
+      const real = cue.CUES[k];
+      cue.CUES[k] = () => { fired.push(k); real?.(); };
+    }
+    // Walk a pour up to the target at a steady 2 g/s and see where it speaks.
+    const lag = 1.4, target = 36;
+    const spoke = [];
+    for (let net = 20; net <= 37; net += 0.2) {
+      const c = cutPoint({ target, flow: 2, lag, net });
+      if (c.due) { spoke.push(['stop', +net.toFixed(1)]); break; }
+      if (c.ready && !spoke.length) spoke.push(['ready', +net.toFixed(1)]);
+    }
+    return { spoke, hasReady: typeof cue.CUES.ready === 'function' };
+  });
+  const readyAt = heard.spoke.find((x) => x[0] === 'ready')?.[1];
+  const stopAt = heard.spoke.find((x) => x[0] === 'stop')?.[1];
+  t('stop: the chime is called at the stop weight, not at the target',
+    stopAt !== undefined && stopAt < 34 && stopAt > 32,
+    `stop cue at ${stopAt} g for a 36 g target at 2 g/s (the target itself is 36)`);
+  t('stop: with a run-up first, so there is time to reach the paddle',
+    readyAt !== undefined && stopAt - readyAt > 5,
+    `ready at ${readyAt} g, stop at ${stopAt} g`);
+
+  // ---- two ways to watch the same shot ----
+  // The failure mode of a "simplified" view is that it simplifies away
+  // something you needed, so what is checked is not that things disappeared
+  // but WHICH: the instrument, the curve, the flow and the stop weight all
+  // survive, and what goes is either a duplicate of one of those or a
+  // projection that the stop weight has made redundant.
+  const views = await page.evaluate(async () => {
+    const prefs = await import('./assets/js/core/prefs.js');
+    const shown = (id) => {
+      const el = document.getElementById(id);
+      return !!el && el.getBoundingClientRect().height > 0;
+    };
+    const keep = ['brew-gauge', 'curve', 'pn-cut', 'stop', 'flowrow', 'pip'];
+    const drop = ['ladder', 'pn-target', 'pn-lands', 'pour-legend'];
+    prefs.set({ clean: false });
+    await new Promise((r) => setTimeout(r, 120));
+    const full = { keep: keep.filter(shown), drop: drop.filter(shown),
+                   label: document.getElementById('clean').textContent };
+    document.getElementById('clean').click();
+    await new Promise((r) => setTimeout(r, 160));
+    const clean = { keep: keep.filter(shown), drop: drop.filter(shown),
+                    body: document.body.classList.contains('clean'),
+                    label: document.getElementById('clean').textContent,
+                    // The flow number is the one live reading that says whether
+                    // the shot is running right. Tidying it away would be
+                    // hiding the reading rather than the clutter.
+                    flow: !!document.getElementById('c-f')?.closest('.pn')
+                      ?.getBoundingClientRect().height };
+    const stored = prefs.prefs().clean;
+    document.getElementById('clean').click();
+    await new Promise((r) => setTimeout(r, 160));
+    const back = document.body.classList.contains('clean');
+    prefs.set({ clean: false });
+    return { full, clean, stored, back };
+  });
+  t('view: the clean one keeps the instrument, the curve, the flow and the stop',
+    views.clean.keep.length === views.full.keep.length && views.clean.flow === true,
+    `kept ${views.clean.keep.join(', ')}${views.clean.flow ? ' + flow' : ' — FLOW GONE'}`);
+  t('view: and drops only the duplicates and the projections',
+    views.full.drop.length > 0 && views.clean.drop.length === 0,
+    `full showed ${views.full.drop.join(', ')}; clean shows ${views.clean.drop.join(', ') || 'none of them'}`);
+  t('view: the switch says which way it goes, and the choice is remembered',
+    views.full.label === 'Clean view' && views.clean.label === 'Full view'
+    && views.stored === true && views.back === false,
+    `"${views.full.label}" → "${views.clean.label}", stored ${views.stored}`);
+
   // THE KNOWLEDGE BANK'S OWN CONTRACTS.
   // The point of the file is that a claim carries its evidence, so the checks
   // are structural: nothing may assert without a class, nothing established may

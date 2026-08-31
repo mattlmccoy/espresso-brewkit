@@ -75,7 +75,13 @@ export const CUES = {
   undone:   () => { tone(620, { ms: 70 }); setTimeout(() => tone(430, { ms: 110 }), 72); buzz(30); },
   // Your dose landed in its window: a rising pair, the sound of arriving.
   target: () => { tone(660, { ms: 90 }); setTimeout(() => tone(880, { ms: 140 }), 95); buzz(40); },
-  // Counting down to the yield: a soft tick, once a second, no vibration.
+  // Five seconds out: put a hand on the paddle. Two soft notes at the same
+  // pitch — distinct from the rising pair that means a dose arrived and from
+  // the falling pair that means stop, because it is neither an arrival nor an
+  // instruction, it is a warning that one is coming.
+  ready: () => { tone(600, { ms: 60, gain: 0.09 });
+    setTimeout(() => tone(600, { ms: 60, gain: 0.09 }), 150); buzz(25); },
+  // Counting down to the stop: a soft tick, once a second, no vibration.
   tick: () => tone(520, { ms: 55, gain: 0.1 }),
   // Cut it now: a falling pair, and a longer buzz.
   stop: () => { tone(880, { ms: 90 }); setTimeout(() => tone(520, { ms: 170 }), 95); buzz([50, 40, 90]); },

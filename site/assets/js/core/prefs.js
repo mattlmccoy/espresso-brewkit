@@ -60,9 +60,13 @@ export const DEFAULTS = Object.freeze({
   extraUuid: '',
 
   // ---- refractometry ----
-  // Brix to TDS. Governs the extraction yield derived for every stored shot,
-  // and was previously readable by the store and writable by nothing.
+  // Brix to TDS. Governs the extraction yield derived for every stored shot.
   brixFactor: 0.85,
+
+  // ---- how much of the shot is on screen at once ----
+  // Off by default: the full view is the one that teaches you what your machine
+  // does, and someone who has not seen it cannot decide they want less of it.
+  clean: false,
 
   // ---- the character ----
   // On by default, because a coach that has to be found is a coach nobody
@@ -105,6 +109,11 @@ export const ABOUT = Object.freeze({
     'What a new shot starts at. Empty means the brew method decides.'],
   defaultRatio: ['Default ratio', ':1',
     'What a new shot aims for. Empty means the brew method decides.'],
+  clean: ['Clean view', '',
+    'Fewer things on the Live page while a shot runs: the dial, the curve, the '
+    + 'time and flow, and the weight to stop at. The rest is either a duplicate '
+    + 'of one of those or a projection you can read afterwards. Same numbers '
+    + 'underneath — there is a switch on the page itself too.'],
   coach: ['Pip, the shot coach', '',
     'A small terminal that watches the shot. He reads the curve while it pours, '
     + 'the whole shot afterwards, and your log when you are at the grinder — and '

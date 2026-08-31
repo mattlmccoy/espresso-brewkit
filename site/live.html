@@ -137,6 +137,14 @@
   .pn-k { font:700 10px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ink-mute); }
   .pn-v { font:700 13px/1 var(--mono); color:var(--ink-dim); }
+  .pn-sub { font:700 11px/1 var(--mono); font-style:normal; color:var(--ink-mute);
+    margin-left:6px; }
+  .pn-sub b { font:800 12px/1 var(--mono) !important; color:var(--ink-mute) !important; }
+  /* The last few seconds. It is the one number with a deadline on it, so it is
+     the one allowed to change colour. */
+  .pn.is-due { color:var(--accent); }
+  .pn.is-due .pn-k, .pn.is-due .pn-v, .pn.is-due .pn-v b,
+  .pn.is-due .pn-sub, .pn.is-due .pn-sub b { color:var(--accent) !important; }
   .pn-v b { font:800 19px/1 var(--sans); font-variant-numeric:tabular-nums;
     color:var(--ink); margin-right:1px; }
   /* Only meaningful when there is a target to be cutting for. */
@@ -461,6 +469,29 @@
   body.rating #cell-now .mini { display:none; }
   .saved-line { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
     margin:0 0 10px; }
+  /* THE CLEAN VIEW.
+     The full one answers every question about a shot at once, which is right
+     when you are working out what your machine does and too much when you are
+     just pulling a coffee. Everything hidden here is either a duplicate of
+     something still on screen — the mini tiles repeat Time, Flow and Target
+     from the row beside the dial; the ladder repeats the bands the dial already
+     draws — or a projection you do not need while the one number that matters
+     is climbing towards the one you have to stop at.
+     Nothing is computed differently. It is the same shot with less of it
+     showing, and the switch is one press. */
+  body.clean #ladder,
+  body.clean .mini,
+  body.clean #pour-legend,
+  body.clean .pour-sum,
+  body.clean #live-warn,
+  body.clean #b-summary,
+  /* Named rather than swept by class: Target is the dotted line already drawn
+     across the chart, and "lands at" is a projection of a projection once the
+     stop weight is on screen. Flow stays — it is the one live number that says
+     whether the shot is running right, and hiding it would be tidying away the
+     reading rather than the clutter. */
+  body.clean #pn-target,
+  body.clean #pn-lands { display:none !important; }
   .pour-sum { display:none; }
   body.pouring .pour-sum { display:flex; flex-wrap:wrap; gap:6px 14px;
     align-items:baseline; margin:0 0 8px; padding:8px 12px;
@@ -769,6 +800,10 @@
             <i class="sw-g"></i>
             <select id="ghost-pick" aria-label="Reference shot"></select></span>
           <span class="msg" id="p-target" style="margin:0 0 0 auto"></span>
+          <!-- Two ways to watch the same shot. Nothing is computed differently
+               in either; what changes is how much of it is on screen at once. -->
+          <button class="ghost" id="clean" type="button" aria-pressed="false"
+                  style="padding:5px 10px;box-shadow:none;font-size:11px">Clean view</button>
         </div>
 
         <div class="slides" id="slides">
@@ -817,14 +852,20 @@
                   <span class="pn-v"><b id="c-t">0.0</b>s</span></div>
                 <div class="pn live-only"><span class="pn-k">Flow</span>
                   <span class="pn-v"><b id="c-f">0.00</b>g/s</span></div>
-                <div class="pn live-only"><span class="pn-k">Target</span>
+                <div class="pn live-only" id="pn-target"><span class="pn-k">Target</span>
                   <span class="pn-v"><b id="c-target">—</b>g</span></div>
                 <div class="pn"><span class="pn-k">Ratio</span>
                   <span class="pn-v">1:<b id="c-ratio">—</b></span></div>
-                <div class="pn live-only"><span class="pn-k">Lands at</span>
+                <div class="pn live-only" id="pn-lands"><span class="pn-k">Lands at</span>
                   <span class="pn-v"><b id="c-lands">—</b>g</span></div>
-                <div class="pn live-only" id="pn-cut"><span class="pn-k">Cut in</span>
-                  <span class="pn-v"><b id="c-cut">—</b>s</span></div>
+                <!-- The weight to stop at, with the countdown beside it rather
+                     than instead of it. The scale is already showing the weight
+                     climbing towards this one at hero size, so a target weight
+                     is something you watch arrive; a countdown is something you
+                     have to trust. -->
+                <div class="pn live-only" id="pn-cut"><span class="pn-k">Stop at</span>
+                  <span class="pn-v"><b id="c-cut">—</b>g
+                    <i class="pn-sub">in <b id="c-cut-in">—</b>s</i></span></div>
                 <div class="pn done-only"><span class="pn-k">Peak flow</span>
                   <span class="pn-v"><b id="c-peak">—</b>g/s</span></div>
                 <div class="pn done-only"><span class="pn-k">First drip</span>
@@ -1063,6 +1104,7 @@ import { download } from './assets/js/core/csv.js';
 import * as chart from './assets/js/core/chart.js';
 import { TASTE_TAGS, encodeCurve } from './assets/js/core/schema.js';
 import { curveMetrics, diagnose } from './assets/js/core/diagnose.js';
+import { cutPoint, LEAD_S, TICK_FROM_S } from './assets/js/core/cutoff.js';
 import { compareToBest, bestOn } from './assets/js/core/compare.js';
 import { recommendGrind } from './assets/js/core/advisor.js';
 import { FlowEstimator, BrewMachine, BREW, stopSignalWeight } from './assets/js/core/filter.js';
@@ -1711,11 +1753,20 @@ function soundCues(snap) {
   gate.edge('tared', weighing && s.phase === 'fill' && sess._tare > 0, cue.CUES.tared);
   gate.edge('window', weighing && s.phase === 'ready', cue.CUES.target);
   const brewing = snap.state === 'extracting';
-  const eta = brewing && Number.isFinite(snap.flow) && snap.flow > 0.05
-    ? (targetYield() - snap.net) / snap.flow : NaN;
-  // The last five seconds get a tick each; the target itself gets the stop.
-  if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
-  gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
+  // COUNTING DOWN TO THE STOP, not to the target.
+  //
+  // This counted to the target while the screen counted to the stop, so the one
+  // cue you use when you are NOT looking at the screen — which is the entire
+  // point of having a cue — fired a gram and a half late on a normal shot and
+  // nearly three on a fast one. Every time, by construction.
+  const cut = brewing ? cutOf(snap) : null;
+  const eta = cut ? cut.eta : NaN;
+  // A heads-up first, then a tick a second, then the stop. The warning is timed
+  // rather than weighed: how much is left in grams is a fact about the shot,
+  // but how much notice a person needs is a fact about people.
+  gate.edge('ready', !!cut?.ready, cue.CUES.ready);
+  if (brewing && eta > 0 && eta <= TICK_FROM_S) gate.every('eta', eta, cue.CUES.tick);
+  gate.edge('stop', !!cut?.due, cue.CUES.stop);
   // Crossing from one drink into the next. Each landmark gets its own gate, so
   // passing ristretto and then espresso is two notes rather than one repeated.
   if (brewing) {
@@ -1728,6 +1779,7 @@ function soundCues(snap) {
     cue.CUES.warn);
   if (!brewing && snap.state !== 'dripping') {
     gate.state.delete('stop');
+    gate.state.delete('ready');
     gate.state.delete('channel');
     for (const k of [...gate.state.keys()]) if (k.startsWith('style:')) gate.state.delete(k);
   }
@@ -1997,9 +2049,27 @@ function paintPourTop(s, { lands, eta }) {
   setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
     ? (s.net / dose).toFixed(2) : '—');
   setText('c-lands', fmt(lands, 1), { flash: true });
-  const cut = Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : null;
-  $('pn-cut').hidden = cut === null;
-  setText('c-cut', cut ?? '—');
+  // THE WEIGHT TO STOP AT, which is the number you can actually watch arrive.
+  // A countdown asks you to trust it; a weight sits next to the one climbing
+  // towards it, and the scale is already showing that one at hero size.
+  const stopAt = armed ? cutOf(s) : null;
+  const show = stopAt && Number.isFinite(eta) && eta > -30;
+  $('pn-cut').hidden = !show;
+  setText('c-cut', show ? fmt(stopAt.at, 1) : '—');
+  setText('c-cut-in', show ? fmt(Math.max(0, eta), 1) : '—');
+  // Lit for the last few seconds, so it is the thing you notice without
+  // reading it.
+  $('pn-cut').classList.toggle('is-due', !!(stopAt && (stopAt.ready || stopAt.due)));
+}
+
+/** The stop, from wherever it is asked for, so nothing can disagree about it. */
+function cutOf(s) {
+  return cutPoint({
+    target: targetYield(),
+    flow: s.flow,
+    lag: kit.stopLag($('p-machine').value).seconds,
+    net: s.net,
+  });
 }
 
 function render(s) {
@@ -2013,13 +2083,12 @@ function render(s) {
   $('o-f').textContent = fmt(s.flow, 2);
   paintFlow($('flowrow'), s.flow, sess.method);
 
-  // What the cup will actually hold once the puck stops dripping, and how long
-  // until you should cut. Both are only meaningful while it is pouring.
-  const lag = kit.stopLag($('p-machine').value).seconds;
-  const tgt = targetYield();
-  const lands = s.running && s.flow > 0.02 ? s.net + s.flow * lag : NaN;
-  const eta = s.running && s.flow > 0.05 && Number.isFinite(tgt)
-    ? (tgt - s.flow * lag - s.net) / s.flow : NaN;
+  // Where to stop and where this is heading. One call, and the sound uses the
+  // same one — they were separate arithmetic and had drifted a gram and a half
+  // apart, in the direction that matters.
+  const cut = s.running ? cutOf(s) : null;
+  const lands = cut && s.flow > 0.02 ? cut.lands : NaN;
+  const eta = cut ? cut.eta : NaN;
   setText('o-proj', fmt(lands, 1), { flash: true });
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   setText('o-trend', fmt(s.trend, 3));
@@ -3526,6 +3595,23 @@ $('pip-wake').addEventListener('click', () => {
 });
 mountCoach();
 prefs.subscribe?.(mountCoach);
+
+/* ------------------------------------------------------- how much is on screen */
+// The switch is on the page rather than only in settings: it is a decision you
+// make about the shot in front of you, not a preference you set once — some
+// mornings you want the whole instrument and some you want a number.
+function paintClean() {
+  const on = prefs.prefs().clean === true;
+  document.body.classList.toggle('clean', on);
+  $('clean').textContent = on ? 'Full view' : 'Clean view';
+  $('clean').setAttribute('aria-pressed', String(on));
+}
+$('clean').addEventListener('click', () => {
+  prefs.set({ clean: !(prefs.prefs().clean === true) });
+  paintClean();
+});
+prefs.subscribe?.(paintClean);
+paintClean();
 
 /**
  * Offer the weighing steps to the coach, which will usually decline to comment.
