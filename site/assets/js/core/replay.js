@@ -19,7 +19,7 @@
 // clock, which is how the tests drive it.
 
 import { decodeCurve } from './schema.js';
-import { flowSeries } from './diagnose.js';
+import { flowSeries, stepAt as stepOf } from './diagnose.js';
 
 /** Where saved replays live. Not on the shot record — see `save`. */
 const KEY = 'brewkit.replays.v1';
@@ -71,29 +71,6 @@ function stopOf(flow) {
   const floor = Math.max(0.25, mid * 0.4);
   for (let i = flow.length - 1; i >= 0; i--) if (flow[i][1] >= floor) return flow[i][0];
   return Infinity;
-}
-
-/**
- * Is the flow climbing?
- *
- * The same least-squares slope over the same six-second window the brew machine
- * uses, so the channel warning appears in a replay exactly where it appeared
- * during the shot. A different window would put it somewhere else, and a
- * warning that moves between watching a shot and rewatching it is worse than no
- * warning.
- */
-function trendOf(flowPts, window = 6, minElapsed = 9) {
-  if (flowPts.length < 8) return NaN;
-  const end = flowPts.at(-1)[0];
-  if (end < minElapsed) return NaN;
-  const pts = flowPts.filter((p) => p[0] >= end - window);
-  if (pts.length < 6) return NaN;
-  const n = pts.length;
-  const mx = pts.reduce((a, p) => a + p[0], 0) / n;
-  const my = pts.reduce((a, p) => a + p[1], 0) / n;
-  let sxy = 0, sxx = 0;
-  for (const [x, y] of pts) { const dx = x - mx; sxy += dx * (y - my); sxx += dx * dx; }
-  return sxx > 1e-9 ? sxy / sxx : NaN;
 }
 
 /** Linear interpolation on a [t, v] series, flat outside its ends. */
@@ -234,7 +211,7 @@ export class Replay {
       elapsed: s.t,
       running: !done,
       flow: s.flow,
-      trend: trendOf(played),
+      trend: stepAt(this.data.pts, this.t),
       peakFlow: played.reduce((a, p) => Math.max(a, p[1]), 0),
       firstDrip: this.data.firstDrip,
     };
@@ -367,33 +344,27 @@ export function bytes() {
 // the set is exactly the sequence that happened live.
 
 /**
- * The step in the flow at `t` — a jump, not a slope.
+ * How long after a step you can know it was one.
  *
- * A channel is a discontinuity. Flow CLIMBING is what an ordinary shot does:
- * puck resistance falls as the bed saturates and erodes, so at constant
- * pressure the flow rises through most of a healthy pour. Reading that rise as
- * a fault is the mistake this window exists to avoid, and the same one the live
- * banner made for a long time.
+ * The detector compares a window either side of the moment in question, so the
+ * later half has to have happened. A live shot therefore learns about a channel
+ * about four seconds after it opens, and there is no way around that which does
+ * not amount to guessing: until flow settles again, a jump and the start of a
+ * steep climb are the same picture.
+ */
+const STEP_LAG = 3.8;
+
+/**
+ * The step in the flow as it would have been known at `t`.
  *
- * The windows match live.html's: the last second against a second ending two
- * before it, with the gap in the middle being where the smoothing lives.
+ * Delegates to the one detector in the app, deliberately: this used to be its
+ * own implementation comparing the last second against a second two before it,
+ * which is a measure of how much flow rose rather than how suddenly, and it
+ * called every healthy shot a channel. The windows here never reach past `t`,
+ * so a replay learns things in the order the shot did.
  */
 function stepAt(pts, t) {
-  const mean = (a, b) => {
-    const v = [];
-    for (let i = 1; i < pts.length; i++) {
-      const [t1, w1] = pts[i];
-      if (t1 > b) break;
-      if (t1 < a) continue;
-      const dt = t1 - pts[i - 1][0];
-      if (dt > 0) v.push((w1 - pts[i - 1][1]) / dt);
-    }
-    return v.length >= 4 ? v.reduce((x, y) => x + y, 0) / v.length : NaN;
-  };
-  const after = mean(t - 1.0, t);
-  const before = mean(t - 3.2, t - 2.2);
-  if (!(before > 0.25) || !Number.isFinite(after)) return NaN;
-  return (after - before) / before;
+  return stepOf(pts, t - STEP_LAG);
 }
 
 /**
