@@ -792,11 +792,22 @@ tr.flagged td { background: var(--flag); color: #100f0d; }
    widths did it depended on the theme, because the mono themes are wider. */
 @media (max-width: 900px) {
   .site-head { gap: 12px; }
-  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px;
-    /* The strip is cut flush at the right otherwise, so the last item reads as
-       a broken label rather than as more to scroll to. */
-    mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
+  .nav { margin-left: 0; width: 100%; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
   .nav a { flex: 0 0 auto; }
+  /* PINNED, because it is the only way to anything it holds.
+     The strip scrolls — 485 px of bar in 338 px of phone — and Options is the
+     last item in it, so at rest it sat 7 px past the right edge of a 390 px
+     screen. Five links being half off is fine; they are all one tap from each
+     other anyway. A menu being off is not: theme, view, settings and backup are
+     behind it, and nothing on screen says to swipe the bar sideways to find
+     them. Sticky inside the scroller keeps it at the right edge whatever the
+     links do, and the links pass underneath it.
+     The right-edge fade goes with it: it existed to say "there is more this
+     way", and a control parked at that edge would have been fading in and out
+     under it. What the cut-off link on its left says is the same thing. */
+  .nav .menu { position: sticky; right: 0; z-index: 2;
+    background: var(--bg); padding-left: 14px;
+    box-shadow: -16px 0 12px -6px var(--bg); }
 }
 /* Form rows stack later: an 820px iPad has room for two columns, and taking it
    away there wastes half the width. */

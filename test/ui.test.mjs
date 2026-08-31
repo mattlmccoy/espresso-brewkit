@@ -505,6 +505,24 @@ try {
   const mobileOverflow = await page.evaluate(() =>
     document.documentElement.scrollWidth - document.documentElement.clientWidth);
   t('mobile: nav stays on one row', navRows === 1, navRows + ' row(s)');
+  // AND THE MENU IS REACHABLE WITHOUT SCROLLING THE BAR SIDEWAYS.
+  // The strip scrolls on a phone — 499 px of bar in 338 px of screen — and the
+  // menu is the last thing in it, so at rest it sat 7 px past the right edge of
+  // a 390 px viewport. Five links being half off is fine; they are one tap from
+  // each other anyway. The menu being off is not: theme, view, settings and
+  // backup are all behind it, and nothing on screen says to swipe the bar.
+  const reachable = await page.evaluate(() => {
+    const nav = document.querySelector('.nav');
+    const r = document.querySelector('.menu-btn').getBoundingClientRect();
+    return { scrolls: nav.scrollWidth > nav.clientWidth + 1,
+             onScreen: r.right <= innerWidth + 1 && r.left >= -1,
+             right: Math.round(innerWidth - r.right) };
+  });
+  t('mobile: and the options menu is on screen without scrolling the bar',
+    reachable.scrolls && reachable.onScreen,
+    reachable.scrolls
+      ? `pinned ${reachable.right}px from the edge of a scrolling strip`
+      : 'the strip does not scroll here, so nothing was proven');
   t('mobile: no horizontal page overflow', mobileOverflow <= 1, mobileOverflow + 'px');
   await page.setViewportSize({ width: 1400, height: 1000 });
 
