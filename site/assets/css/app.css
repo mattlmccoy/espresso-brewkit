@@ -81,6 +81,13 @@
      component drawing its own surface reads them instead of hardcoding a square
      corner — hardcoding is what left the state strip a hard rectangle in the
      middle of a page of rounded ones. */
+  /* Pip's screen and the light it throws. A PAIR: the screen is a real inset
+     surface inside his bezel, not the page's panel, so it cannot be derived
+     from --panel — in a light theme the bezel is cream and the screen is near
+     black, which is the whole point of him being a little monitor. */
+  --pip-screen: #100f0d;
+  --pip-glow:   #fffdf5;
+
   --radius: 0px;      /* a surface: panel, strip, bar */
   --radius-sm: 0px;   /* a control inside one */
   --seam: 0px;        /* extra air between stacked surfaces, where no border separates them */
@@ -119,6 +126,7 @@
     --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
     --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
     --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+    --pip-screen:#080806; --pip-glow:#f4f1e6;
     --fit-ink:#100f0d;
     --control:#26251d;
     --band-a:.09;
@@ -130,6 +138,7 @@
   --bg:#0e0e0c; --panel:#1a1a16; --panel-2:#232219;
   --ink:#f4f1e6; --ink-dim:#c3bfb0; --ink-mute:#9a9484; --hair:#4a483d;
   --accent:#5b7bff; --accent-ink:#0e0e0c; --fit:#ff7a45; --flag:#e8ff36; --tag-fg:#0e0e0c;
+  --pip-screen:#080806; --pip-glow:#f4f1e6;
   --fit-ink:#100f0d;
   --control:#26251d;
   --band-a:.09;
@@ -150,6 +159,7 @@
      were the same colour — and a cyan hero tile on a phosphor screen is not a
      phosphor screen. */
   --accent:#9dffb8; --accent-ink:#031008; --fit:#4fe0a0; --flag:#c8ff5a;
+  --pip-screen:#020403; --pip-glow:#6ef58e;
   --fit-ink:#031008;
   --control:#131e15;
   --tag-fg:#031008;
@@ -232,6 +242,7 @@
   --bg:#0d1017; --panel:#171c27; --panel-2:#1e2431;
   --ink:#f0f3f8; --ink-dim:#b9c0cf; --ink-mute:#929cb0; --hair:#39415a;
   --accent:#7aa2ff; --accent-ink:#0b0e15; --fit:#ff9f6e; --flag:#a8c0ff;
+  --pip-screen:#05070c; --pip-glow:#dbe6ff;
   --fit-ink:#0b0e15;
   --control:#252c3b;
   --tag-fg:#0b0e15;
@@ -1046,43 +1057,63 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
   font-family: var(--mono);
 }
 
-/* ---- him ---------------------------------------------------------------- */
+/* ---- him ----------------------------------------------------------------
+   A BEZEL WITH A SCREEN IN IT, not a dark bar over a light panel. He is a
+   little monitor: the case carries his name, and the display is an inset that
+   is genuinely darker than everything around it, with his face lit on it. That
+   is what makes him read as a machine sitting on the page rather than as a
+   themed rectangle. */
 .pip-box {
   flex: none;
   border: var(--bw) solid var(--ink);
   border-radius: var(--radius);
   background: var(--panel);
-  overflow: hidden;
+  padding: 0 5px 5px;
 }
+/* The name sits ON the case, in the case's own ink — no reversed bar. */
 .pip-bar {
   display: flex; align-items: center; gap: 6px;
-  background: var(--ink); color: var(--tag-fg);
-  padding: 1px 1px 1px 6px;
-  font: 700 8px/1.7 var(--mono); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink);
+  padding: 3px 0 3px 2px;
+  font: 700 8px/1.5 var(--mono); letter-spacing: .1em;
 }
-.pip-who { opacity: .85; }
+.pip-who { opacity: .9; }
 .pip-x {
-  flex: none; width: 14px; height: 14px; padding: 0; margin-left: auto;
+  flex: none; width: 13px; height: 13px; padding: 0; margin-left: auto;
   font: 700 11px/1 var(--mono);
   background: none; border: 0; box-shadow: none; border-radius: 0;
-  color: var(--tag-fg); opacity: .65; cursor: pointer;
+  color: var(--ink); opacity: .5; cursor: pointer;
 }
-.pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--tag-fg) 22%, transparent); }
+.pip-x:hover { opacity: 1; background: color-mix(in srgb, var(--ink) 14%, transparent); }
 
 .pip-screen {
   display: flex; align-items: center; gap: 5px;
-  padding: 5px 8px 6px;
+  padding: 6px 8px 7px;
+  background: var(--pip-screen);
+  color: var(--pip-glow);
+  /* THE BEZEL EDGE, and it is not decoration.
+     In a light theme a near-black screen on a cream case reads on fill alone —
+     18.8:1. In the dark themes the case is already dark and the screen has
+     nowhere darker to go: measured at 1.06 to 1.18 against it, which is not a
+     screen, it is a slightly different rectangle. It only looked right because
+     of the box's outer border. A rim mixed halfway between the case's ink and
+     the screen gives the inset an edge in every theme, which is what a real
+     bezel does and what makes him a monitor rather than a panel. */
+  border: 1px solid color-mix(in srgb, var(--ink) 50%, var(--pip-screen));
 }
 /* white-space:pre so the spaces a glance shifts him by are kept, and the seven
    cells stay seven cells. */
 .pip-face {
-  font: 700 12.5px/1.3 var(--mono); white-space: pre; letter-spacing: .01em;
+  font: 700 13px/1.25 var(--mono); white-space: pre; letter-spacing: .01em;
+  color: var(--pip-glow);
 }
-.pip[data-tone="warn"] .pip-face { color: var(--warn); }
+/* The one thing that ever takes a hue. On a dark screen the page's --warn is
+   too dim to read, so the mood tints the glow rather than replacing it. */
+.pip[data-tone="warn"] .pip-face { color: var(--flag); }
 .pip-caret {
   flex: none; width: .5em; height: 1em;
-  background: var(--ink);
-  font-size: 12.5px;
+  background: var(--pip-glow);
+  font-size: 13px;
 }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }

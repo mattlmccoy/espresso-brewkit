@@ -6258,7 +6258,15 @@ try {
     host.hidden = false;
     const pip = mountPip(host);
     pip.say('Flow jumped.', { mood: 'alert' });
-    const rgb = (s) => (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+    // BOTH SERIALISATIONS. color-mix() computes to `color(srgb 0.49 0.48 0.46)`
+    // — 0-to-1 floats — not to rgb(). Reading those as 0-to-255 makes every
+    // mixed colour look nearly black, which is exactly what happened here: the
+    // bezel rim measured 1.2:1 against the case when it is really 4.2:1. Second
+    // time this has bitten in this file; the first was the tile gradient.
+    const rgb = (s) => {
+      const n = (s.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+      return s.startsWith('color(') ? n.map((x) => x * 255) : n;
+    };
     const lum = ([r, g, b]) => { const f = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
       return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
     const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
@@ -6266,16 +6274,26 @@ try {
     for (const th of THEMES) {
       root.setAttribute('data-theme', th);
       host.dataset.tone = 'warn';
-      const bar = getComputedStyle(host.querySelector('.pip-bar'));
       const who = getComputedStyle(host.querySelector('.pip-who'));
-      const boxBg = getComputedStyle(host.querySelector('.pip-box'));
+      const bezel = getComputedStyle(host.querySelector('.pip-box'));
+      const screen = getComputedStyle(host.querySelector('.pip-screen'));
       const bubble = getComputedStyle(host.querySelector('.pip-bubble'));
       const txt = getComputedStyle(host.querySelector('.pip-say'));
       const face = getComputedStyle(host.querySelector('.pip-face'));
       out[th] = {
-        bar: +ratio(rgb(who.color), rgb(bar.backgroundColor)).toFixed(2),
+        // His name on his case.
+        bar: +ratio(rgb(who.color), rgb(bezel.backgroundColor)).toFixed(2),
+        // What he says, in the bubble.
         body: +ratio(rgb(txt.color), rgb(bubble.backgroundColor)).toFixed(2),
-        warn: +ratio(rgb(face.color), rgb(boxBg.backgroundColor)).toFixed(2),
+        // The alarmed face, lit on the screen.
+        warn: +ratio(rgb(face.color), rgb(screen.backgroundColor)).toFixed(2),
+        // And the screen against the case. Without separation he is not a
+        // monitor, he is a rectangle. There are two ways to get it and either
+        // will do: the fill differs enough to see (which only the light theme
+        // manages, since the dark ones have nowhere darker to go), or the
+        // screen has a rim — which is what a real bezel is.
+        fill: +ratio(rgb(screen.backgroundColor), rgb(bezel.backgroundColor)).toFixed(2),
+        rim: +ratio(rgb(screen.borderTopColor), rgb(bezel.backgroundColor)).toFixed(2),
       };
       host.dataset.tone = '';
     }
@@ -6284,9 +6302,12 @@ try {
     return out;
   });
   const pt = Object.keys(pip);
-  t('palette: Pip reads in every theme \u2014 his bar, his face, and what he says',
+  t('palette: Pip reads in every theme \u2014 his name, his face, and what he says',
     pt.every((th) => pip[th].bar >= 4.5 && pip[th].body >= 4.5 && pip[th].warn >= 4.5),
     pt.map((th) => `${th} ${pip[th].bar}/${pip[th].body}/${pip[th].warn}`).join(' \u00b7 '));
+  t('palette: his screen reads as an inset in the case, not as more case',
+    pt.every((th) => pip[th].fill >= 1.25 || pip[th].rim >= 1.5),
+    pt.map((th) => `${th} fill ${pip[th].fill} rim ${pip[th].rim}`).join(' \u00b7 '));
 
   t('palette: the four dark themes tell the browser they are dark',
     ['dark', 'terminal', 'glass'].every((th) => palette[th].scheme === 'dark')

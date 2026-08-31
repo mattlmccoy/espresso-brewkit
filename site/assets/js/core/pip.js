@@ -103,7 +103,9 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
   bar.className = 'pip-bar';
   const who = document.createElement('span');
   who.className = 'pip-who';
-  who.textContent = name;
+  // The full address, as on a real prompt. Shortened to just "pip" for a while
+  // when the bar was a reversed strip and space was tight; the bezel has room.
+  who.textContent = name + '@brewkit';
   const close = document.createElement('button');
   close.type = 'button';
   close.className = 'pip-x';
