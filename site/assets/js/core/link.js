@@ -354,6 +354,19 @@ export function frameOf({ snap, sess, target, tol, coffee, elapsed, curve, lag, 
     method: sess?.method ?? 'espresso',
     milk: sess?.milk ?? null,
     hint: sess?.hint ?? null,
+    // THE CAPTURE, so the phone can lock a weight in and step one back.
+    // The laptop shows a countdown before an unattended capture and a "Use it"
+    // button to take it now; across the room on the iPad you could see neither,
+    // so a grind would advance with no warning and no way back. These five carry
+    // the same capture the laptop draws its catch panel from — what would be
+    // committed (cand), how long until it commits itself (hold) against the full
+    // window (capFor), how far off target it is when it is holding rather than
+    // counting (off), and whether an undo has anything to take back (undo).
+    cand: Number.isFinite(sess?.candidate) ? +sess.candidate.toFixed(2) : null,
+    hold: Number.isFinite(sess?.holdLeft) ? +sess.holdLeft.toFixed(1) : null,
+    off: Number.isFinite(sess?.offTarget) ? +sess.offTarget.toFixed(1) : null,
+    capFor: Number.isFinite(sess?.holdFor) ? sess.holdFor : null,
+    undo: !!sess?.canUndo,
     // WHAT THE COACH SAID, rather than enough for the phone to work it out.
     // The phone sees frames, not the shot log, so a coach running here would be
     // a second and weaker one — and two devices disagreeing about your shot is

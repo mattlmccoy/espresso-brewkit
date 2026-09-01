@@ -209,6 +209,24 @@ export class SessionMachine {
   /** The weighing config for a step, or null if that step is not a weighing. */
   weighFor(step = this.step) { return this.m.weigh[step] ?? null; }
 
+  /**
+   * Is there a capture undo() could take back from here?
+   *
+   * The exact question undo() answers, without doing it: walk back through the
+   * order for the nearest earlier step whose weigh key holds a real number. The
+   * phone uses this to know whether to offer its Undo — the laptop can see the
+   * captured numbers on screen, the phone only sees what the frame carries.
+   */
+  canUndo() {
+    const order = this.m.order;
+    const here = order.indexOf(this.step);
+    for (let i = here; i > 0; i--) {
+      const w = this.m.weigh[order[i - 1]];
+      if (w && Number.isFinite(this[w.key])) return true;
+    }
+    return false;
+  }
+
   /** The dose you are aiming for, which is what makes "done" knowable. */
   setTarget(g) {
     this.target = Number.isFinite(g) && g > 0 ? g : NaN;
@@ -786,6 +804,12 @@ export class SessionMachine {
       candidate: this.candidate,
       holdLeft: this.candidate === null ? null : this.holdLeft,
       offTarget: this.candidate === null ? null : this.offTarget,
+      // The full hold window, so a viewer with no session of its own can draw
+      // the countdown bar against the same scale the laptop does.
+      holdFor: this.o.holdFor,
+      // Whether an undo would find anything to take back — the phone's Undo
+      // button turns on and off with this.
+      canUndo: this.canUndo(),
       retention: this.retention,
       auto: { ...this.auto },
       events: this.events.slice(-6).reverse(),

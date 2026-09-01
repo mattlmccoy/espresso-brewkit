@@ -1665,6 +1665,72 @@ try {
   t('phone: and the flash clears when the shot ends',
     phoneStop.done === false, `still flashing: ${phoneStop.done}`);
 
+  // THE CAPTURE, ON THE DEVICE IN YOUR HAND. The laptop counts a settling weight
+  // down and offers a button to take it now; across the room the iPad showed
+  // neither, so a grind advanced with no warning and no way back. The phone now
+  // mirrors that panel from the frame, and its Use it / Undo speak back up the
+  // link the laptop already has open.
+  const phoneCatch = await page.evaluate(async () => {
+    document.getElementById('pairing').hidden = true;
+    document.getElementById('watching').hidden = false;
+    const base = { k: 'f', method: 'espresso', dose: 18, doseSet: true, coffee: 'Guji',
+      lag: 1, curve: [], hint: '' };
+    const box = document.getElementById('catch');
+    const $ = (id) => document.getElementById(id);
+    const paint = (extra) => window.__view.paint({ ...base, ...extra });
+    // Grounds settling on the grind step: countdown running, both controls.
+    paint({ step: 'grind', phase: 'ready', st: null, w: 16.2, q: 0,
+      cand: 16.2, hold: 3, off: null, capFor: 5, undo: true });
+    const counting = { shown: !box.hidden, v: $('catch-v').textContent,
+      lbl: $('catch-lbl').textContent, bar: !$('catch-bar').hidden,
+      fill: $('catch-fill').style.width, go: !$('catch-go').hidden, undo: !$('catch-undo').hidden };
+    // Sitting on target with no timer: the app is waiting for your call, so it
+    // says how far off rather than counting, and the bar goes away.
+    paint({ step: 'grind', phase: 'ready', st: null, w: 18, q: 0,
+      cand: 18, hold: null, off: 0, capFor: 5, undo: true });
+    const holding = { lbl: $('catch-lbl').textContent, bar: !$('catch-bar').hidden, go: !$('catch-go').hidden };
+    // Advanced to brew with the pump off and a grounds behind it — the exact
+    // accidental-advance case: only Undo, with Use it gone.
+    paint({ step: 'brew', phase: 'fill', st: 'idle', w: 0, q: 0,
+      cand: null, hold: null, off: null, capFor: 5, undo: true, grounds: 16 });
+    const advanced = { shown: !box.hidden, go: !$('catch-go').hidden, undo: !$('catch-undo').hidden };
+    // The pour itself: no capture panel over the top of a running shot.
+    paint({ step: 'brew', phase: 'fill', st: 'extracting', w: 20, q: 2,
+      cand: null, hold: null, off: null, capFor: 5, undo: true });
+    const brewing = !box.hidden;
+    // Nothing settling and nothing to take back: gone entirely.
+    paint({ step: 'dose', phase: 'vessel', st: null, w: 0, q: 0,
+      cand: null, hold: null, off: null, capFor: 5, undo: false });
+    const empty = !box.hidden;
+    // The controls speak back up the link. Spy on send, then click each.
+    const sent = [];
+    const realSend = window.__view.link.send;
+    window.__view.link.send = (m) => { sent.push(m); return true; };
+    paint({ step: 'grind', phase: 'ready', st: null, w: 16.2, q: 0,
+      cand: 16.2, hold: 3, off: null, capFor: 5, undo: true });
+    $('catch-go').click();
+    $('catch-undo').click();
+    window.__view.link.send = realSend;
+    return { counting, holding, advanced, brewing, empty, sent };
+  });
+  t('phone: a settling weight shows the countdown, its value and both controls',
+    phoneCatch.counting.shown && phoneCatch.counting.v === '16.2 g'
+    && /in 3 s/.test(phoneCatch.counting.lbl) && phoneCatch.counting.bar
+    && parseFloat(phoneCatch.counting.fill) > 0 && phoneCatch.counting.go && phoneCatch.counting.undo,
+    `${phoneCatch.counting.v} · ${phoneCatch.counting.lbl} · fill ${phoneCatch.counting.fill}`);
+  t('phone: on target it waits rather than counting, and drops the bar',
+    !/in \d/.test(phoneCatch.holding.lbl) && !phoneCatch.holding.bar && phoneCatch.holding.go,
+    `label "${phoneCatch.holding.lbl}", bar ${phoneCatch.holding.bar}`);
+  t('phone: an accidental advance still offers Undo, with Use it gone',
+    phoneCatch.advanced.shown && !phoneCatch.advanced.go && phoneCatch.advanced.undo,
+    `shown ${phoneCatch.advanced.shown}, use-it ${phoneCatch.advanced.go}, undo ${phoneCatch.advanced.undo}`);
+  t('phone: no capture panel over a running shot, and none with nothing to do',
+    !phoneCatch.brewing && !phoneCatch.empty, `brewing ${phoneCatch.brewing}, empty ${phoneCatch.empty}`);
+  t('phone: Use it and Undo speak back up the link',
+    phoneCatch.sent.length === 2 && phoneCatch.sent[0].k === 'cap' && phoneCatch.sent[0].do === 'use'
+    && phoneCatch.sent[1].k === 'cap' && phoneCatch.sent[1].do === 'undo',
+    JSON.stringify(phoneCatch.sent));
+
   // THE COACH. The half that decides whether to speak at all.
   // The failure mode being tested for is not "says the wrong thing" but "says
   // anything at all when it should not" — an assistant that talks through a
@@ -3120,6 +3186,67 @@ try {
   t('capture: and once the window has passed the advance stands',
     revert.late.final === 'brew' && revert.late.grounds === 16 && !revert.late.reverted,
     `back heavier after 16 s → ${revert.late.final}, grounds ${revert.late.grounds}`);
+
+  // ---- the phone's capture, carried in the frame and answered by the laptop ----
+  // The iPad cannot weigh, so the panel it draws and the buttons it offers are
+  // both the laptop's: the snapshot carries what to draw, the frame ferries it,
+  // and the laptop acts on what comes back. First, the snapshot and the frame.
+  const capWire = await page.evaluate(async () => {
+    const { SessionMachine } = await import('./assets/js/core/session.js');
+    const { frameOf } = await import('./assets/js/core/link.js');
+    const s = new SessionMachine();
+    s.setReady(true); s.begin(); s.setTarget(18);
+    const start = s.snapshot();               // on dose, nothing captured yet
+    s.candidate = 18; s.commit();             // take the dose by hand → on grind
+    const afterDose = s.snapshot();
+    // A mid-capture snapshot makes a frame that carries the countdown; an idle
+    // one carries nothing, so the phone's panel is off by default.
+    const cap = frameOf({ snap: { net: 16.2, flow: 0 },
+      sess: { step: 'grind', phase: 'ready', candidate: 16.2, holdLeft: 3, offTarget: null,
+        holdFor: 5, canUndo: true, method: 'espresso', dose: 18 }, target: 18, tol: 1 });
+    const idle = frameOf({ snap: { net: 0, flow: 0 },
+      sess: { step: 'grind', phase: 'vessel', candidate: null, holdLeft: null, offTarget: null,
+        holdFor: 5, canUndo: false, method: 'espresso' }, target: 18, tol: 1 });
+    return { holdFor: start.holdFor, undoStart: start.canUndo, undoAfterDose: afterDose.canUndo,
+      cap: { cand: cap.cand, hold: cap.hold, capFor: cap.capFor, undo: cap.undo },
+      idle: { cand: idle.cand, hold: idle.hold, undo: idle.undo } };
+  });
+  t('capture: the snapshot carries the hold window and whether an undo has anything to take',
+    capWire.holdFor === 5 && capWire.undoStart === false && capWire.undoAfterDose === true,
+    `holdFor ${capWire.holdFor}, undo ${capWire.undoStart} → after dose ${capWire.undoAfterDose}`);
+  t('capture: a mid-capture frame carries candidate, countdown and window; an idle one carries none',
+    capWire.cap.cand === 16.2 && capWire.cap.hold === 3 && capWire.cap.capFor === 5 && capWire.cap.undo === true
+    && capWire.idle.cand === null && capWire.idle.hold === null && capWire.idle.undo === false,
+    `cap ${JSON.stringify(capWire.cap)}, idle ${JSON.stringify(capWire.idle)}`);
+
+  // ...and the laptop routes the phone's requests into its own session. Spying
+  // on commit/undo keeps this immune to the scale still feeding the live session
+  // — the wiring is what is under test, and the session's own capture behaviour
+  // is proven above.
+  const capAct = await page.evaluate(() => {
+    const s = window.__sess;
+    const calls = [];
+    const realCommit = s.commit.bind(s), realUndo = s.undo.bind(s);
+    s.commit = () => { calls.push('commit'); return { committed: 'grounds', value: 16, why: 'phone' }; };
+    s.undo = () => { calls.push('undo'); return { step: 'grind', key: 'grounds', was: 16 }; };
+    window.__watch.onMessage({ k: 'cap', do: 'use' });
+    window.__watch.onMessage({ k: 'cap', do: 'undo' });
+    // A stale Use it (nothing to commit) and an unknown verb must not throw.
+    s.commit = () => { calls.push('commit'); return { committed: null }; };
+    let threw = false;
+    try {
+      window.__watch.onMessage({ k: 'cap', do: 'use' });
+      window.__watch.onMessage({ k: 'cap', do: 'nonsense' });
+    } catch { threw = true; }
+    s.commit = realCommit; s.undo = realUndo;
+    return { calls, threw };
+  });
+  t('capture: the phone’s Use it and Undo route to the laptop’s commit and undo',
+    capAct.calls[0] === 'commit' && capAct.calls[1] === 'undo',
+    capAct.calls.join(','));
+  t('capture: a stale or unknown capture request neither throws nor acts on an unknown verb',
+    !capAct.threw && capAct.calls.length === 3 && capAct.calls[2] === 'commit',
+    `threw ${capAct.threw}, calls ${capAct.calls.join(',')}`);
 
   // ---- the readings behind whatever just happened ----
   const tr = await page.evaluate(async () => {
