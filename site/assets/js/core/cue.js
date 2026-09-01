@@ -19,15 +19,41 @@
 let ctx = null;
 let armed = false;
 
+// A CONTEXT THAT WENT TO SLEEP IS WHY THE SOUND WAS HIT AND MISS.
+//
+// arm() latched `armed` the first time the context reached 'running' and never
+// looked again. But a browser suspends an AudioContext on its own — on a tab
+// blur, on a phone locking, on desktop Chrome after a stretch of quiet — and a
+// suspended context plays every tone into silence while still reporting itself
+// armed. So the cue you needed least (a dose landing, tab focused) tended to
+// work, and the one you needed most (the stop, a minute into a shot you were
+// watching on the other screen) tended not to. The fix is to stop trusting the
+// latch: resume the context whenever it is not running — on the events that
+// wake a page, and again right before a tone.
+function resume() {
+  if (ctx && ctx.state !== 'running') { try { ctx.resume?.(); } catch { /* */ } }
+}
+let woken = false;
+function wakeOnReturn() {
+  if (woken || typeof addEventListener !== 'function') return;
+  woken = true;
+  addEventListener('visibilitychange', () => { if (!document.hidden) resume(); });
+  addEventListener('focus', resume);
+  addEventListener('pointerdown', resume, { passive: true });
+}
+
 /** Must be called from a user gesture; safe to call repeatedly. */
 export function arm() {
-  if (armed) return true;
   try {
     const Ctor = globalThis.AudioContext ?? globalThis.webkitAudioContext;
     if (!Ctor) return false;
     ctx = ctx ?? new Ctor();
     ctx.resume?.();
-    armed = ctx.state === 'running';
+    wakeOnReturn();
+    // Armed means "the user has let us make sound" — consent does not expire, so
+    // this stays latched. Whether a tone actually sounds is decided at play time
+    // by the context's live state, not here.
+    armed = armed || ctx.state === 'running';
     return armed;
   } catch {
     return false;
@@ -42,6 +68,10 @@ export const isArmed = () => armed;
  */
 export function tone(freq, { ms = 120, gain = 0.16, type = 'sine' } = {}) {
   if (!armed || !ctx) return false;
+  // Suspended since it was armed → wake it and skip this one. resume() is async,
+  // so the tone scheduled now would be dropped anyway; the next one lands, which
+  // is the whole difference for a countdown that ticks every second.
+  if (ctx.state !== 'running') { resume(); return false; }
   try {
     const t0 = ctx.currentTime;
     const osc = ctx.createOscillator();

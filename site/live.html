@@ -130,6 +130,21 @@
     margin-bottom:10px; }
   .pour-top > #brew-gauge { flex:1 1 58%; min-width:0; }
   .pour-top #brew-gauge[hidden] { display:none; }
+  /* FLASH THE DIAL as the stop comes up — a ring around the instrument, pulsing
+     while it is near and solid at the moment to cut, so it reads from across
+     the room rather than only in the stop-at cell. */
+  #brew-gauge { position:relative; }
+  #brew-gauge::after {
+    content:''; position:absolute; inset:-2%; border-radius:50%;
+    box-shadow:0 0 0 4px var(--accent), 0 0 20px 3px var(--accent);
+    opacity:0; pointer-events:none; transition:opacity .12s;
+  }
+  body.stop-soon #brew-gauge::after { animation:stop-pulse .66s ease-in-out infinite; }
+  body.stop-now #brew-gauge::after { opacity:1; }
+  @keyframes stop-pulse { 0%,100% { opacity:.15; } 50% { opacity:.95; } }
+  @media (prefers-reduced-motion: reduce) {
+    body.stop-soon #brew-gauge::after { animation:none; opacity:.9; }
+  }
   .pour-nums { flex:1 1 42%; display:grid; gap:6px; align-content:center;
     grid-template-columns:1fr; min-width:0; }
   .pn { display:flex; align-items:baseline; gap:8px; justify-content:space-between;
@@ -1804,7 +1819,11 @@ function soundCues(snap) {
       gate.edge(`style:${r.id}`, r.state === 'passed', cue.CUES.landmark);
     }
   }
-  gate.edge('channel', brewing && Number.isFinite(snap.trend) && snap.trend > 0.05,
+  // A STEP, not a slope. This still fired on trend > 0.05 — the old reading
+  // that called every healthy shot a channel — so the warning buzz went off on
+  // good coffee. It uses the same threshold the banner, the coach and the
+  // post-shot read all now agree on.
+  gate.edge('channel', brewing && Number.isFinite(snap.trend) && snap.trend > STEP_FLAG,
     cue.CUES.warn);
   if (!brewing && snap.state !== 'dripping') {
     gate.state.delete('stop');
@@ -2124,6 +2143,12 @@ function render(s) {
   const cut = s.running ? cutOf(s) : null;
   const lands = cut && s.flow > 0.02 ? cut.lands : NaN;
   const eta = cut ? cut.eta : NaN;
+  // FLASH THE INSTRUMENT, not just a cell. The stop-at cell going accent was
+  // easy to miss over the shoulder; the dial itself now pulses as the stop
+  // comes up and holds solid at the moment to cut, matching the phone so the
+  // two screens say "now" the same way.
+  document.body.classList.toggle('stop-soon', !!(cut && cut.ready && !cut.due));
+  document.body.classList.toggle('stop-now', !!(cut && cut.due));
   setText('o-proj', fmt(lands, 1), { flash: true });
   setText('o-eta', Number.isFinite(eta) && eta > -30 ? fmt(Math.max(0, eta), 1) : '—');
   // The jump, not the slope. A rising slope is what a healthy shot does, so a

@@ -216,6 +216,27 @@
      across the room. */
   .strip .c.is-due { border-color:var(--accent); }
   .strip .c.is-due .k, .strip .c.is-due .v { color:var(--accent); }
+  /* The seconds until the stop, under the weight. Bold and accent once it is
+     close; the weight is where the number is going, this is when. */
+  .cut-in { display:block; font:800 .5em/1 var(--sans); font-variant-numeric:tabular-nums;
+    opacity:.7; margin-top:2px; }
+  .strip .c.is-due .cut-in { opacity:1; color:var(--accent); }
+  /* FLASH THE DIAL. From across the room a single cell going accent is too
+     quiet to catch the stop, so the instrument itself pulses as it comes up and
+     holds solid at the moment to cut. A ring around the dial rather than a
+     repaint of it: theme-agnostic, and it reads at a glance. */
+  #gauge { position:relative; }
+  #gauge::after {
+    content:''; position:absolute; inset:-1.5%; border-radius:50%;
+    box-shadow:0 0 0 4px var(--accent), 0 0 18px 3px var(--accent);
+    opacity:0; pointer-events:none; transition:opacity .12s;
+  }
+  body.stop-soon #gauge::after { animation:stop-pulse .66s ease-in-out infinite; }
+  body.stop-now #gauge::after { opacity:1; }
+  @keyframes stop-pulse { 0%,100% { opacity:.15; } 50% { opacity:.95; } }
+  @media (prefers-reduced-motion: reduce) {
+    body.stop-soon #gauge::after { animation:none; opacity:.9; }
+  }
   .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .head .who { font:700 13px/1.2 var(--sans); }
   .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
@@ -726,19 +747,43 @@ function paintStrip(f, brewing) {
   $('ratio').innerHTML = known && Number.isFinite(w) && w > 0
     ? `1:<b>${(w / dose).toFixed(2)}</b>` : '—';
 
-  // The same module the laptop stops by, so the two screens cannot disagree
-  // about where the stop is. The lag rides along in the frame because it is
-  // learned per machine and lives over there.
-  const flow = Number(f.q);
-  const pouring = brewing && Number.isFinite(flow) && flow > 0.05;
-  const cut = pouring
-    ? cutPoint({ target: f.target, flow, lag: Number.isFinite(f.lag) ? f.lag : 1, net: w })
-    : null;
+  const cut = viewCut(f);
   $('lands').innerHTML = cut && Number.isFinite(cut.lands)
     ? `${cut.lands.toFixed(1)}<small>g</small>` : '—';
   const show = cut && Number.isFinite(cut.eta) && cut.eta > -30;
-  $('cut').innerHTML = show ? `${cut.at.toFixed(1)}<small>g</small>` : '—';
-  $('c-cut').classList.toggle('is-due', !!(cut && (cut.ready || cut.due)));
+  // THE WEIGHT, AND HOW LONG UNTIL IT. The laptop's stop cell carries a
+  // countdown beside the weight; the phone's showed the weight alone, so the
+  // one screen you actually watch at the machine gave you a target to reach but
+  // no sense of when — which is the entire job of an anticipatory stop. The
+  // seconds ride under the weight, counting down, and go bold in the last
+  // stretch where each one matters.
+  const eta = cut ? cut.eta : NaN;
+  $('cut').innerHTML = show
+    ? `${cut.at.toFixed(1)}<small>g</small>`
+      + (Number.isFinite(eta) ? `<i class="cut-in">in ${Math.max(0, eta).toFixed(1)}s</i>` : '')
+    : '—';
+  const near = !!(cut && (cut.ready || cut.due));
+  $('c-cut').classList.toggle('is-due', near);
+  // FLASH THE DIAL. On a screen across the room the one-cell colour change was
+  // too quiet to catch, so the instrument itself now pulses as the stop comes
+  // up and holds solid at the moment to cut — the whole readout saying "now",
+  // not a corner of it.
+  document.body.classList.toggle('stop-soon', !!(cut && cut.ready && !cut.due));
+  document.body.classList.toggle('stop-now', !!(cut && cut.due));
+}
+
+/**
+ * Where to stop, from the one module the laptop stops by, so the two screens
+ * cannot disagree — and computed once here so the picture and the sound on this
+ * device cannot disagree either. The lag rides along in the frame because it is
+ * learned per machine and lives on the laptop.
+ */
+function viewCut(f) {
+  const flow = Number(f.q);
+  const brewing = f.st === 'extracting';
+  if (!brewing || !(Number.isFinite(flow) && flow > 0.05)) return null;
+  return cutPoint({ target: f.target, flow, lag: Number.isFinite(f.lag) ? f.lag : 1,
+    net: Number(f.w) });
 }
 
 function paint(f) {
@@ -1070,11 +1115,18 @@ function soundCues(f) {
   const weighing = f.step === 'dose' || f.step === 'grind';
   gate.edge('window', weighing && f.phase === 'ready', cue.CUES.target);
   const brewing = f.st === 'extracting';
-  const eta = brewing && Number.isFinite(f.q) && f.q > 0.05 && Number.isFinite(f.target)
-    ? (f.target - f.w) / f.q : NaN;
-  if (brewing && eta > 0 && eta <= 5) gate.every('eta', eta, cue.CUES.tick);
-  gate.edge('stop', brewing && Number.isFinite(eta) && eta <= 0.35, cue.CUES.stop);
-  if (!brewing) gate.state.delete('stop');
+  // THE SAME STOP THE SCREEN DRAWS. This counted to the raw target while the
+  // Stop-at cell counted to the trail-adjusted stop weight from cutPoint — so
+  // the beep and the number disagreed, and the beep fired a gram or two late,
+  // which on the device you are actually listening to is the whole cue missing.
+  // Now both come off cutPoint, and the countdown ticks and the stop land where
+  // the panel says they will.
+  const cut = viewCut(f);
+  const eta = cut ? cut.eta : NaN;
+  gate.edge('ready', !!cut?.ready, cue.CUES.ready);
+  if (brewing && eta > 0 && eta <= 3) gate.every('eta', eta, cue.CUES.tick);
+  gate.edge('stop', !!cut?.due, cue.CUES.stop);
+  if (!brewing) { gate.state.delete('stop'); gate.state.delete('ready'); }
 }
 
 link.onMessage = (m) => {
