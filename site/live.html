@@ -3088,6 +3088,32 @@ watcher.onMessage = (m) => {
   // page writes to a file — over the link that is already open, on the network
   // the two devices are already sharing, with no account and no file to carry.
   if (m?.k === 'want-log') { sendLogToPhone(); return; }
+  // The phone's capture controls. It cannot weigh — no iOS browser talks to a
+  // scale — so it asks and this device, which owns the session, acts: Use it
+  // commits the settled candidate now, Undo takes back the last capture and
+  // steps to it. Both are exactly what the laptop's own catch button and undo
+  // gesture do, so the two screens stay one session. A request that arrives
+  // after the moment has passed (the candidate already committed, nothing left
+  // to undo) is a harmless no-op on this side.
+  if (m?.k === 'cap') {
+    if (m.do === 'use') {
+      const out = sess.commit();
+      if (out?.committed) {
+        cue.CUES.captured();
+        $('live-msg').textContent = `Captured ${out.value} g from the phone.`;
+      }
+      paintSession();
+    } else if (m.do === 'undo') {
+      const back = sess.undo();
+      if (back) {
+        cue.CUES.undone();
+        brew.tare = 0;
+        $('live-msg').textContent = `Took back ${fmt(back.was, 1)} g from the phone — back to ${back.step}.`;
+        paintSession();
+      }
+    }
+    return;
+  }
   if (m?.k !== 'rate' || !Number.isFinite(m.v)) return;
   draft.rating = Math.max(1, Math.min(10, Math.round(m.v)));
   buildRateControls();

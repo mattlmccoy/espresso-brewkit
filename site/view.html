@@ -258,6 +258,31 @@
   .fill-mark { position:absolute; top:0; bottom:0; width:2px; background:currentColor; opacity:.75; }
   .fill-now { position:absolute; top:0; bottom:0; left:0; background:currentColor;
     transition:width .1s linear; }
+  /* The capture panel. The laptop's is a thin inline strip beside a hero
+     number; here it is the thing you are meant to reach for, so it is a panel
+     with buttons sized for a thumb. Slides in the way the laptop's does. */
+  .catch { border:var(--bw) solid var(--accent); border-radius:var(--radius);
+    background:color-mix(in srgb, var(--accent) 9%, var(--panel));
+    padding:12px 12px 13px; margin:2px 0 4px; display:grid; gap:10px;
+    animation:catchin var(--t-slow, .28s) var(--ease-out, ease-out); }
+  .catch[hidden] { display:none !important; }
+  @keyframes catchin { from { opacity:0; transform:translateY(-8px); } }
+  .catch-cap[hidden] { display:none; }
+  .catch-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  .catch-v { font:800 30px/1 var(--disp, var(--mono)); letter-spacing:-.02em; color:var(--ink); }
+  .catch-lbl { font:700 11px/1.2 var(--mono); letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-dim); text-align:right; }
+  .catch-bar { display:block; height:8px; margin-top:9px; overflow:hidden;
+    background:color-mix(in srgb, var(--accent) 18%, transparent); border-radius:999px; }
+  .catch-bar[hidden] { display:none; }
+  .catch-bar span { display:block; height:100%; width:0; background:var(--accent);
+    transition:width .1s linear; }
+  .catch-btns { display:flex; gap:10px; }
+  .catch-btns button { flex:1; padding:14px 0; font:800 15px/1 var(--sans); box-shadow:none; }
+  .catch-btns #catch-undo[hidden] { display:none; }
+  /* When only Undo is left — the weight already committed and advanced — it
+     takes the whole width rather than sitting half-empty beside a gap. */
+  .catch-btns #catch-go[hidden] { display:none; }
   /* The preview, only while it is looking. Square-ish and capped, because a
      portrait phone camera at full height pushes everything else off screen. */
   #cam { width:100%; max-height:46vh; object-fit:cover; background:var(--panel-2);
@@ -548,6 +573,27 @@
       <button class="ghost" id="pip-wake" type="button">Wake him</button>
     </div>
 
+    <!-- The capture, on the device you are actually holding.
+         The laptop counts a weight down and offers a button to take it now; the
+         iPad across the room showed neither, so a grind would advance with no
+         warning and nothing to press. This is that same panel: what is about to
+         be captured, how long until it captures itself, a button to take it now,
+         and a way one step back — all driven by the frame, all sent back up the
+         link the laptop already has open. -->
+    <div class="catch" id="catch" hidden>
+      <div class="catch-cap" id="catch-cap">
+        <div class="catch-head">
+          <span class="catch-v" id="catch-v">—</span>
+          <span class="catch-lbl" id="catch-lbl">capturing</span>
+        </div>
+        <span class="catch-bar" id="catch-bar"><span id="catch-fill"></span></span>
+      </div>
+      <div class="catch-btns">
+        <button class="primary" id="catch-go" type="button">Use it</button>
+        <button class="ghost" id="catch-undo" type="button">Undo</button>
+      </div>
+    </div>
+
     <div class="stage" id="stage">
       <!-- ONE OBJECT, ONE NUMBER.
            The cup and the dial used to sit side by side, and each carried its
@@ -811,6 +857,7 @@ function paint(f) {
   $('step').textContent = STEP_LABEL[f.step] ?? '—';
   $('hint').textContent = f.hint ?? '';
   paintPip(f);
+  paintCatch(f);
   paintFill(f);
   paintLadder(f);
   paintGauge(f);
@@ -1035,6 +1082,64 @@ function paintFill(f) {
   $('fill-gap').textContent = p.state === 'in' ? 'in the window'
     : p.delta < 0 ? `${(-p.delta).toFixed(1)} to go` : `+${p.delta.toFixed(1)} over`;
 }
+
+/**
+ * The capture panel, mirrored from the laptop's and driven by the frame.
+ *
+ * Two situations bring it up. A live candidate on a weighing step — a dose or
+ * grounds settling — shows what would be captured, a countdown to when it
+ * captures itself, and Use it to take it now. And any time an earlier weighing
+ * could be taken back, Undo is offered, so a capture that advanced while you
+ * were reaching for the portafilter has a way back on the device in your hand.
+ */
+function paintCatch(f) {
+  const brewing = f.st === 'extracting' || f.st === 'dripping';
+  const weighing = f.step === 'dose' || f.step === 'grind' || f.step === 'milk';
+  const capturing = weighing && Number.isFinite(f.cand);
+  // Undo belongs to the prep, not the pour or the rating: it steps a weighing
+  // back, which only makes sense while there is still a weighing to be on — up
+  // to and including the brew step with the pump still off, where an accidental
+  // advance from a lifted portafilter needs a way back.
+  const prepping = !brewing && (weighing || f.step === 'brew');
+  const undoable = prepping && !!f.undo;
+  const box = $('catch');
+  box.hidden = !(capturing || undoable);
+  if (box.hidden) return;
+  $('catch-cap').hidden = !capturing;
+  $('catch-go').hidden = !capturing;
+  $('catch-undo').hidden = !undoable;
+  if (capturing) {
+    $('catch-v').textContent = `${f.cand.toFixed(1)} g`;
+    // A clock only when one is actually running. At the target the app is
+    // waiting for your call, not counting down to its own, so the label says
+    // how far off rather than how long left, and the bar goes away.
+    const counting = Number.isFinite(f.hold);
+    $('catch-lbl').textContent = counting
+      ? `capturing in ${Math.max(0, Math.ceil(f.hold))} s`
+      : (Number.isFinite(f.off) && f.off !== 0
+        ? `${Math.abs(f.off).toFixed(1)} g ${f.off < 0 ? 'under' : 'over'}`
+        : 'ready — use it');
+    $('catch-bar').hidden = !counting;
+    if (counting && Number.isFinite(f.capFor) && f.capFor > 0) {
+      $('catch-fill').style.width = `${((1 - f.hold / f.capFor) * 100).toFixed(1)}%`;
+    }
+  }
+}
+
+// Both controls speak back up the link the laptop already has open. The laptop
+// owns the session, so the phone asks and the laptop does: Use it commits the
+// candidate now, Undo takes back the last capture and steps back to it. A tap
+// that arrives after the moment has passed is a harmless no-op on that side.
+$('catch-go').addEventListener('click', () => {
+  const sent = link.send({ k: 'cap', do: 'use' });
+  cue.arm();
+  if (sent) cue.CUES.captured?.();
+});
+$('catch-undo').addEventListener('click', () => {
+  const sent = link.send({ k: 'cap', do: 'undo' });
+  cue.arm();
+  if (sent) cue.CUES.undone?.();
+});
 
 function drawCurve(f) {
   // livePlot takes [t, w] pairs, which is exactly what a frame carries.
