@@ -1506,7 +1506,17 @@ function onFrame({ uuid, bytes, at }) {
     void tile.offsetWidth;             // restart the animation rather than skip it
     tile.classList.add('caught');
   }
-  if (moved.advancedTo || moved.committed) paintSession();
+  // THE LIFT WAS TO ADD MORE, NOT TO FINISH. The vessel came back heavier, so
+  // the advance is undone and the step is back where it was with the new
+  // weight. Same note as a hand-driven undo — it is the machine taking a step
+  // back — and the session repaints so the stepper and the readout follow.
+  if (moved.revertedTo) {
+    cue.CUES.undone();
+    trace.mark(`reverted to ${moved.revertedTo}: vessel back with more in it`);
+    $('live-msg').textContent = `Back to ${moved.revertedTo} — you added more, so that `
+      + 'weighing was not finished.';
+  }
+  if (moved.advancedTo || moved.committed || moved.revertedTo) paintSession();
 }
 
 /* ------------------------------------------------------ the workflow trace */
