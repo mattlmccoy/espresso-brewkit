@@ -2062,14 +2062,25 @@ function paintPourTop(s, { lands, eta }) {
     || sess.step === 'brew';
   const d = armed ? shotDial(sess.method, dose, { net: s.net, target: targetYield() }) : null;
   brewGauge.paint(d, { flow: s.flow, flowMax: 4 });
-  setText('c-t', fmt(s.elapsed, 1));
+  // TIME AND RATIO ARE SHARED between the live readout and the finished one, and
+  // once the shot is filed they belong to the shot that just finished —
+  // finishShot() wrote them from the draft. A scale left on the counter keeps
+  // sending frames, and each one lands here with the machine idle (elapsed 0,
+  // no flow), so repainting them live stomped a filed shot's "40.5 g in 19.0 s"
+  // back to "0.0 s" at no ratio while its yield and peak flow, which this
+  // function never touches, stayed correct — a panel half live and half filed.
+  // The other numbers in this row are live-only and hidden during rating, so
+  // only these two need holding.
+  if (sess.step !== 'rate') {
+    setText('c-t', fmt(s.elapsed, 1));
+    setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
+      ? (s.net / dose).toFixed(2) : '—');
+  }
   setText('c-f', fmt(s.flow, 2));
   // The rail used to carry its own copy of this row. It does not while a shot
   // is running, so the target has to be here or it is nowhere.
   setText('c-target', fmt(targetYield(), 1));
   paintPourSum();
-  setText('c-ratio', Number.isFinite(dose) && dose > 0 && s.net > 0
-    ? (s.net / dose).toFixed(2) : '—');
   setText('c-lands', fmt(lands, 1), { flash: true });
   // THE WEIGHT TO STOP AT, which is the number you can actually watch arrive.
   // A countdown asks you to trust it; a weight sits next to the one climbing
@@ -2953,8 +2964,14 @@ function paintSession() {
     // ever cleared between shots, so "0.32 g/s — close to choking" was still on
     // screen, and still being sent to the phone, while you stood at the
     // grinder weighing beans for the next one.
-    if (pip?.talking) pip.hide();
-    pipSaying = null;
+    // EXCEPT ON THE WAY INTO RATING: the shot just finished and pipAfter() has
+    // set the after-shot read, which is exactly the line the phone should now
+    // be showing. Wiping it here is what left the phone with the last mid-pour
+    // line while the laptop had the summary.
+    if (s.step !== 'rate') {
+      if (pip?.talking) pip.hide();
+      pipSaying = null;
+    }
   }
   // The prep rules read the step, the dose and the grounds, so they are offered
   // when one of those three changes and not on every scale sample — retention
@@ -4017,8 +4034,19 @@ function liveStep() {
 function pipAfter(savedShot) {
   if (!pip.up) return;
   const notes = coach.after(savedShot, store.all());
-  if (!notes.length) { pip.say('Nothing stood out.', { mood: 'idle' }); return; }
-  pip.say(notes[0].text, { mood: notes[0].mood });
+  const line = notes.length
+    ? { text: notes[0].text, mood: notes[0].mood }
+    : { text: 'Nothing stood out.', mood: 'idle' };
+  pip.say(line.text, { mood: line.mood });
+  // THE PHONE HEARS THIS TOO. The after-shot read is the most useful thing the
+  // coach says all shot, and it is the one the phone was not getting: pipSaying
+  // was only ever written by the live pour lines, so the viewer kept mirroring
+  // the last mid-pour line while the laptop had moved on to the summary — an
+  // old phrase on the phone next to a current one on the laptop. Set it here,
+  // and push a frame now rather than waiting for the next scale sample, which
+  // may never come once the cup is lifted off.
+  pipSaying = line;
+  if (lastSnap) broadcast(lastSnap);
 }
 
 buildRateControls();
