@@ -3073,6 +3073,54 @@ try {
   t('capture: reaching in to fix an overshoot still stops the countdown',
     conf.adjusted.value === 18, `ended up capturing ${conf.adjusted.value} g`);
 
+  // ---- a lift to add more grounds, not a lift to finish ----
+  const revert = await page.evaluate(async () => {
+    const { SessionMachine, STEP } = await import('./assets/js/core/session.js');
+    // Grind a portafilter to `first` g, lift it (which commits and advances to
+    // brew), then set it back `back` g in it after `gap` seconds.
+    const run = ({ first, back, gap }) => {
+      const s = new SessionMachine();
+      s.setReady(true); s.goto(STEP.GRIND); s.setTarget(18);
+      let t = 0, tare = 0, reverted = null;
+      const feed = (raw, secs, settled = true) => {
+        for (let i = 0; i < secs * 10; i++) {
+          t += 0.1;
+          const o = s.step_(t, raw, +(raw - tare).toFixed(2), settled);
+          if (o.tareTo !== null) tare = o.tareTo;
+          // The revert fires on one tick mid-feed, not the last one — so catch
+          // it when it happens rather than reading only the final return.
+          if (o.revertedTo) reverted = o.revertedTo;
+        }
+      };
+      feed(0, 0.5);                 // empty platform
+      feed(470, 1.0);               // portafilter on → tared at 470
+      feed(470 + first, 1.5);       // grind `first` g into it
+      feed(0, 0.6);                 // lift it off → commit + advance to brew
+      const afterLift = { step: s.step, grounds: s.grounds };
+      feed(0, gap);                 // gone for a while
+      feed(470 + back, 1.4);        // set it back with `back` g in it
+      return { afterLift, final: s.step, candidate: s.candidate, grounds: s.grounds,
+        reverted };
+    };
+    return {
+      more: run({ first: 16, back: 17, gap: 2 }),   // added a gram → revert
+      same: run({ first: 16, back: 16, gap: 2 }),   // just checking → no revert
+      late: run({ first: 16, back: 17, gap: 16 }),  // past the window → no revert
+    };
+  });
+  t('capture: lifting the portafilter to add more grounds does not finish the grind',
+    revert.more.afterLift.step === 'brew' && revert.more.reverted === 'grind'
+      && revert.more.final === 'grind' && revert.more.candidate === 17
+      && revert.more.grounds === null,
+    `lift → ${revert.more.afterLift.step}, back heavier → ${revert.more.final} `
+      + `capturing ${revert.more.candidate}`);
+  t('capture: setting it back at the same weight leaves the grind finished',
+    revert.same.final === 'brew' && revert.same.grounds === 16 && !revert.same.reverted,
+    `back at 16 g → ${revert.same.final}, grounds ${revert.same.grounds}`);
+  t('capture: and once the window has passed the advance stands',
+    revert.late.final === 'brew' && revert.late.grounds === 16 && !revert.late.reverted,
+    `back heavier after 16 s → ${revert.late.final}, grounds ${revert.late.grounds}`);
+
   // ---- the readings behind whatever just happened ----
   const tr = await page.evaluate(async () => {
     const { Trace, parseTrace, summarise, COLUMNS } = await import('./assets/js/core/trace.js');

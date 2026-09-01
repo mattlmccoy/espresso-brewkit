@@ -276,6 +276,8 @@ export class SessionMachine {
     this._t = 0;
     this.holdLeft = null;       // seconds until an unattended capture, or null
     this.offTarget = null;      // how far a held reading is from the target, or null
+    // A lift-commit that can still be undone by the vessel coming back heavier.
+    this._revert = null;
     this.events = [];
   }
 
@@ -321,6 +323,8 @@ export class SessionMachine {
     if (!this.m.order.includes(step)) return;
     this.step = step;
     this.candidate = null;
+    // A deliberate jump is not an accidental lift; nothing to second-guess.
+    this._revert = null;
     this._enterVessel(true);
   }
 
@@ -403,11 +407,54 @@ export class SessionMachine {
    * @returns {{committed: string|null, advancedTo: string|null}}
    */
   step_(t, raw, net, settled) {
-    const out = { committed: null, advancedTo: null, tareTo: null };
+    const out = { committed: null, advancedTo: null, tareTo: null, revertedTo: null };
     const prevRaw = this._lastRaw;
     this._lastRaw = raw;
     this._t = t;
     if (prevRaw === null) return out;
+
+    // REVERTING AN ADVANCE THAT A LIFT MADE BY MISTAKE.
+    //
+    // Lifting the vessel commits the weight and moves on — but lifting the
+    // portafilter to knock in the last few grams looks exactly the same to a
+    // scale, and it was advancing to the brew step with the grind half taken.
+    // So a lift-commit is provisional for a few seconds: if the same vessel
+    // comes back with MORE in it than was captured, the lift meant "not done",
+    // and the step and the weight both go back to where they were. Checked
+    // before the weighing gate because the step it is reverting FROM (brew) is
+    // not itself a weighing step.
+    if (this._revert) {
+      const r = this._revert;
+      const back = raw - r.vesselRaw;
+      const isVessel = back > this.o.minMass && back <= this.o.maxMass;
+      if (t > r.until) {
+        this._revert = null;
+      } else if (isVessel && back > r.was + 0.3) {
+        // Held briefly, so a hand reaching in or a knock does not trip it.
+        if (r.since === null || Math.abs(raw - r.at) > this.o.vesselBand) {
+          r.since = t; r.at = raw;
+        } else if (t - r.since >= this.o.vesselFor) {
+          this._revert = null;
+          this.step = r.step;
+          this[r.key] = null;
+          this.auto[r.key] = false;
+          if (this.at) delete this.at[r.key];
+          out.tareTo = +r.vesselRaw.toFixed(2);
+          this._tare = out.tareTo;
+          this._vesselRaw = +r.vesselRaw.toFixed(2);
+          this._sawEmpty = false;
+          this.phase = PHASE.FILL;
+          this._restartPlateau();
+          this.candidate = +back.toFixed(2);
+          out.revertedTo = r.step;
+          this._log(t, `Back to ${this.weighFor().vessel} — ${back.toFixed(1)} g in it now, `
+            + `more than the ${r.was} g that was captured.`);
+          return out;
+        }
+      } else {
+        r.since = null; r.at = null;
+      }
+    }
 
     const weighing = this.step === STEP.DOSE || this.step === STEP.GRIND;
     if (!weighing) { this.holdLeft = null; this.offTarget = null; return out; }
@@ -632,6 +679,16 @@ export class SessionMachine {
     out.why = why;
     const name = w.key === 'grounds' ? 'Grounds' : w.key[0].toUpperCase() + w.key.slice(1);
     this._log(t, `${name} ${this[w.key]} g captured ${why}.`);
+    // A LIFT-COMMIT IS PROVISIONAL. If this was the vessel coming off — the one
+    // signal that cannot tell "done" from "lifting to add more" — remember what
+    // the vessel weighs empty and what was captured, so that the vessel coming
+    // back heavier within the window undoes this advance rather than starting a
+    // brew on a half-ground dose. Only when there is a vessel to recognise: a
+    // dose poured onto a bare scale has no empty weight to come back to.
+    this._revert = (why.includes('came off') && this._vesselRaw !== null)
+      ? { step: this.step, key: w.key, vesselRaw: this._vesselRaw, was: this[w.key],
+          until: t + 15, since: null, at: null }
+      : null;
     const i = this.m.order.indexOf(this.step);
     this.step = this.m.order[Math.min(this.m.order.length - 1, i + 1)];
     out.advancedTo = this.step;
@@ -674,6 +731,7 @@ export class SessionMachine {
       if (this.at) delete this.at[w.key];
       this.step = step;
       this._clearCandidate();
+      this._revert = null;
       // Back to looking for a vessel, and trusting the platform as it stands:
       // undoing is a deliberate act by someone standing at the scale, who can
       // see what is on it.
