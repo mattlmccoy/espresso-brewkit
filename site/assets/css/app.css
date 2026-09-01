@@ -1174,10 +1174,26 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 @keyframes pip-blink { 50% { opacity: 0; } }
 .pip-caret { animation: pip-blink 1.06s step-end infinite; }
 
-/* ---- he floats, and you put him where you want him ---------------------- */
-/* In the page flow he sat wherever the content ended, which on a long page is
-   below the fold — so the character commenting on what you are looking at was
-   not on screen while you looked at it. */
+/* ---- two homes ---------------------------------------------------------- */
+/* DOCKED IN THE COLUMN, on the brewing screen and in a replay. His slot sits in
+   the markup under the graph and above the shot history, and that is where he
+   belongs: he is the reading of the curve you are watching, so he reads under
+   it, and the history strip flows below him. In the layout, not over it — the
+   one place he is genuinely part of what is on screen rather than commentary
+   beside it. */
+.pip-inflow {
+  /* Hug his own width, not the column's. He is a small terminal sitting under
+     the graph, not a bar stretched across it — so the block shrink-wraps to the
+     box rather than filling the cell. */
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  margin-top: var(--s4, 14px);
+}
+/* HE FLOATS, and you put him where you want him — everywhere else. In the page
+   flow he sat wherever the content ended, which on a long page is below the
+   fold, so the character commenting on what you are looking at was not on
+   screen while you looked at it. */
 .pip-dock {
   position: fixed;
   z-index: 70;
@@ -1193,10 +1209,9 @@ body.dash-page { height: 100dvh; display: flex; flex-direction: column; }
 .pip-dock.dragging { transition: none; right: auto; bottom: auto; z-index: 72; }
 .pip-bar { cursor: grab; touch-action: none; user-select: none; }
 .pip-dock.dragging .pip-bar { cursor: grabbing; }
-/* PINNED, on the brewing screen and in a replay. He is part of the instrument
-   there rather than commentary beside it, so the bar offers no handle: a grab
-   cursor promising a drag that does nothing is worse than no cursor at all. */
-.pip-dock.pip-pinned .pip-bar { cursor: default; touch-action: auto; }
+/* Docked in the column, his bar is a title, not a handle: no grab cursor for a
+   drag that does not happen. */
+.pip-inflow .pip-bar { cursor: default; touch-action: auto; }
 .pip-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* THE BUBBLE FLIPS. It spawns to his right with a tail pointing back at him,

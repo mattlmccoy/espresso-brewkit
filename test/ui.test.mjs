@@ -7912,9 +7912,34 @@ try {
     t('pip: on every page he sits clear of everything you can click',
       covered.length === 0, covered.join(' | ') || 'nothing underneath him anywhere');
 
-    // AND ON THE BREWING SCREEN, where he is pinned and cannot be moved out of
-    // the way — idle, and again in a replay, which is the state that has a
-    // transport bar and a history strip competing for the same corner.
+    // A FLOATING page must have nothing above his dock that captures a fixed
+    // overlay: a transform, filter, perspective or paint containment turns
+    // "fixed to the window" into "fixed to that ancestor". Checked where he
+    // actually floats — on Live he is in the flow, inside a panel that does
+    // carry a transform, and that is fine because there he is not fixed at all.
+    const anc = await ctx.newPage();
+    await anc.goto(`${B}/shots.html`);
+    await anc.waitForTimeout(300);
+    const trapped = await anc.evaluate(() => {
+      const dock = document.getElementById('pip-dock');
+      const bad = [];
+      for (let el = dock.parentElement; el && el !== document.documentElement; el = el.parentElement) {
+        const cs = getComputedStyle(el);
+        if (cs.transform !== 'none' || cs.perspective !== 'none' || cs.filter !== 'none'
+          || /paint|layout|strict|content/.test(cs.contain || '')) {
+          bad.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`);
+        }
+      }
+      return { floating: dock.classList.contains('pip-dock'), bad };
+    });
+    t('pip: where he floats, nothing above him captures the fixed overlay',
+      trapped.floating && trapped.bad.length === 0,
+      trapped.bad.join(', ') || 'no transformed ancestors above the floating dock');
+    await anc.close();
+
+    // AND ON THE BREWING SCREEN, where he is docked in the column and cannot be
+    // moved out of the way — idle, and again in a replay, which is the state
+    // that has a transport bar and a history strip stacked under the graph.
     const lp = await ctx.newPage();
     await lp.setViewportSize({ width: 1280, height: 900 });
     await lp.goto(`${B}/live.html?mock=lefu&noshot=1`);
@@ -7948,24 +7973,6 @@ try {
       idle.hits.length === 0 && strip > 0,
       idle.hits.length ? `covers ${idle.hits.join(', ')}`
         : `${strip} shots in the strip, none underneath him`);
-
-    // A fixed overlay is only fixed to the window when nothing above it has a
-    // transform. The brew panel animates in, and its identity matrix outlives
-    // the animation — which is exactly how he ended up inside the panel.
-    const trapped = await lp.evaluate(() => {
-      const dock = document.getElementById('pip-dock');
-      const bad = [];
-      for (let el = dock.parentElement; el && el !== document.documentElement; el = el.parentElement) {
-        const cs = getComputedStyle(el);
-        if (cs.transform !== 'none' || cs.perspective !== 'none' || cs.filter !== 'none'
-          || /paint|layout|strict|content/.test(cs.contain || '')) {
-          bad.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''}`);
-        }
-      }
-      return bad;
-    });
-    t('pip: nothing above him captures a fixed overlay, so the window is what he is fixed to',
-      trapped.length === 0, trapped.join(', ') || 'no transformed ancestors');
 
     await lp.evaluate(async () => {
       const store = await import('./assets/js/core/store.js');
@@ -8130,54 +8137,59 @@ try {
       `corner ${kept.at}, bubble ${kept.flipped}, ${kept.stray} stray hints`);
 
     // BUT NOT WHERE THE PAGE IS THE THING YOU ARE WATCHING.
-    // On the brewing screen he is part of the instrument — the dial, the
-    // ladder and his face are one reading — and a part of an instrument that
-    // moves between shots is a worse instrument. There is also nothing to move
-    // him out of the way of during a twenty-second pour with both hands busy,
-    // so a handle there is a way to lose him rather than a convenience.
+    // On the brewing screen he is not a floating overlay at all: his slot sits
+    // in the markup under the graph and above the shot history, and that is
+    // where the reading of the curve belongs. He stays there, in the flow,
+    // static — no corner, no handle — and the history strip flows below him.
     await fl.goto(`${B}/live.html?mock=lefu&noshot=1`);
     await fl.waitForFunction(() => window.__sess, null, { timeout: 8000 });
     await fl.waitForTimeout(300);
-    const pinned = await fl.evaluate(() => {
+    const docked = await fl.evaluate(() => {
       const d = document.getElementById('pip-dock');
       const bar = d.querySelector('.pip-bar');
       return {
-        at: d.dataset.at,
-        isPinned: d.classList.contains('pip-pinned'),
+        inflow: d.classList.contains('pip-inflow'),
+        position: getComputedStyle(d).position,
+        // He stays in the column, not re-homed to the body.
+        parent: d.parentElement.id,
         // No handle affordance: no tab stop, no button role, no grab cursor.
         tabbable: bar?.tabIndex ?? -1,
         role: bar?.getAttribute('role') ?? '',
         cursor: bar ? getComputedStyle(bar).cursor : '',
       };
     });
-    t('pip: on the brewing screen he is pinned, and offers no handle to drag',
-      pinned.isPinned && pinned.tabbable !== 0 && pinned.role !== 'button'
-        && pinned.cursor !== 'grab',
-      `pinned ${pinned.isPinned}, tabIndex ${pinned.tabbable}, role "${pinned.role}", `
-        + `cursor ${pinned.cursor}`);
-    // The corner carried over from the other pages was 'tr'. Pinned means the
-    // brewing screen puts him where IT wants him, not where the log left him.
-    t('pip: and the corner he was left in elsewhere does not move him here',
-      pinned.at === 'bl', `he is at ${pinned.at}`);
-    // Dragging him has to actually do nothing — a listener that fires and is
-    // then ignored would still show the snap hints and look broken.
-    const liveBar = await fl.locator('#pip-dock .pip-bar').boundingBox();
-    await fl.mouse.move(liveBar.x + 20, liveBar.y + 6);
-    await fl.mouse.down();
-    await fl.mouse.move(1250, 110, { steps: 6 });
-    const during = await fl.evaluate(() => document.querySelectorAll('.pip-snap').length);
-    await fl.mouse.up();
-    await fl.waitForTimeout(250);
-    const stayed = await fl.evaluate(() => document.getElementById('pip-dock').dataset.at);
-    t('pip: dragging him on the brewing screen does nothing at all',
-      during === 0 && stayed === 'bl',
-      `${during} landing places offered, ended at ${stayed}`);
-    // And the pinning must not have overwritten the corner he keeps elsewhere.
+    t('pip: on the brewing screen he sits in the column, not floating in a corner',
+      docked.inflow && docked.position === 'static' && docked.parent === 'cell-pour',
+      `inflow ${docked.inflow}, position ${docked.position}, parent #${docked.parent}`);
+    t('pip: and offers no handle to drag',
+      docked.tabbable !== 0 && docked.role !== 'button' && docked.cursor !== 'grab',
+      `tabIndex ${docked.tabbable}, role "${docked.role}", cursor ${docked.cursor}`);
+    // He reads UNDER the graph, and the shot history flows BELOW him — the live
+    // reading above the archive, and the archive yields to it. This is the whole
+    // point of the layout, so it is asserted directly.
+    const order = await fl.evaluate(() => {
+      const box = document.querySelector('#pip-dock .pip-box').getBoundingClientRect();
+      const chart = document.getElementById('curve').getBoundingClientRect();
+      const strip = document.getElementById('history').getBoundingClientRect();
+      const btns = document.querySelectorAll('#history button').length;
+      return { pipTop: Math.round(box.top), chartBottom: Math.round(chart.bottom),
+        stripTop: Math.round(strip.top), btns };
+    });
+    t('pip: under the graph, with the shot history below him',
+      order.pipTop >= order.chartBottom - 2 && order.stripTop >= order.pipTop - 2,
+      `chart ends ${order.chartBottom}, pip at ${order.pipTop}, strip at ${order.stripTop}`);
+    // And docking him on Live must not have touched the corner he keeps on the
+    // pages where he floats.
     await fl.goto(`${B}/shots.html`);
     await fl.waitForTimeout(300);
-    const elsewhere = await fl.evaluate(() => document.getElementById('pip-dock').dataset.at);
-    t('pip: and being pinned there does not forget where you put him everywhere else',
-      elsewhere === 'tr', `back on the log he is at ${elsewhere}`);
+    const elsewhere = await fl.evaluate(() => {
+      const d = document.getElementById('pip-dock');
+      return { at: d.dataset.at, floating: d.classList.contains('pip-dock'),
+        position: getComputedStyle(d).position };
+    });
+    t('pip: and on the pages where he floats he is still floating, at the corner you left him',
+      elsewhere.at === 'tr' && elsewhere.floating && elsewhere.position === 'fixed',
+      `corner ${elsewhere.at}, floating ${elsewhere.floating}, ${elsewhere.position}`);
 
     // AND HIS EYES GO WHERE YOU ARE. The two glance frames are eyes-left and
     // eyes-right and he already picked one at random — so he was looking

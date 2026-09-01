@@ -362,7 +362,7 @@ export function mountPip(host, { onDismiss = null, name = 'pip' } = {}) {
  *          are no-ops when he is not, so callers never have to null-check.
  */
 export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
-                                          fixed = false, at: pinnedAt = 'bl' } = {}) {
+                                          inFlow = false } = {}) {
   if (!host) return { say() {}, mood() {}, hide() {}, ask() {}, get talking() { return false; },
                       get up() { return false; }, destroy() {} };
 
@@ -400,54 +400,44 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
   }
 
 
-  /* ------------------------------------------------ where he floats ------ */
+  /* --------------------------------------------- where he sits ---------- */
   //
-  // HE IS AN OVERLAY, NOT A BLOCK IN THE PAGE.
+  // TWO HOMES, and the page says which.
   //
-  // In the flow he sat wherever the page ended — which on a long Shots detail
-  // put him a screen and a half below the thing he was talking about, so the
-  // one reading of the shot you had to scroll to find was his. A character who
-  // comments on what you are looking at has to be on screen while you look at
-  // it.
+  // On the brewing screen and in a replay he is DOCKED IN THE COLUMN: his slot
+  // sits in the markup right under the graph and above the shot history, which
+  // is exactly where he belongs — he is the reading of the curve you are
+  // watching, so he reads under it. He stays in the flow there, static, and the
+  // history strip below him moves down to make room. That is the right way
+  // round: he is the live reading, the strip is the archive, and the archive
+  // yields to the thing you are doing now. No floating, no corner, no drag —
+  // during a shot you have both hands busy and there is nothing to move him out
+  // of the way OF, so a handle would only be a way to lose him.
   //
-  // Four corners rather than free placement. Free placement means he ends up
-  // over a control eventually and it is your problem to fix; corners are four
-  // decisions, all of them safe. The one you pick is remembered, because he is
-  // on every page now and being somewhere different on each would be worse than
-  // being in the wrong place on all of them.
-  //
-  // EXCEPT WHERE THE PAGE IS THE THING YOU ARE WATCHING.
-  //
-  // On the brewing screen and in a replay he is pinned. Everywhere else he is
-  // commentary beside a page you are reading, and where he sits is a matter of
-  // taste. During a shot he is part of the instrument: the dial, the ladder and
-  // his face are one reading taken together, and a reading whose parts move
-  // between shots is a worse reading. There is also nothing to move him out of
-  // the way OF — you have twenty seconds and both hands busy, so a drag handle
-  // there is a way to lose him mid-pour, not a convenience.
+  // EVERYWHERE ELSE he is commentary beside a page you are reading, and where
+  // he goes is a matter of taste. There he is a FLOATING OVERLAY: re-homed to
+  // the body so `position: fixed` resolves against the window rather than some
+  // animated ancestor, and draggable to any of four corners, the choice
+  // remembered so he is not somewhere different on each page.
   const CORNERS = ['tl', 'tr', 'bl', 'br'];
-  host.classList.add('pip-dock');
-  // AN OVERLAY BELONGS TO THE VIEWPORT, SO IT BELONGS TO THE BODY.
-  //
-  // `position: fixed` does not mean "fixed to the window" — it resolves against
-  // the nearest ancestor carrying a transform, filter, perspective or paint
-  // containment, and only against the viewport when there is none. The brewing
-  // screen's panel has a staggered entrance animation, so its computed
-  // transform stays an identity matrix for the life of the page: enough to
-  // capture him. "Bottom left" then meant the bottom left of THAT PANEL, which
-  // is where the replay transport sits, and he covered the controls.
-  //
-  // Re-homing him is the structural fix rather than a per-page one. Any page
-  // that wraps his slot in an animated container would otherwise reintroduce
-  // this, and nothing about where his markup sits was ever meaningful — he is
-  // painted over the page, not laid out in it.
-  if (host.parentElement !== document.body) document.body.append(host);
-  if (fixed) host.classList.add('pip-pinned');
-  host.dataset.at = (() => {
-    if (fixed) return CORNERS.includes(pinnedAt) ? pinnedAt : 'bl';
-    const at = prefs.prefs?.().pipAt;
-    return CORNERS.includes(at) ? at : 'bl';
-  })();
+  if (inFlow) {
+    host.classList.add('pip-inflow');
+  } else {
+    host.classList.add('pip-dock');
+    // AN OVERLAY BELONGS TO THE VIEWPORT, SO IT BELONGS TO THE BODY.
+    // `position: fixed` does not mean "fixed to the window" — it resolves
+    // against the nearest ancestor carrying a transform, filter, perspective or
+    // paint containment, and only against the viewport when there is none. Any
+    // page could wrap his slot in an animated container (the brewing panel does,
+    // and its identity matrix outlives the animation), which would capture him
+    // and put "bottom left of the window" somewhere inside that container. He is
+    // painted over the page, not laid out in it, so the body is where he lives.
+    if (host.parentElement !== document.body) document.body.append(host);
+    host.dataset.at = (() => {
+      const at = prefs.prefs?.().pipAt;
+      return CORNERS.includes(at) ? at : 'bl';
+    })();
+  }
 
   /**
    * How big HE is — the case, not the case plus whatever he is saying.
@@ -471,7 +461,7 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
   }
 
   function settle(at) {
-    if (fixed) return;
+    if (inFlow) return;
     host.dataset.at = CORNERS.includes(at) ? at : 'bl';
     host.style.left = host.style.top = '';
     prefs.set?.({ pipAt: host.dataset.at });
@@ -511,7 +501,7 @@ export function installPip(host, prefs, { name = 'pip', quietLabel = 'for now',
   }
 
   function draggable(bar) {
-    if (!bar || fixed) return;
+    if (!bar || inFlow) return;
     let id = null, dx = 0, dy = 0;
     bar.addEventListener('pointerdown', (e) => {
       // The close button lives on this bar and is not a handle.
