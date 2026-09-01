@@ -4358,6 +4358,29 @@ try {
     (await page.evaluate(() => document.querySelector('#stepper button[aria-current="step"]')?.dataset.step))
       === 'rate', 'rate panel shown');
 
+  // THE FILED READOUT SURVIVES A SCALE LEFT ON THE COUNTER.
+  // The shot is over and the mock keeps sending frames at the settled cup
+  // weight — which is what a real scale does while you rate the shot. Every one
+  // of those idle frames used to repaint Time and Ratio from the live snapshot,
+  // so "40.5 g in 19.0 s" became "0.0 s" at no ratio a heartbeat after landing,
+  // while Yield and Peak flow — which the live repaint never touches — stayed
+  // right. A panel half live and half filed.
+  const filedAtLanding = await page.evaluate(() => ({
+    t: document.getElementById('c-t').textContent,
+    ratio: document.getElementById('c-ratio').textContent,
+  }));
+  await page.waitForTimeout(1500);   // let idle frames arrive and try to stomp it
+  const filedAfter = await page.evaluate(() => ({
+    t: document.getElementById('c-t').textContent,
+    ratio: document.getElementById('c-ratio').textContent,
+    yield: document.getElementById('c-yield').textContent,
+  }));
+  t('live: a filed shot keeps its time and ratio while the scale keeps reporting',
+    /\d/.test(filedAfter.t) && filedAfter.t !== '0.0' && /\d/.test(filedAfter.ratio)
+      && filedAfter.t === filedAtLanding.t && filedAfter.ratio === filedAtLanding.ratio,
+    `at landing ${filedAtLanding.t}s 1:${filedAtLanding.ratio}, `
+      + `after idle frames ${filedAfter.t}s 1:${filedAfter.ratio} (yield ${filedAfter.yield})`);
+
   // Filed on landing; the rating edits the row it already has.
   await page.waitForFunction(() => /Saved as/.test(document.getElementById('save-msg').textContent),
     { timeout: 5000 });
@@ -7773,6 +7796,47 @@ try {
     t('pip: he names it for what it is instead',
       said.stopped.length === 1, said.stopped.map((l) => `${l.at}s "${l.text}"`).join(' | ') || 'said nothing');
     await tail.close();
+  }
+
+  /* ----------- the phone hears the after-shot read, not the last pour line */
+  {
+    // The viewer runs no coach — it mirrors whatever the laptop broadcasts. But
+    // the post-shot read never reached it: pipSaying was written only by the
+    // live pour lines, so the phone kept showing the last mid-pour line while
+    // the laptop had moved on to the summary. An old phrase on the phone next
+    // to a current one on the laptop, which is exactly what the iPad showed.
+    const lp = await ctx.newPage();
+    await lp.setViewportSize({ width: 1280, height: 900 });
+    await lp.goto(`${B}/live.html?mock=lefu`);
+    await lp.waitForFunction(() => window.__sess && window.__mock && window.__watch,
+      null, { timeout: 8000 });
+    // Spy the wire: force the peer link 'open' and record every frame's pip.
+    await lp.evaluate(() => {
+      const w = window.__watch;
+      window.__wirePips = [];
+      Object.defineProperty(w, 'state', { get: () => 'open', configurable: true });
+      w.send = (frame) => { try { window.__wirePips.push(frame?.pip ?? null); } catch { /* */ } };
+    });
+    await lp.evaluate(() => { window.__sess.goto('brew'); window.__mock.grams = 0; });
+    await lp.waitForTimeout(200);
+    await lp.evaluate(() => window.__mock.runShot({ cup: 120, target: 36 }));
+    await lp.waitForFunction(() => document.getElementById('state').dataset.state === 'extracting',
+      { timeout: 20000 });
+    await lp.waitForTimeout(3500);
+    await lp.click('#stop');
+    await lp.waitForFunction(() => window.__sess.step === 'rate', { timeout: 6000 });
+    await lp.waitForTimeout(1200);   // let the post-shot frame go out
+    const wire = await lp.evaluate(() => {
+      const laptop = document.querySelector('#pip-dock .pip-say')?.textContent?.trim() ?? '';
+      const last = window.__wirePips.at(-1);
+      return { laptop, lastText: last?.text ?? null };
+    });
+    // What the phone is told last is exactly what the laptop is saying — the
+    // after-shot read — and it is a real line, not a null and not a stale one.
+    t('phone: after a shot the viewer is sent the same read the laptop shows',
+      !!wire.lastText && wire.lastText === wire.laptop,
+      `laptop "${wire.laptop}", last sent "${wire.lastText}"`);
+    await lp.close();
   }
 
   /* -------------------- a clean shot is a result, not an absence */
