@@ -1621,6 +1621,50 @@ try {
     !phoneCoach.quiet.hidden && phoneCoach.quiet.says === '' && phoneCoach.quiet.caret,
     `pane kept, caret still there: ${phoneCoach.quiet.caret}`);
 
+  // THE STOP, SEEN FROM ACROSS THE ROOM. The phone is the screen you actually
+  // watch at the machine, and it showed a stop weight with no sense of when to
+  // reach it, and a one-cell colour change too quiet to catch. It now carries a
+  // countdown and flashes the whole dial: pulsing as the stop comes up, solid
+  // at the moment to cut. And the weight it counts to is the trail-adjusted
+  // stop from cutPoint — the same one the laptop uses — not the raw target it
+  // used to beep at a gram or two late.
+  const phoneStop = await page.evaluate(() => {
+    const f = { method: 'espresso', dose: 18, doseSet: true, target: 36, lag: 1,
+      k: 'f', st: 'extracting', step: 'brew', phase: 'fill' };
+    const paint = (w, q) => window.__view.paint({ ...f, w, q, t: 20 });
+    // Mid-shot, nowhere near the stop: no countdown-driven flash.
+    paint(20, 2.0);
+    const mid = { flash: document.body.classList.contains('stop-soon')
+      || document.body.classList.contains('stop-now'),
+      cutHtml: document.getElementById('cut').innerHTML };
+    // Coming up on it — the stop weight is 36 − flow·lag = 34, so at 31 g and
+    // 2 g/s that is about 1.5 s out: within the warning, not yet due.
+    paint(31, 2.0);
+    const soon = { soon: document.body.classList.contains('stop-soon'),
+      now: document.body.classList.contains('stop-now'),
+      hasCountdown: /in [\d.]+s/.test(document.getElementById('cut').innerHTML),
+      due: document.getElementById('c-cut').classList.contains('is-due') };
+    // At the stop weight: solid, not pulsing.
+    paint(34.1, 2.0);
+    const now = { soon: document.body.classList.contains('stop-soon'),
+      now: document.body.classList.contains('stop-now') };
+    // Shot over: the flash clears rather than sticking on.
+    window.__view.paint({ ...f, st: 'complete', w: 36, q: 0, t: 25 });
+    const done = document.body.classList.contains('stop-soon')
+      || document.body.classList.contains('stop-now');
+    return { mid, soon, now, done };
+  });
+  t('phone: no stop flash in the middle of a shot, and the weight carries no false countdown',
+    phoneStop.mid.flash === false, `flash ${phoneStop.mid.flash}`);
+  t('phone: coming up on the stop it counts down and pulses the dial',
+    phoneStop.soon.soon && !phoneStop.soon.now && phoneStop.soon.hasCountdown && phoneStop.soon.due,
+    `soon ${phoneStop.soon.soon}, now ${phoneStop.soon.now}, `
+      + `countdown ${phoneStop.soon.hasCountdown}, due-cell ${phoneStop.soon.due}`);
+  t('phone: at the stop weight the dial holds solid rather than pulsing',
+    phoneStop.now.now && !phoneStop.now.soon, `soon ${phoneStop.now.soon}, now ${phoneStop.now.now}`);
+  t('phone: and the flash clears when the shot ends',
+    phoneStop.done === false, `still flashing: ${phoneStop.done}`);
+
   // THE COACH. The half that decides whether to speak at all.
   // The failure mode being tested for is not "says the wrong thing" but "says
   // anything at all when it should not" — an assistant that talks through a
@@ -5743,6 +5787,49 @@ try {
     cues.ticks === 5, `${cues.ticks} ticks over the last five seconds`);
   t('cues: and nothing sounds until audio has been allowed',
     cues.armed === false, 'silent until a gesture arms it');
+
+  // AUDIO THAT WENT TO SLEEP IS WHY THE STOP CUE WAS HIT AND MISS. A browser
+  // suspends an AudioContext on its own — a tab blur, a phone lock, a quiet
+  // stretch — and the old code latched "armed" once and then played every tone
+  // into a suspended context, silently. A fresh module instance (the query
+  // buster) with a context we can suspend at will proves the new behaviour:
+  // a suspended context is asked back and the tone is skipped, and the next one
+  // — once running — sounds.
+  const audio = await page.evaluate(async () => {
+    const cue = await import(`./assets/js/core/cue.js?fresh=${Date.now()}`);
+    let state = 'suspended';
+    let resumes = 0;
+    const node = { type: '', frequency: { setValueAtTime() {} },
+      gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} },
+      connect() { return this; }, start() {}, stop() {} };
+    class FakeCtx {
+      constructor() { this.currentTime = 0; this.destination = {}; }
+      get state() { return state; }
+      resume() { resumes += 1; state = 'running'; return Promise.resolve(); }
+      createOscillator() { return node; }
+      createGain() { return node; }
+    }
+    const prev = window.AudioContext;
+    const prevWk = window.webkitAudioContext;
+    window.AudioContext = FakeCtx;
+    delete window.webkitAudioContext;
+    try {
+      const armed = cue.arm();               // resume() flips suspended → running
+      state = 'suspended';                   // the browser suspends it behind our back
+      const whileAsleep = cue.tone(600);     // skipped, and asks the context back
+      const wokeState = state;               // resume() set it running again
+      const whileAwake = cue.tone(600);      // now it sounds
+      return { armed, whileAsleep, wokeState, whileAwake, resumes };
+    } finally {
+      window.AudioContext = prev;
+      if (prevWk) window.webkitAudioContext = prevWk;
+    }
+  });
+  t('cues: a suspended context is woken and the tone skipped, then the next one sounds',
+    audio.armed === true && audio.whileAsleep === false && audio.wokeState === 'running'
+      && audio.whileAwake === true && audio.resumes >= 2,
+    `armed ${audio.armed}, asleep→${audio.whileAsleep}, woke ${audio.wokeState}, `
+      + `awake→${audio.whileAwake}, ${audio.resumes} resumes`);
 
   // Cues are on by default now. The whole point of them is that they reach you
   // when you are not looking at the screen, and a default of off meant nobody
