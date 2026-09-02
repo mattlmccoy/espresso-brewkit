@@ -33,6 +33,11 @@
   --tag-fg:    #e8ff36;   /* sits on --ink; see the dark override */
   --warn:      #8a4405;   /* 7.3:1 on --warn-bg; #c2681a was 3.63:1 */
   --warn-bg:   #fff6c2;
+  /* The stop cue's warm. The dial is already --accent, so a warning on it has
+     to be a different thing; --fit is this palette's danger warm and is redefined
+     per theme, so aliasing it here gives every theme a coherent stop colour with
+     one line rather than five that could drift. */
+  --stop:      var(--fit);
 
   /* The ground a control sits on, one step off its panel. Without it a theme
      that gives panels and buttons the same fill makes a button's visibility
@@ -474,6 +479,26 @@ body.browsing { overflow:hidden; }
   letter-spacing:.01em; }
 @media (prefers-reduced-motion: reduce) {
   .g-now, .g-zone, .g-label { transition:none; }
+}
+
+/* THE STOP, ON THE INSTRUMENT ITSELF.
+   The first cut cue put a glow around the dial's container box, which is a wide
+   ellipse on the laptop and a collapsed nub on the phone, and blue — the colour
+   the dial already wears. This is the dial's own bands instead: the same arcs
+   the dial is drawn from, so it is exactly the dial's shape on every screen, in
+   --stop rather than the accent. It pulses as the cut comes up (stop-soon) and
+   holds solid with the number lit at the moment to cut (stop-now). Both classes
+   are set on <body> by Live and the phone from the one cutPoint, so the two
+   screens say "now" the same way. */
+body.stop-soon .gauge .g-zone,
+body.stop-now  .gauge .g-zone { stroke:var(--stop); }
+body.stop-soon .gauge .g-zone { animation:stop-ring .7s ease-in-out infinite; }
+body.stop-now  .gauge .g-zone { stroke-opacity:1; }
+body.stop-now  .gauge .g-now  { stroke:var(--stop); opacity:.9; }
+body.stop-now  .gauge .g-n    { color:var(--stop); }
+@keyframes stop-ring { 0%,100% { stroke-opacity:.35; } 50% { stroke-opacity:1; } }
+@media (prefers-reduced-motion: reduce) {
+  body.stop-soon .gauge .g-zone { animation:none; stroke-opacity:1; }
 }
 }
 }

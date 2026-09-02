@@ -130,21 +130,10 @@
     margin-bottom:10px; }
   .pour-top > #brew-gauge { flex:1 1 58%; min-width:0; }
   .pour-top #brew-gauge[hidden] { display:none; }
-  /* FLASH THE DIAL as the stop comes up — a ring around the instrument, pulsing
-     while it is near and solid at the moment to cut, so it reads from across
-     the room rather than only in the stop-at cell. */
-  #brew-gauge { position:relative; }
-  #brew-gauge::after {
-    content:''; position:absolute; inset:-2%; border-radius:50%;
-    box-shadow:0 0 0 4px var(--accent), 0 0 20px 3px var(--accent);
-    opacity:0; pointer-events:none; transition:opacity .12s;
-  }
-  body.stop-soon #brew-gauge::after { animation:stop-pulse .66s ease-in-out infinite; }
-  body.stop-now #brew-gauge::after { opacity:1; }
-  @keyframes stop-pulse { 0%,100% { opacity:.15; } 50% { opacity:.95; } }
-  @media (prefers-reduced-motion: reduce) {
-    body.stop-soon #brew-gauge::after { animation:none; opacity:.9; }
-  }
+  /* The stop cue flashes the dial's own bands amber as the cut comes up — see
+     .g-zone under body.stop-soon/.stop-now in app.css. Drawn on the dial's SVG,
+     so it is the dial's exact half-ring shape rather than a glow around this
+     wide box, which rendered as a panel-sized ellipse. */
   .pour-nums { flex:1 1 42%; display:grid; gap:6px; align-content:center;
     grid-template-columns:1fr; min-width:0; }
   .pn { display:flex; align-items:baseline; gap:8px; justify-content:space-between;

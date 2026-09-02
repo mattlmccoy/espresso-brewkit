@@ -1665,6 +1665,36 @@ try {
   t('phone: and the flash clears when the shot ends',
     phoneStop.done === false, `still flashing: ${phoneStop.done}`);
 
+  // HOW THE STOP IS DRAWN, not just when. The first cut cue put a glow around
+  // the dial's container box and, on the phone, knocked the dial out of its
+  // absolute overlay so it collapsed to a nub at the top of the tile. The cue is
+  // now the dial's own bands going amber — its exact shape — with the number lit
+  // at the cut, and the dial stays the overlay it was.
+  const flashPaint = await page.evaluate(async () => {
+    const f = { k: 'f', method: 'espresso', dose: 18, doseSet: true, lag: 1,
+      st: 'extracting', step: 'brew', phase: 'fill', target: 36, tol: 1.5, curve: [] };
+    const zone = () => document.querySelector('#gauge .g-zone');
+    const num = () => document.querySelector('#gauge .g-n');
+    window.__view.paint({ ...f, w: 15, q: 2 });               // mid-shot, no warning
+    const pos = getComputedStyle(document.getElementById('gauge')).position;
+    const normalBand = getComputedStyle(zone()).stroke;
+    const normalNum = getComputedStyle(num()).color;
+    window.__view.paint({ ...f, w: 34.5, q: 2 });             // past the stop weight → due
+    const due = document.body.classList.contains('stop-now');
+    // The bands cross to the stop colour on the dial's own slow transition, so
+    // let it settle before reading rather than catching it still on hair.
+    await new Promise((r) => setTimeout(r, 600));
+    const stopBand = getComputedStyle(zone()).stroke;
+    const stopNum = getComputedStyle(num()).color;
+    return { pos, normalBand, normalNum, stopBand, stopNum, due };
+  });
+  t('phone: the dial stays an absolute overlay over the number, not pushed into flow',
+    flashPaint.pos === 'absolute', `#gauge position ${flashPaint.pos}`);
+  t('phone: the stop recolours the dial’s own bands and number rather than glowing a box',
+    flashPaint.due && flashPaint.stopBand !== flashPaint.normalBand
+    && flashPaint.stopNum !== flashPaint.normalNum,
+    `band ${flashPaint.normalBand}→${flashPaint.stopBand}, number ${flashPaint.normalNum}→${flashPaint.stopNum}`);
+
   // THE CAPTURE, ON THE DEVICE IN YOUR HAND. The laptop counts a settling weight
   // down and offers a button to take it now; across the room the iPad showed
   // neither, so a grind advanced with no warning and no way back. The phone now
