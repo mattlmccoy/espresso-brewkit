@@ -221,22 +221,10 @@
   .cut-in { display:block; font:800 .5em/1 var(--sans); font-variant-numeric:tabular-nums;
     opacity:.7; margin-top:2px; }
   .strip .c.is-due .cut-in { opacity:1; color:var(--accent); }
-  /* FLASH THE DIAL. From across the room a single cell going accent is too
-     quiet to catch the stop, so the instrument itself pulses as it comes up and
-     holds solid at the moment to cut. A ring around the dial rather than a
-     repaint of it: theme-agnostic, and it reads at a glance. */
-  #gauge { position:relative; }
-  #gauge::after {
-    content:''; position:absolute; inset:-1.5%; border-radius:50%;
-    box-shadow:0 0 0 4px var(--accent), 0 0 18px 3px var(--accent);
-    opacity:0; pointer-events:none; transition:opacity .12s;
-  }
-  body.stop-soon #gauge::after { animation:stop-pulse .66s ease-in-out infinite; }
-  body.stop-now #gauge::after { opacity:1; }
-  @keyframes stop-pulse { 0%,100% { opacity:.15; } 50% { opacity:.95; } }
-  @media (prefers-reduced-motion: reduce) {
-    body.stop-soon #gauge::after { animation:none; opacity:.9; }
-  }
+  /* The stop cue flashes the dial's own bands amber — see .g-zone under
+     body.stop-soon/.stop-now in app.css. It is drawn on the dial's SVG so it is
+     the dial's exact shape here and on the laptop, rather than a glow around
+     this box, which on a phone-shaped container was a fuzzy blob. */
   .head { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }
   .head .who { font:700 13px/1.2 var(--sans); }
   .plot { flex:2 1 0; border:var(--bw) solid var(--ink); background:var(--panel);
