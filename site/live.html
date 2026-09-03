@@ -26,6 +26,13 @@
   .state-strip.stop { background:var(--fit); color:#fff; }
   .state-strip > span { display:block; }
   .state-strip.swap > span { animation:stateswap var(--t-slow) var(--ease-out); }
+  /* Always there, never shouting: a quiet link-weight control on the right,
+     under the status it undoes. Grows a warm edge on hover so that in the moment
+     you are hunting for it, it is the thing that answers. */
+  .reset-row { display:flex; justify-content:flex-end; margin:6px 0 0; }
+  .reset-btn { box-shadow:none; padding:5px 12px; font-size:11.5px;
+    letter-spacing:.02em; color:var(--ink-dim); }
+  .reset-btn:hover { color:var(--fit); border-color:var(--fit); }
   @keyframes stateswap { from { opacity:0; transform:translateY(-9px); } }
   /* "Stop now" is the only instruction here with a deadline, so it is the only
      thing on the page allowed to keep moving until it is obeyed. */
@@ -694,6 +701,19 @@
         </div>
 
         <div class="state-strip" id="state">Idle</div>
+
+        <!-- THE ESCAPE HATCH, WHERE IT CAN ALWAYS BE FOUND.
+             When a step captures wrong, or a shot starts off the grind, or the
+             session just gets into a state that makes no sense, this clears
+             everything back to the start of the flow — the draft, the timer, the
+             curve, the step — without touching the scale or the phone, which are
+             the session and not the shot. The same reset has always lived in the
+             Manual controls fold, but folded away and pro-only is exactly where
+             you cannot find it in the moment you need it, which used to leave
+             reloading the tab as the only way out. -->
+        <div class="reset-row">
+          <button class="ghost reset-btn" id="reset-live" type="button">Start over</button>
+        </div>
 
         <p class="hint" id="step-hint"></p>
         <p class="hint tap-hint" id="gesture-hint"></p>
@@ -4156,6 +4176,17 @@ function resetShot(why = 'Session reset.') {
 }
 
 $('discard').addEventListener('click', () => resetShot());
+
+// The always-visible Start over. The same full reset, but where it can be
+// found without opening a fold. A stray tap should not throw away a shot that
+// is actually pouring, so that is the one case it stops to ask; any other time
+// — a wedged step, a brew that started wrong, a session that makes no sense —
+// there is nothing to lose by clearing it, so it just does.
+$('reset-live').addEventListener('click', () => {
+  const pouring = brew.state === BREW.EXTRACTING || brew.state === BREW.DRIPPING;
+  if (pouring && !window.confirm('A shot is pouring. Start over and throw it away?')) return;
+  resetShot('Cleared — back to the start.');
+});
 
 /**
  * The shot as a row, from whatever the session and the form currently hold.

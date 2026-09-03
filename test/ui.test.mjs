@@ -5442,6 +5442,37 @@ try {
     t('live: and the curve fills the width it was given',
       shape.chartFills && shape.chartH >= 200,
       `chart ${shape.chartH}px tall, fills width ${shape.chartFills}`);
+
+    // THE ESCAPE HATCH. When a session gets wedged — a step captured wrong, a
+    // brew that started off the grind — Start over clears it back to the
+    // beginning without touching the scale. It is a visible button now, not
+    // folded away pro-only, which is where it was when a broken shot left
+    // reloading the tab as the only way out. Reset from mid-pour, the hardest
+    // state to be stuck in.
+    lap.on('dialog', (d) => d.accept().catch(() => {}));
+    const beforeReset = await lap.evaluate(() => ({
+      visible: !!document.getElementById('reset-live')
+        && document.getElementById('reset-live').offsetParent !== null,
+      state: window.__brew.state, points: window.__brew.curve.length, step: window.__sess.step,
+    }));
+    await lap.evaluate(() => document.getElementById('reset-live').click());
+    await lap.waitForTimeout(50);
+    const afterReset = await lap.evaluate(() => ({
+      state: window.__brew.state, points: window.__brew.curve.length,
+      step: window.__sess.step, weight: document.getElementById('o-w').textContent,
+    }));
+    t('live: Start over is a visible button, not folded away in the manual controls',
+      beforeReset.visible, `visible: ${beforeReset.visible}`);
+    // The weight readout is deliberately NOT asserted: the scale is still
+    // connected and reads whatever is on it, so the live loop repaints o-w from
+    // the platform right after the reset zeroes it — which is correct, not a
+    // leftover. What reset guarantees is the shot state: machine idle, no curve,
+    // step back to the start.
+    t('live: and it clears a wedged session — brew, curve and step — back to the start',
+      afterReset.state === 'idle' && afterReset.points === 0
+        && (afterReset.step === 'dose' || afterReset.step === 'setup'),
+      `was ${beforeReset.state}/${beforeReset.points}pts/${beforeReset.step}`
+        + ` → ${afterReset.state}/${afterReset.points}pts/${afterReset.step} (o-w ${afterReset.weight})`);
     await lap.close();
   }
 
