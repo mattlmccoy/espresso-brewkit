@@ -481,24 +481,29 @@ body.browsing { overflow:hidden; }
   .g-now, .g-zone, .g-label { transition:none; }
 }
 
-/* THE STOP, ON THE INSTRUMENT ITSELF.
-   The first cut cue put a glow around the dial's container box, which is a wide
-   ellipse on the laptop and a collapsed nub on the phone, and blue — the colour
-   the dial already wears. This is the dial's own bands instead: the same arcs
-   the dial is drawn from, so it is exactly the dial's shape on every screen, in
-   --stop rather than the accent. It pulses as the cut comes up (stop-soon) and
-   holds solid with the number lit at the moment to cut (stop-now). Both classes
-   are set on <body> by Live and the phone from the one cutPoint, so the two
-   screens say "now" the same way. */
-body.stop-soon .gauge .g-zone,
-body.stop-now  .gauge .g-zone { stroke:var(--stop); }
-body.stop-soon .gauge .g-zone { animation:stop-ring .7s ease-in-out infinite; }
-body.stop-now  .gauge .g-zone { stroke-opacity:1; }
+/* THE STOP, ON THE INSTRUMENT ITSELF — added to what the dial says, never
+   replacing it. The first cut cue put a glow around the dial's container box,
+   which is a wide ellipse on the laptop and a collapsed nub on the phone, and
+   blue, the colour the dial already wears. This is the dial's own bands instead:
+   the same arcs the dial is drawn from, so it is exactly the dial's shape on
+   every screen, in --stop rather than the accent.
+   BUT NOT THE BAND YOU ARE IN. The current drink's band stays --accent, because
+   that blue is how the dial tells you which drink you are pouring, and washing
+   every band to amber threw that reading away just when you are watching it. So
+   the flash is the *other* bands — which leaves the one you are in the single
+   blue arc among them, if anything easier to find. It pulses as the cut comes up
+   (stop-soon) and holds solid with the number lit at the moment to cut
+   (stop-now). Both classes are set on <body> by Live and the phone from the one
+   cutPoint, so the two screens say "now" the same way. */
+body.stop-soon .gauge .g-zone:not(.here),
+body.stop-now  .gauge .g-zone:not(.here) { stroke:var(--stop); }
+body.stop-soon .gauge .g-zone:not(.here) { animation:stop-ring .7s ease-in-out infinite; }
+body.stop-now  .gauge .g-zone:not(.here) { stroke-opacity:1; }
 body.stop-now  .gauge .g-now  { stroke:var(--stop); opacity:.9; }
 body.stop-now  .gauge .g-n    { color:var(--stop); }
 @keyframes stop-ring { 0%,100% { stroke-opacity:.35; } 50% { stroke-opacity:1; } }
 @media (prefers-reduced-motion: reduce) {
-  body.stop-soon .gauge .g-zone { animation:none; stroke-opacity:1; }
+  body.stop-soon .gauge .g-zone:not(.here) { animation:none; stroke-opacity:1; }
 }
 }
 }

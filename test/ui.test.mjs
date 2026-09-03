@@ -1668,32 +1668,39 @@ try {
   // HOW THE STOP IS DRAWN, not just when. The first cut cue put a glow around
   // the dial's container box and, on the phone, knocked the dial out of its
   // absolute overlay so it collapsed to a nub at the top of the tile. The cue is
-  // now the dial's own bands going amber — its exact shape — with the number lit
-  // at the cut, and the dial stays the overlay it was.
+  // now the dial's own bands going amber, its exact shape, with the number lit at
+  // the cut — but NOT the band you are in: that one stays --accent, because the
+  // blue band is how the dial says which drink you are pouring, and washing every
+  // band amber threw that reading away. So the stop leaves the current band blue
+  // and flashes the others around it.
   const flashPaint = await page.evaluate(async () => {
     const f = { k: 'f', method: 'espresso', dose: 18, doseSet: true, lag: 1,
       st: 'extracting', step: 'brew', phase: 'fill', target: 36, tol: 1.5, curve: [] };
-    const zone = () => document.querySelector('#gauge .g-zone');
     const num = () => document.querySelector('#gauge .g-n');
-    window.__view.paint({ ...f, w: 15, q: 2 });               // mid-shot, no warning
+    window.__view.paint({ ...f, w: 20, q: 2 });               // mid-shot, no warning
     const pos = getComputedStyle(document.getElementById('gauge')).position;
-    const normalBand = getComputedStyle(zone()).stroke;
     const normalNum = getComputedStyle(num()).color;
     window.__view.paint({ ...f, w: 34.5, q: 2 });             // past the stop weight → due
     const due = document.body.classList.contains('stop-now');
     // The bands cross to the stop colour on the dial's own slow transition, so
-    // let it settle before reading rather than catching it still on hair.
+    // let it settle before reading rather than catching it mid-fade.
     await new Promise((r) => setTimeout(r, 600));
-    const stopBand = getComputedStyle(zone()).stroke;
-    const stopNum = getComputedStyle(num()).color;
-    return { pos, normalBand, normalNum, stopBand, stopNum, due };
+    const here = document.querySelector('#gauge .g-zone.here');
+    const other = document.querySelector('#gauge .g-zone:not(.here)');
+    return { pos, normalNum, due,
+      hereBand: here ? getComputedStyle(here).stroke : null,
+      otherBand: other ? getComputedStyle(other).stroke : null,
+      stopNum: getComputedStyle(num()).color };
   });
   t('phone: the dial stays an absolute overlay over the number, not pushed into flow',
     flashPaint.pos === 'absolute', `#gauge position ${flashPaint.pos}`);
-  t('phone: the stop recolours the dial’s own bands and number rather than glowing a box',
-    flashPaint.due && flashPaint.stopBand !== flashPaint.normalBand
+  t('phone: the stop flashes the dial’s bands and lights the number, not a glowing box',
+    flashPaint.due && flashPaint.otherBand === flashPaint.stopNum
     && flashPaint.stopNum !== flashPaint.normalNum,
-    `band ${flashPaint.normalBand}→${flashPaint.stopBand}, number ${flashPaint.normalNum}→${flashPaint.stopNum}`);
+    `other band ${flashPaint.otherBand}, number ${flashPaint.normalNum}→${flashPaint.stopNum}`);
+  t('phone: but the band you are in stays the accent, so you still read your drink',
+    flashPaint.hereBand && flashPaint.hereBand !== flashPaint.otherBand,
+    `here ${flashPaint.hereBand} vs others ${flashPaint.otherBand}`);
 
   // THE CAPTURE, ON THE DEVICE IN YOUR HAND. The laptop counts a settling weight
   // down and offers a button to take it now; across the room the iPad showed
