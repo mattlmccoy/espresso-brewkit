@@ -1070,6 +1070,46 @@ try {
     tare.armedState === 'awaiting_flow' && tare.armedNet === 0,
     `${tare.armedState} at ${tare.armedNet} g`);
 
+  // A BREW ARMED WHILE THE PORTAFILTER IS STILL ON THE SCALE.
+  // Brew is entered straight from grind, and the portafilter — full of the
+  // grounds just weighed — is still sitting there: heavy and stable, which is
+  // exactly what AWAITING_VESSEL waits for. So the machine tared to the grind
+  // weight and read the grounds settling (or a hand on the basket) as the first
+  // extraction, plotting a "brew" off the grind. A shot is pulled with the
+  // portafilter in the MACHINE and a cup on the scale, so arming over something
+  // now waits for it to come off before it catches a vessel.
+  const clear = await page.evaluate(async () => {
+    const { BrewMachine } = await import('./assets/js/core/filter.js');
+    const b = new BrewMachine();
+    b.arm(470);                       // armed with a 470 g portafilter on the scale
+    let t = 0;
+    const feed = (raw, flow, secs) => {
+      let last;
+      for (let i = 0; i < secs * 5; i++) { t += 0.2; last = b.step(t, raw, flow); }
+      return last;
+    };
+    feed(470, 0, 1.5);                // still grinding, portafilter sits there
+    const g1 = feed(474, 0.6, 1.2);   // a couple of grams in — a flow-like rise
+    const heldOut = { state: g1.state, curve: b.curve.length, needsClear: g1.needsClear };
+    feed(0, 0, 0.8);                  // portafilter lifted off (into the machine)
+    const cleared = b._needClear;
+    feed(80, 0, 1.2);                 // an empty cup set down and settling
+    const tareOnCup = b.tare;
+    let w = 80;                       // the pump runs; the cup fills
+    for (let i = 0; i < 60; i++) { t += 0.2; w += 0.4; b.step(t, w, 2.0); }
+    const brewing = b.snapshot(t, w, 2.0);
+    return { heldOut, cleared, tareOnCup,
+      firstCurve: b.curve.length ? b.curve[0][1] : null,
+      state: brewing.state, net: +brewing.net.toFixed(1) };
+  });
+  t('brew: armed over the portafilter, it waits for the platform to clear rather than plot the grind',
+    clear.heldOut.state === 'awaiting_vessel' && clear.heldOut.curve === 0 && clear.heldOut.needsClear === true,
+    `state ${clear.heldOut.state}, ${clear.heldOut.curve} curve points, needsClear ${clear.heldOut.needsClear}`);
+  t('brew: once the portafilter is off and the cup is down, it tares the cup and catches a clean shot',
+    clear.cleared === false && clear.tareOnCup === 80 && clear.state === 'extracting'
+      && clear.firstCurve !== null && Math.abs(clear.firstCurve) < 5,
+    `tared ${clear.tareOnCup} g, curve starts at ${clear.firstCurve} g, state ${clear.state}, net ${clear.net} g`);
+
   // ---- what you can watch while it pours ----
   const live = await page.evaluate(async () => {
     const { FlowEstimator, BrewMachine } = await import('./assets/js/core/filter.js');

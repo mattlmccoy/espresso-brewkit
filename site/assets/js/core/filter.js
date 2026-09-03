@@ -228,6 +228,9 @@ export class BrewMachine {
     this._recent = [];
     this._lastRaw = 0;
     this._flowHist = [];
+    // Whether the platform must be cleared before a brew vessel is accepted —
+    // set by arm() when a portafilter is still sitting on it from the grind.
+    this._needClear = false;
   }
 
   /**
@@ -253,7 +256,27 @@ export class BrewMachine {
     return sxx > 1e-9 ? sxy / sxx : NaN;
   }
 
-  arm() { this.reset(); this.state = BREW.AWAITING_VESSEL; }
+  /**
+   * Get ready to catch a shot: await the vessel, tare it, time itself.
+   *
+   * @param raw the weight on the platform right now, if known.
+   *
+   * WHY raw MATTERS. Brew is entered straight from grind, and at that moment the
+   * portafilter — full of the grounds you just weighed — is still on the scale.
+   * It is heavy and it is stable, which is exactly what AWAITING_VESSEL is
+   * looking for, so the machine tared to the grind weight and waited for flow;
+   * the grounds settling, or your hand nudging the basket, then read as the
+   * first extraction and a "brew" got plotted off the grind. But you cannot pull
+   * a shot with the portafilter on the scale — it goes into the machine, and a
+   * CUP takes its place. So when something is already sitting here, wait for the
+   * platform to clear before accepting a vessel. An already-empty platform (a
+   * dose weighed on the grinder, say) has nothing to wait for.
+   */
+  arm(raw = 0) {
+    this.reset();
+    this.state = BREW.AWAITING_VESSEL;
+    this._needClear = raw > this.o.vesselMin;
+  }
 
   /** Force the timer to start now, whatever the machine thinks. */
   startNow(t, raw) {
@@ -322,6 +345,13 @@ export class BrewMachine {
 
     switch (this.state) {
       case BREW.AWAITING_VESSEL:
+        // The portafilter from the grind is still on the platform. Nothing lands
+        // as the brew vessel until it comes off — then the cup that follows is
+        // caught cleanly, tared from an empty platform rather than from a puck.
+        if (this._needClear) {
+          if (raw < this.o.vesselMin) this._needClear = false;
+          break;
+        }
         if (raw > this.o.vesselMin && this._stableFor(t, raw, this.o.vesselStable)) {
           this.tare = raw;
           this.state = BREW.AWAITING_FLOW;
@@ -363,7 +393,13 @@ export class BrewMachine {
       && (this.state === BREW.EXTRACTING || this.state === BREW.DRIPPING);
     return {
       state: this.state,
-      label: BREW_LABEL[this.state],
+      // While the platform still has to clear, say so rather than "Place your
+      // cup" over a portafilter that is already on it — the instruction is to
+      // take that off first.
+      label: this.state === BREW.AWAITING_VESSEL && this._needClear
+        ? 'Lift the portafilter off, then set your cup down'
+        : BREW_LABEL[this.state],
+      needsClear: this.state === BREW.AWAITING_VESSEL && this._needClear,
       net: raw - this.tare,
       elapsed: this.t0 === null ? 0 : (this.state === BREW.COMPLETE
         ? (this.curve.length ? this.curve.at(-1)[0] : 0) : t - this.t0),

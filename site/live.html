@@ -2983,7 +2983,7 @@ function paintSession() {
   if (s.step !== lastStep) {
     lastStep = s.step;
     // Entering brew arms the machine so the cup landing tares and times itself.
-    if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(); }
+    if (s.step === 'brew' && brew.state === BREW.IDLE) { est.reset(lastRaw); brew.arm(lastRaw); }
     // A LINE ABOUT THE LAST STEP IS WRONG ON THIS ONE. `pipSaying` was only
     // ever cleared between shots, so "0.32 g/s — close to choking" was still on
     // screen, and still being sent to the phone, while you stood at the
@@ -3042,7 +3042,7 @@ $('stepper').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-step]');
   if (!b) return;
   sess.goto(b.dataset.step);
-  if (b.dataset.step === 'brew') { est.reset(lastRaw); brew.arm(); }
+  if (b.dataset.step === 'brew') { est.reset(lastRaw); brew.arm(lastRaw); }
   paintSession();
 });
 
@@ -3586,7 +3586,7 @@ $('tare').addEventListener('click', () => {
   $('scale-msg').textContent = `Tared at ${fmt(lastRaw, 1)} g.`;
 });
 $('arm').addEventListener('click', () => {
-  est.reset(lastRaw); brew.arm(); sess.goto('brew');
+  est.reset(lastRaw); brew.arm(lastRaw); sess.goto('brew');
   pipSaid = new Set();
   pipSaying = null;
   draft.time_s = null; draft.yield_g = null; draft.curve = []; draft.metrics = {};
