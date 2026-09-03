@@ -5463,12 +5463,16 @@ try {
     }));
     t('live: Start over is a visible button, not folded away in the manual controls',
       beforeReset.visible, `visible: ${beforeReset.visible}`);
-    t('live: and it clears a wedged session — brew, curve, timer and step — back to the start',
+    // The weight readout is deliberately NOT asserted: the scale is still
+    // connected and reads whatever is on it, so the live loop repaints o-w from
+    // the platform right after the reset zeroes it — which is correct, not a
+    // leftover. What reset guarantees is the shot state: machine idle, no curve,
+    // step back to the start.
+    t('live: and it clears a wedged session — brew, curve and step — back to the start',
       afterReset.state === 'idle' && afterReset.points === 0
-        && (afterReset.step === 'dose' || afterReset.step === 'setup')
-        && afterReset.weight === '0.0',
+        && (afterReset.step === 'dose' || afterReset.step === 'setup'),
       `was ${beforeReset.state}/${beforeReset.points}pts/${beforeReset.step}`
-        + ` → ${afterReset.state}/${afterReset.points}pts/${afterReset.step}, w ${afterReset.weight}`);
+        + ` → ${afterReset.state}/${afterReset.points}pts/${afterReset.step} (o-w ${afterReset.weight})`);
     await lap.close();
   }
 
